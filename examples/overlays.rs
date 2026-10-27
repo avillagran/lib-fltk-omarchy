@@ -12,7 +12,7 @@ fn main() {
     let shots = std::env::args().skip_while(|a| a != "--snapshot").nth(1);
     let app = App::new("dev.omarchy.fltk.overlays");
     let mut win = AppWindow::new("Overlays", 560, 640);
-    let mut body = win.body();
+    let body = win.body();
 
     let output = State::new(1usize);
     let mut r = layout::row();

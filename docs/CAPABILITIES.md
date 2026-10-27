@@ -1,0 +1,28 @@
+# Capability matrix vs typical QML apps (0.0.1)
+
+**Implemented** = in the code and covered by `tests/ui.rs`, unit tests or the
+real-window scenario. **Partial** = usable with the stated gaps.
+**Planned** = intended, not in the code. **Unsupported** = not available.
+lib-fltk-omarchy does not claim QML equivalence.
+
+| Area | QML typical | lib-fltk-omarchy 0.0.1 | Status |
+|---|---|---|---|
+| Omarchy look | omarchy-shell `Ui/` kit | Button, ActionButton, ButtonGroup, TextField, NumberField, ToggleSwitch, Toggle, Slider, Hero, section header, Separator, Row, Dropdown, Menu, ConfirmDialog, notification cards, tooltips — same tokens as `Style.qml`/`Color.qml` | Partial: SearchableDropdown, MultiSelect, PopupCard anchored to a bar, KeyboardPanel cursor model are planned |
+| Theme | — | colors.toml + shell.toml (theme + user override), Hyprland rounding/gaps, `monospace` font via fontconfig, live reload via inotify | Implemented (tested with a fake state dir and in a real window) |
+| Layouts | Row/Column/Grid/anchors | fltk-rs `Flex`/`Group`/`Grid` + `layout::{column,row,section,fit,close_fitted}` with Omarchy spacing | Implemented (anchors: use fltk positioning) |
+| Reactive state | property bindings | `State<T>`, `map`, `combine`, `watch`/`subscribe`, bound components, two-way inputs | Implemented |
+| Controls | Qt Quick Controls | the Omarchy set above plus every fltk-rs widget | Partial: no date/color pickers, no rich text |
+| Virtualized lists | ListView/TableView | `List` (count + row closure, selection, keyboard, wheel, thumb) | Partial: single column + detail; tables/trees via fltk-rs `Table`/`Tree` without Omarchy styling yet |
+| Keyboard / focus | focus chain, Shortcut | fltk focus navigation, `AppWindow::shortcut("Ctrl+Q")`, `Button::shortcut`, Omarchy keys in Menu/Dropdown/List/Dialog | Partial: native key delivery not exercised with a real input device in tests (programmatic) |
+| Accessibility | AT-SPI | — | Unsupported (FLTK has no AT-SPI bridge) |
+| Menus / dialogs | Menu, Dialog | Omarchy Menu (filter, fold), ConfirmDialog, Dropdown popup; fltk-rs `dialog` and native file chooser | Implemented / Partial (file chooser not themed) |
+| Drawing | Canvas/Shape | fltk-rs `draw` + `paint::{surface, control, alpha_fill, text, glyph}` | Implemented |
+| Animations | Behavior/NumberAnimation | — (Omarchy color transitions are drawn instantly) | Planned (`animate()` timer helper) |
+| Images | Image | fltk-rs images (PNG/JPEG/SVG…) | Implemented by fltk-rs |
+| Clipboard / DnD | Clipboard, DropArea | fltk-rs `app::copy/paste`, DnD events | Implemented by fltk-rs, no Omarchy helpers |
+| DPI | automatic | FLTK per-screen scaling on Wayland; spacing and fonts scale with `[font] base-size` like the shell | Implemented |
+| Localization | qsTr | UTF-8 everywhere | Planned |
+| Async tasks | WorkerScript | `task::Task` (bounded pool, cooperative cancel, coalesced progress, UI-thread callbacks), `task::post` | Implemented |
+| Window modes | Window flags | `Mode::Normal` / `Mode::Floating` (float at map, header drag, corner resize) via Hyprland IPC on own windows only | Implemented (drag/resize with a real pointer not yet validated) |
+| Headless rendering | grabToImage | `AppWindow::snapshot(path)` PNG without showing | Implemented |
+| GPU effects | ShaderEffect | — | Unsupported by design (software rendering) |

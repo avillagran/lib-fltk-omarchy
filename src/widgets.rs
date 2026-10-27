@@ -802,6 +802,13 @@ impl Label {
 
     pub fn set_text(&mut self, text: &str) {
         self.data.borrow_mut().text = text.into();
+        let d = self.data.borrow().clone();
+        let natural = theme::with(|t| {
+            let px = d.style.px(t);
+            let s = if d.uppercase { d.text.to_uppercase() } else { d.text.clone() };
+            (measure_offscreen(&s, px) + 2, (px as f64 * 1.5).round() as i32)
+        });
+        crate::layout::refit(&self.inner, natural);
         self.inner.redraw();
     }
 

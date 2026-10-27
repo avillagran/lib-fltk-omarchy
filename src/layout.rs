@@ -4,6 +4,7 @@
 //! child to that size along the flex axis, everything else stretches.
 //!
 //! ```no_run
+//! use fltk::prelude::*;
 //! use fltk_omarchy::{layout::*, widgets::*};
 //! let mut row = row();                    // gap = control-gap (8), height = control-height
 //! let ok = Button::new("OK").primary();
@@ -63,6 +64,25 @@ pub fn remember<W: WidgetExt>(w: &W) {
 
 fn natural_of<W: WidgetExt>(w: &W) -> Option<(i32, i32)> {
     NATURAL.with(|n| n.borrow().get(&key(w)).copied())
+}
+
+/// Updates the natural size of a fitted widget whose content changed and
+/// re-fixes it in its parent flex. No-op for widgets that were not fitted.
+pub fn refit<W: WidgetExt>(w: &W, natural: (i32, i32)) {
+    let fitted = NATURAL.with(|n| {
+        let mut n = n.borrow_mut();
+        n.get_mut(&key(w)).map(|v| *v = natural).is_some()
+    });
+    if !fitted {
+        return;
+    }
+    if let Some(parent) = w.parent() {
+        if let Some(mut p) = Flex::from_dyn_widget(&parent) {
+            p.fixed(w, if is_column(&p) { natural.1 } else { natural.0 });
+            p.layout();
+            p.redraw();
+        }
+    }
 }
 
 fn is_column(f: &Flex) -> bool {

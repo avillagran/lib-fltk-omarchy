@@ -27,3 +27,11 @@ strip = true
 
 [profile.dev.package."*"]
 opt-level = 1
+
+[[test]]
+name = "ui"
+harness = false
+
+[profile.dev]
+incremental = false
+debug = "line-tables-only"
