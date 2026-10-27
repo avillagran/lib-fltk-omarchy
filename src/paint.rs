@@ -136,3 +136,16 @@ pub fn escape(s: &str) -> String {
 pub fn hairline(x: i32, y: i32, w: i32, fg: Rgb, under: Rgb, strength: f64) {
     fill(x, y, w, 1, 0, fg.over(under, strength));
 }
+
+/// Alpha-blended rectangle over existing pixels (scrims, translucent cards).
+pub fn alpha_fill(x: i32, y: i32, w: i32, h: i32, color: Rgb, alpha: f64) {
+    use fltk::prelude::ImageExt;
+    if w <= 0 || h <= 0 {
+        return;
+    }
+    let a = (alpha.clamp(0.0, 1.0) * 255.0).round() as u8;
+    if let Ok(mut img) = fltk::image::RgbImage::new(&[color.r(), color.g(), color.b(), a], 1, 1, fltk::enums::ColorDepth::Rgba8) {
+        img.scale(w, h, false, true);
+        img.draw(x, y, w, h);
+    }
+}
