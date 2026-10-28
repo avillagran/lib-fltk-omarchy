@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.0.3 — 2026-10-28
+
+For Files (issues #1, #3, #4, #5):
+- **PopupMenu fits the window** (#1). A menu taller than the window is
+  clamped to it and scrolls with the wheel and with Up/Down, PageUp/PageDown
+  and Home/End, keeping the active entry visible. It opens below the anchor,
+  or above it when there is more room. Wide labels end in "…" and keep
+  their shortcut.
+- **PopupMenu lifecycle** (#4). `open`/`open_at` return a `PopupHandle`:
+  - `.on_dismiss(|Dismiss|)` reports `Picked(i)`, `Escape`, `ClickOutside`
+    or `Closed`.
+  - `.close()` closes it without picking.
+  - `.is_open()`, `.dismissed()` and `.rect()` report its state.
+
+  Focus still comes back to the control that had it. If the window is
+  deleted with the menu open, no callback runs. **Breaking:** a closure that
+  returned the old `()` from `PopupMenu::open(..)` now needs a `;`.
+- **Keyboard panels** (#3, `panel::KeyboardPanel`, `focus::host`). One
+  canvas can hold several Tab stops, each with a virtual cursor and a
+  selection kept by stable IDs:
+  - List and grid navigation.
+  - Ctrl (cursor only), Shift (range) and Ctrl+Shift (add a range).
+  - Ctrl+Space and Ctrl+A; select a range, invert, clear.
+  - `on_activate`, `on_edge`, `on_key`, `on_change`.
+
+  The focused panel sees keys first. Keys it does not use (an app's own
+  Ctrl+Tab) are handled once.
+- **Validated theme reload** (#5). `Theme::try_load()` and a strict TOML
+  parser (`toml::parse_strict`). `reload()` keeps the last valid theme when a
+  file is cut, malformed, missing required colors or mid-rename, and
+  `theme::last_error()` says why. The built-in fallback still loads when
+  Omarchy is not installed.
+- `focus::click_at(&win, x, y)` sends a click through fltk's path (tests).
+
+Fix: the natural-size registry of `fit` was keyed by widget address. A new
+widget at a reused address could inherit a deleted widget's size. Entries
+are now checked against the widget's deletion tracker.
+
 ## 0.0.2 — 2026-10-28
 
 Keyboard first:

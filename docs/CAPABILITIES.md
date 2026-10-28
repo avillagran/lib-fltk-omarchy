@@ -1,19 +1,19 @@
-# Capability matrix vs typical QML apps (0.0.2)
+# Capability matrix vs typical QML apps (0.0.3)
 
 **Implemented** = in the code and covered by `tests/ui.rs`, unit tests or the
 real-window scenario. **Partial** = usable with the stated gaps.
 **Planned** = intended, not in the code. **Unsupported** = not available.
 lib-fltk-omarchy does not claim QML equivalence.
 
-| Area | QML typical | lib-fltk-omarchy 0.0.2 | Status |
+| Area | QML typical | lib-fltk-omarchy 0.0.3 | Status |
 |---|---|---|---|
-| Omarchy look | omarchy-shell `Ui/` kit | Button, ActionButton, ButtonGroup, TextField, NumberField, ToggleSwitch, Toggle, Slider, Hero, section header, Separator, Row, Dropdown, Menu, ConfirmDialog, notification cards, tooltips — same tokens as `Style.qml`/`Color.qml` plus SearchableDropdown, PopupMenu (header/context menus), TabBar, ShortcutHelp, OperationToast | Partial: MultiSelect, PopupCard anchored to a bar, KeyboardPanel cursor model are planned |
-| Theme | — | colors.toml + shell.toml (theme + user override), Hyprland rounding/gaps, `monospace` font via fontconfig, live reload via inotify | Implemented (tested with a fake state dir and in a real window) |
+| Omarchy look | omarchy-shell `Ui/` kit | Button, ActionButton, ButtonGroup, TextField, NumberField, ToggleSwitch, Toggle, Slider, Hero, section header, Separator, Row, Dropdown, Menu, ConfirmDialog, notification cards, tooltips — same tokens as `Style.qml`/`Color.qml` plus SearchableDropdown, PopupMenu (header/context menus, clamped and scrolling, dismissal handle), TabBar, ShortcutHelp, OperationToast | Partial: MultiSelect widget, PopupCard anchored to a bar are planned (the KeyboardPanel model is implemented) |
+| Theme | — | colors.toml + shell.toml (theme + user override), Hyprland rounding/gaps, `monospace` font via fontconfig, live reload via inotify; strict validation on reload keeps the last valid theme (`theme::last_error`) | Implemented (tested with a fake state dir and in a real window) |
 | Layouts | Row/Column/Grid/anchors | fltk-rs `Flex`/`Group`/`Grid` + `layout::{column,row,section,fit,close_fitted}` with Omarchy spacing | Implemented (anchors: use fltk positioning) |
 | Reactive state | property bindings | `State<T>`, `map`, `combine`, `watch`/`subscribe`, bound components, two-way inputs | Implemented |
 | Controls | Qt Quick Controls | the Omarchy set above plus every fltk-rs widget | Partial: no date/color pickers, no rich text |
 | Virtualized lists | ListView/TableView | `List` (count + row closure, selection, keyboard, wheel, thumb) | Partial: single column + detail; tables/trees via fltk-rs `Table`/`Tree` without Omarchy styling yet |
-| Keyboard / focus | focus chain, Shortcut | keyboard-first router: Tab order over the whole window, arrows only inside the focused control (`focus::scope` for groups), focus returns after menus/dialogs, every component keyboard-usable, focus ring only in keyboard mode, `AppWindow::shortcut`, `Button::shortcut`, `focus::press` for tests ([KEYBOARD.md](KEYBOARD.md)) | Implemented (driven key by key in `tests/ui.rs`); key delivery from a physical keyboard through the compositor not validated |
+| Keyboard / focus | focus chain, Shortcut | keyboard-first router: Tab order over the whole window, arrows only inside the focused control (`focus::scope` for groups), focus returns after menus/dialogs, every component keyboard-usable, keyboard panels (several Tab stops inside one canvas, cursor and multi-selection by stable IDs, list and grid), focus ring only in keyboard mode, `AppWindow::shortcut`, `Button::shortcut`, `focus::press` for tests ([KEYBOARD.md](KEYBOARD.md)) | Implemented (driven key by key in `tests/ui.rs`); key delivery from a physical keyboard through the compositor not validated |
 | Accessibility | AT-SPI | — | Unsupported (FLTK has no AT-SPI bridge) |
 | Menus / dialogs | Menu, Dialog | Omarchy Menu (filter, fold), ConfirmDialog, Dropdown popup; fltk-rs `dialog` and native file chooser | Implemented / Partial (file chooser not themed) |
 | Drawing | Canvas/Shape | fltk-rs `draw` + `paint::{surface, control, alpha_fill, text, glyph}` | Implemented |

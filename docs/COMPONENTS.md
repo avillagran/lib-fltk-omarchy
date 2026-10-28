@@ -1,4 +1,4 @@
-# Components (0.0.2)
+# Components (0.0.3)
 
 Every component is a classic Omarchy control (the omarchy-shell `Ui/`
 kit) drawn with the live theme: colors, fonts, spacing and corner radius
@@ -220,9 +220,35 @@ PopupMenu::open(&*actions_button, vec![
 ```
 
 `PopupMenu::open_at(&*win, x, y, items, f)` opens it at a point (context
-menu). **Keys:** Up/Down or j/k move and skip disabled entries; Enter picks;
-Esc closes; Tab stays in the menu. Focus returns to the button that opened
-it.
+menu).
+
+A menu taller than the window is clamped to it and scrolls (wheel and
+keys) and keeps the active entry visible. It opens below the anchor, or
+above it when there is more room there. A label that is too wide ends in
+"…" and keeps its shortcut.
+
+![popup menu scrolled](components/popup-menu-scroll.png)
+
+```rust
+let items: Vec<PopupItem> = (1..=12).map(|i| PopupItem::new(glyph::FILE, &format!("Action {i}")).shortcut(&format!("Ctrl+{i}"))).collect();
+let menu = PopupMenu::open(&*more, items, |i| println!("picked {i}"))
+    .on_dismiss(|reason| println!("closed: {reason:?}"));   // Picked(i), Escape, ClickOutside, Closed
+// picture: after End
+menu.close();                                              // e.g. the data changed
+```
+
+`open` returns a `PopupHandle`:
+- `.on_dismiss(|reason| ..)` runs once with `Dismiss::Picked(i)`, `Escape`,
+  `ClickOutside` or `Closed`.
+- `.close()` closes the menu without picking.
+- `.is_open()`, `.dismissed()` and `.rect()` report its state.
+
+Dropping the handle leaves the menu open. If the window is deleted with the
+menu open, no callback runs.
+
+**Keys:** Up/Down or j/k move, skip disabled entries and wrap;
+PageUp/PageDown and Home/End jump; Enter picks; Esc closes; Tab stays in
+the menu. Focus returns to the control that had it.
 
 ## Menu (Omarchy menu, type to filter)
 
@@ -330,6 +356,50 @@ More: `set_mode(Mode::Normal | Floating | Fullscreen)`,
 `shortcut("Ctrl+Q", f)`, `set_min_size`, `snapshot(path)`. Header actions
 are buttons: Tab reaches them.
 
+## KeyboardPanel (regions of one canvas)
+
+![keyboard panels](components/keyboard-panels.png)
+
+A file manager draws its views and both panes in one virtualized canvas,
+with no widget per file. A `KeyboardPanel` turns each region of that canvas
+into a real Tab stop, with its own cursor and a selection kept by stable
+IDs:
+
+```rust
+use fltk_omarchy::{focus, panel::{KeyboardPanel, PanelLayout}};
+let left = KeyboardPanel::new("left");
+let right = KeyboardPanel::new("right");                 // .layout(PanelLayout::Grid { columns: 4 }) for a grid
+for p in [&left, &right] {
+    // len, ID at an index, index of an ID: call again after refresh/sort/filter
+    p.set_items(names.len(), |i| 100 + i as u64, |id| id.checked_sub(100).map(|x| x as usize));
+}
+let mut canvas = fltk::widget::Widget::default().with_size(560, 200);
+canvas.handle(|_, ev| matches!(ev, fltk::enums::Event::Focus | fltk::enums::Event::Unfocus));
+canvas.draw(/* rows: p.cursor(), p.is_selected(id); ring when p.show_ring() */);
+body.fit(&canvas);
+focus::host(&canvas, &[&left, &right]);                 // Tab: path → left → right → …
+left.on_activate(|id| println!("open {id}"));
+let r3 = right.clone();
+left.on_edge(move |k| k == fltk::enums::Key::Right && { r3.focus(); true });
+// picture: Tab, Down, Down (left: "src"); Tab, Down, Shift+Down, Shift+Down (right: a range)
+```
+
+**Keys:**
+- Up/Down move the cursor, and Left/Right too in a grid. The selection
+  becomes that item.
+- Ctrl+move moves the cursor only.
+- Shift+move selects the range from the anchor; Ctrl+Shift+move adds the
+  range.
+- PageUp/PageDown and Home/End jump.
+- Ctrl+Space toggles the item; Ctrl+A selects everything.
+- Enter runs `on_activate`.
+
+Keys the panel does not use, such as the app's own Ctrl+Tab, reach the
+host widget and the window shortcuts exactly once. Mouse: call
+`p.click(id, ctrl, shift)` from the canvas handler. Also:
+`select_range`, `invert_selection`, `clear_selection`, `selection()` (in
+display order) and `focus::focused_panel()`.
+
 ## Keyboard focus
 
 ![keyboard: button group](components/keyboard-1-group.png)
@@ -358,7 +428,8 @@ control gets the accent ring. See [KEYBOARD.md](KEYBOARD.md).
 | Dropdown | `overlay::Dropdown` | `new(label, &options, &State<usize>)`, `open()`, `set_options` |
 | SearchableDropdown | `popups::SearchableDropdown` | `new(placeholder, vec![(label, description)], &State<Option<usize>>)`, `open()`, `filter()` |
 | list | `list::List` | `new(&State<usize>, \|i\| ListRow)`, `.bind_selected()`, `.on_select()`, `.on_activate()`, `select(i)` |
-| header / context menus | `popups::PopupMenu` | `open(&anchor, items, f)`, `open_at(&win, x, y, items, f)` |
+| header / context menus | `popups::PopupMenu` | `open(&anchor, items, f)` / `open_at(&win, x, y, items, f)` → `PopupHandle` (`.on_dismiss()`, `.close()`, `.is_open()`, `.rect()`) |
+| keyboard panel | `panel::KeyboardPanel` | `new(name)`, `.layout()`, `set_items(len, id_at, index_of)`, `cursor()`, `selection()`, `click()`, `focus()`, `show_ring()`, `.on_activate()`, `.on_edge()`, `.on_key()`, `.on_change()`; `focus::host(&widget, &[&a, &b])` |
 | menu plugin | `overlay::Menu` | `open(&win, title, items, f)` |
 | ConfirmDialog | `overlay::ConfirmDialog` | `open(&win, message, confirm, destructive, f)` |
 | notifications | `overlay::Notification` | `show(&win, glyph, summary, body, Urgency::..)`, `count()` |

@@ -39,6 +39,9 @@ classic Omarchy look. Import as `fltk_omarchy`.
    `Event::Focus` and draw its ring when `focus::show_ring(w)`. Give every
    action a shortcut (`Button::shortcut`, `AppWindow::shortcut`) and list
    them in the F1 `ShortcutHelp`.
+   A canvas that draws several regions (lists, grid, dual pane) uses
+   `panel::KeyboardPanel` + `focus::host(&canvas, &[&a, &b])`: one Tab stop
+   per region, cursor and selection by stable IDs, no widget per item.
 11. Verify visually: `win.snapshot("shot.png")` renders offscreen without
    showing a window; look at the PNG. Verify keys with
    `focus::press("Tab")`, `press("Down")`, `press("Enter")`… (same path as

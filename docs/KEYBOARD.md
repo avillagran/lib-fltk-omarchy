@@ -1,4 +1,4 @@
-# Keyboard first (0.0.2)
+# Keyboard first (0.0.3)
 
 Every lib-fltk-omarchy app can be used without a mouse, without writing any
 keyboard code. `App::new` installs one keyboard router (`focus::install`)
@@ -29,6 +29,22 @@ and every component follows the same rules.
    full-strength accent border so it cannot be missed.
    `theme::set_focus_ring(FocusRing::Theme)` uses the theme tokens exactly.
 
+## Keyboard panels (one canvas, several Tab stops)
+
+A canvas that draws several regions (a dual pane, a sidebar and a grid)
+registers them as keyboard panels: `focus::host(&canvas, &[&left, &right])`.
+
+- Each panel is a Tab stop, in that order. The router moves between them
+  inside the same widget; the canvas's own handler never sees Tab.
+- While a panel has focus it sees every key first, with any modifiers.
+  Keys it does not use go on as usual (the canvas handler, then window
+  shortcuts), once.
+- A menu or dialog opened from a panel gives focus back to that panel.
+- Calling `focus::host` again replaces the list, e.g. when F9 turns the dual
+  pane back into one list.
+
+Panel keys and the API: [COMPONENTS.md](COMPONENTS.md#keyboardpanel-regions-of-one-canvas).
+
 ## Keys per component
 
 | Component | Keys |
@@ -42,12 +58,13 @@ and every component follows the same rules.
 | List | Up / Down, j / k, PageUp / PageDown, Home / End, Enter |
 | Dropdown | Enter / Space / Down open; Up / Down, j / k; Enter; Esc |
 | SearchableDropdown | Enter / Down open; type to filter; Up / Down; Enter; Esc |
-| PopupMenu | Up / Down, j / k (skips disabled entries); Enter; Esc |
 | Menu | type to filter; Up / Down, PageUp / PageDown; Enter / Right; Backspace, Ctrl+Backspace, Ctrl+U; Esc clears, then closes |
 | ConfirmDialog | Left / Right / Tab; Enter; Esc cancels |
 | ShortcutHelp | Up / Down / PageUp / PageDown scroll; Esc / F1 close |
 | Notification | reached with Tab; Enter / Space / Delete / Esc dismiss |
 | OperationToast | reached with Tab or `toast.focus()`; Left / Right choose; Enter / Space press; Esc leaves |
+| PopupMenu | Up / Down, j / k (skip disabled, wrap), PageUp / PageDown, Home / End; Enter; Esc |
+| KeyboardPanel | Up / Down (Left / Right in a grid), with Ctrl (cursor only), Shift (range), Ctrl+Shift (add range); PageUp / PageDown, Home / End; Ctrl+Space, Ctrl+A; Enter |
 
 ## For app code
 
@@ -74,6 +91,7 @@ A custom widget joins the Tab order when it is visible, active, has
 
 ## Testing without a keyboard
 
+`focus::click_at(&*win, x, y)` sends a left click the same way.
 `focus::press("Tab")`, `press("Shift+Tab")`, `press("Down")`,
 `press("Ctrl+Tab")`, `press("Enter")` or `press("a")` send a key through the
 same path as a real key press. It also works on windows that are never
