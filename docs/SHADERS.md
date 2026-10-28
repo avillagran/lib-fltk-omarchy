@@ -1,4 +1,4 @@
-# Shapes, paints, CPU and GPU shaders (0.0.5)
+# Shapes, paints and shaders on CPU or GPU (0.0.6)
 
 `fltk_omarchy::gfx` draws custom visuals in **software**, on the CPU: no
 GPU, no OpenGL and no extra fltk features. An optional GPU path exists
@@ -87,32 +87,84 @@ let effects = View::new(560, 150).paint(|c, u| {
 });
 ```
 
-## CPU shaders
+## Shaders: write once, the toolkit picks GPU or CPU
 
-A shader is a function of the pixel center, in widget pixels, and the
-uniforms:
+Write the effect once with `gfx::sl`, the portable shader language: Rust
+functions that build the shader. The toolkit runs it on the **GPU**
+(generated GLSL) when the app was built with the `gpu` feature and a GL
+context works. Otherwise it runs on the **CPU** (a row interpreter). The
+app code and the result are the same on both:
 
 ```rust
-use fltk_omarchy::gfx::{self, Color, Uniforms, View};
-// Built-in examples:
-let noise = View::new(130, 110).shader(gfx::shaders::noise()).animate(30);        // fbm noise, theme bg → fg
-let drift = View::new(130, 110).shader(gfx::shaders::gradient()).animate(30);     // bg → accent, drifting
-let glow  = View::new(130, 110).shader(gfx::shaders::accent_glow()).animate(30);  // breathes; follows the pointer
-// Background blur: blobs, the panel area blurred, a translucent card on top.
+use fltk_omarchy::gfx::{self, sl::*, Rate, View};
+// Built-ins (portable):
+let noise = View::new(130, 110).shader(gfx::shaders::noise()).animate(Rate::Display);        // fbm noise, theme bg → fg
+let drift = View::new(130, 110).shader(gfx::shaders::gradient()).animate(Rate::Display);     // bg → accent, drifting
+let glow  = View::new(130, 110).shader(gfx::shaders::accent_glow()).animate(Rate::Display);  // breathes; follows the pointer
+let rings = View::new(130, 110).shader(gfx::shaders::rings()).animate(Rate::Display);
+// Your own:
+let pulse = View::new(200, 200).shader(Shader::new(|p, u| {
+    let d = length(p - u.size() * 0.5) / min(u.size().x(), u.size().y());
+    mix(u.accent(), u.background(), smoothstep(0.0, 0.5 + 0.05 * sin(u.time() * 2.0), d))
+})).animate(Rate::Display);
+```
+
+`sl` in short:
+- **Values:** `F` (float), `V2` (position/size) and `V4` (RGBA), with
+  `+ - * /`. A float works with any of them.
+- **Functions:** `sin cos abs floor fract sqrt exp pow min max clamp mix
+  step smoothstep length distance dot atan2 vec2 rgba`, `.x() .y()`,
+  `.r() .g() .b() .a()`, `.with_alpha(a)`.
+- **Noise:** `hash`, `noise` and `fbm(p, octaves)`. They use an integer
+  hash, so the GPU and the CPU draw the same pattern.
+- **Uniforms (`u`):** `time()`, `size()`, `pointer()` (−1 when outside),
+  the theme colors `background()`, `foreground()`, `accent()`,
+  `urgent()`, and `param(0..4)` (`View::set_params`).
+
+**How the toolkit decides:**
+- **GPU** when the View has a portable shader, no `post`, the app was
+  built with `--features gpu`, and the GL layer started.
+- **CPU** otherwise. `view.active_backend()` says which one is in use and
+  `view.backend_reason()` says why it is not on the GPU.
+- To force one, for a special reason: `.backend(Backend::Cpu | Gpu)`, or
+  for the whole app `gfx::set_backend(..)` or `OMARCHY_FLTK_RENDER=cpu|gpu|auto`.
+
+**Frame rate:**
+- `animate(Rate::Display)` follows the refresh rate of the monitor showing
+  the window: 120 fps on this machine's 120 Hz panel, read from Hyprland
+  and re-checked every 3 s; 60 Hz without Hyprland.
+- On the CPU it is capped at 30 fps by default (`gfx::set_cpu_fps_cap(n)`),
+  because every CPU frame costs CPU time.
+- `animate(30)` asks for a fixed rate.
+
+Measured on the same window, same shader (`noise`, 484×300, 3 runs each,
+`gpu_bench display`; data in `docs/gpu-display-2026-10-28.jsonl`):
+
+| Backend picked | fps | CPU | CPU per frame | PSS |
+|---|---|---|---|---|
+| Auto → GPU (`--features gpu`) | 120.0 (monitor: 120 Hz) | 2.1–2.5 % | 0.17–0.21 ms | 60.1 MB |
+| CPU (forced, or built without `gpu`) | 30.0 (CPU cap) | 60.8–63.2 % | 20.4–21.1 ms | 18.7 MB |
+
+Same picture on both: the GPU read-back matched the CPU evaluation
+exactly at three points. A `paint()` rectangle drawn on top showed through
+the GPU overlay (`docs/gpu-parity-2026-10-28.json`).
+
+On the CPU the `sl` interpreter is slower than a hand-written Rust closure
+(about 21 vs 14 ms per frame for this noise, in different sessions). For
+CPU-only effects `sl` cannot express, use `.cpu_shader(|x, y, u| ..)`,
+which always runs on the CPU. The previous closure built-ins are in
+`gfx::shaders::cpu`.
+
+### Background blur
+
+```rust
 let frosted = View::new(130, 110).shader(gfx::shaders::blobs())
     .post(|c, u| {
         c.blur(15, 25, 100, 60, 10);
         c.fill(&gfx::Path::rounded_rect(15.0, 25.0, 100.0, 60.0, [10.0; 4]), u.background.with_alpha(0.25));
     })
-    .animate(30);
-// Your own:
-let rings = View::new(200, 200).shader(|x: f32, y: f32, u: &Uniforms| {
-    let d = ((x - u.size.0 / 2.0).powi(2) + (y - u.size.1 / 2.0).powi(2)).sqrt();
-    u.background.mix(u.accent, (0.5 + 0.5 * (d * 0.15 - u.time * 3.0).sin()) * 0.6)
-}).animate(30);
+    .animate(Rate::Display);      // post() needs the pixels on the CPU: this View renders on the CPU
 ```
-
-Helpers: `gfx::shaders::{value_noise, fbm, hash2}`.
 
 "Background blur" means blurring what the same View drew: its shader, or
 what `paint` drew before. It cannot blur other widgets, because FLTK gives no
@@ -170,12 +222,12 @@ reaches it, Enter or Space press it, and the focus ring follows the shape.
 
 ## GPU
 
-`gfx::gpu::GpuView` runs a GLSL fragment shader with the same uniforms as
-the CPU shaders. It only exists with the crate feature `gpu`, which is
-**off by default**:
+With the crate feature `gpu`, `View` puts portable shaders on the GPU by
+itself (see above). `gfx::gpu::GpuView` remains for the special case of
+hand-written GLSL. The feature is **off by default**:
 
 ```toml
-lib-fltk-omarchy = { git = "https://github.com/avillagran/lib-fltk-omarchy", tag = "v0.0.5", features = ["gpu"] }
+lib-fltk-omarchy = { git = "https://github.com/avillagran/lib-fltk-omarchy", tag = "v0.0.6", features = ["gpu"] }
 ```
 
 ```rust

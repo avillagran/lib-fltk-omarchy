@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.0.6 — 2026-10-28
+
+One design, the toolkit picks how to paint:
+- **`gfx::sl` portable shaders.** Built once from Rust functions
+  (`Shader::new(|p, u| ..)`). The toolkit runs them as generated GLSL on
+  the GPU or with a row interpreter on the CPU, with the same result: the
+  integer-hash noise matches on both, and a real-window read-back matched
+  the CPU evaluation exactly.
+- **`View` picks the backend.** It uses the GPU when the app is built with
+  `--features gpu`, the shader is portable and the GL layer starts;
+  otherwise the CPU. The GL layer starts once the window is on an output.
+  It falls back to the CPU on a GL error and says why (`backend_reason`).
+  To force one: `.backend(..)`, `gfx::set_backend`, or
+  `OMARCHY_FLTK_RENDER`. On the GPU, `paint()` and the focus ring are
+  uploaded as an overlay texture only when they change.
+- **`Rate::Display`** follows the refresh rate of the window's monitor
+  (Hyprland, re-checked every 3 s; 60 Hz fallback). Measured at 120.0 fps
+  on the 120 Hz panel, using 2.1–2.5 % CPU. On the CPU it is capped at 30
+  fps by default (`gfx::set_cpu_fps_cap`).
+- Built-ins `gfx::shaders::{noise, gradient, accent_glow, blobs, rings}`
+  are portable now; the closure versions moved to `gfx::shaders::cpu`.
+
+Breaking:
+- `View::shader` takes an `sl::Shader`; Rust closures go to
+  `View::cpu_shader` (always CPU).
+- `View` derefs to a `Group` (it may hold its GL layer).
+- `animate` takes `impl Into<Rate>`; `animate(30)` still works.
+
+Also: `focus::control_group` (a group that is one Tab stop) and
+`hyprland::refresh_hz_for`.
+
 ## 0.0.5 — 2026-10-28
 
 - **Control transitions** (`anim`) with Omarchy's durations and curves:

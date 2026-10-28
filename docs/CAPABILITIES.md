@@ -1,11 +1,11 @@
-# Capability matrix vs typical QML apps (0.0.5)
+# Capability matrix vs typical QML apps (0.0.6)
 
 **Implemented** = in the code and covered by `tests/ui.rs`, unit tests or the
 real-window scenario. **Partial** = usable with the stated gaps.
 **Planned** = intended, not in the code. **Unsupported** = not available.
 lib-fltk-omarchy does not claim QML equivalence.
 
-| Area | QML typical | lib-fltk-omarchy 0.0.5 | Status |
+| Area | QML typical | lib-fltk-omarchy 0.0.6 | Status |
 |---|---|---|---|
 | Omarchy look | omarchy-shell `Ui/` kit | Button, ActionButton, ButtonGroup, TextField, NumberField, ToggleSwitch, Toggle, Slider, Hero, section header, Separator, Row, Dropdown, Menu, ConfirmDialog, notification cards, tooltips — same tokens as `Style.qml`/`Color.qml` plus SearchableDropdown, PopupMenu (header/context menus, clamped and scrolling, dismissal handle), TabBar, ShortcutHelp, OperationToast | Partial: MultiSelect widget, PopupCard anchored to a bar are planned (the KeyboardPanel model is implemented) |
 | Theme | — | colors.toml + shell.toml (theme + user override), Hyprland rounding/gaps, `monospace` font via fontconfig, live reload via inotify; strict validation on reload keeps the last valid theme (`theme::last_error`) | Implemented (tested with a fake state dir and in a real window) |
@@ -26,4 +26,4 @@ lib-fltk-omarchy does not claim QML equivalence.
 | Window modes | Window flags | `Mode::Normal` / `Mode::Floating` (float at map, header drag, corner resize via Hyprland IPC on own windows only) / `Mode::Fullscreen` (FLTK) | Implemented (drag/resize with a real pointer not yet validated; native xdg_toplevel move/resize without Hyprland is planned) |
 | Corner preference | — | `Corners::{Omarchy, Square, Rounded}` interior radius, fixed `badge_radius` | Implemented (pixel-tested) |
 | Headless rendering | grabToImage | `AppWindow::snapshot(path)` PNG without showing | Implemented |
-| Shader effects | ShaderEffect | CPU fragment-style shaders (`gfx::Shader`) with uniforms (time, size, pointer, theme palette), tiled, area-limited, time-budgeted | CPU: implemented (multi-core with `threads(n)`). GPU: `gfx::gpu::GpuView`, crate feature `gpu`, off by default (GLSL, pixel-checked in a real window; needs a visible window, see SHADERS.md) |
+| Shader effects | ShaderEffect | CPU fragment-style shaders (`gfx::Shader`) with uniforms (time, size, pointer, theme palette), tiled, area-limited, time-budgeted | Portable shaders (`gfx::sl`): one definition, the View runs it on the GPU (feature `gpu`, off by default; monitor refresh rate) or the CPU (row interpreter, multi-core with `threads(n)`); GPU output matched the CPU evaluation in a real window. Hand-written GLSL: `gfx::gpu::GpuView` |

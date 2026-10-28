@@ -1,4 +1,4 @@
-# Components (0.0.5)
+# Components (0.0.6)
 
 Every component is a classic Omarchy control (the omarchy-shell `Ui/`
 kit) drawn with the live theme: colors, fonts, spacing and corner radius
@@ -428,7 +428,7 @@ let card = View::new(240, 120).paint(|c, u| {
     c.fill(&shape, Paint::linear((0.0, 0.0), (240.0, 0.0), &[(0.0, u.accent), (1.0, u.background)]));
     c.stroke(&shape, &Stroke::new(1.5), u.foreground.with_alpha(0.4));
 });
-let glow = View::new(240, 120).shader(gfx::shaders::accent_glow()).animate(30);
+let glow = View::new(240, 120).shader(gfx::shaders::accent_glow()).animate(gfx::Rate::Display);   // GPU or CPU: the toolkit decides
 ```
 
 Paths, gradients, shadows, blur, blend modes, clips, layers, CPU shaders
@@ -461,7 +461,7 @@ with an area limit and a time budget, and shape hit-testing: all in
 | operations tray | `popups::OperationToast` | `show(&win, title)`, `.on_pause()`, `.on_cancel()`, `set_progress`, `set_detail`, `focus()`, `close()` |
 | F1 help | `popups::ShortcutHelp` | `open(&win, title, sections)` |
 | PanelToolTip | fltk tooltips | styled globally; `.tooltip()` / `set_tooltip` |
-| custom visuals | `gfx::View`, `gfx::Path`, `gfx::Paint` | `View::new(w, h).paint(\|c, u\| ..)` / `.shader(s)` / `.animate(fps)` / `.hit_shape(Hit::Fill(path))` / `.on_click(f)` — [SHADERS.md](SHADERS.md) |
+| custom visuals | `gfx::View`, `gfx::Path`, `gfx::Paint`, `gfx::sl` | `View::new(w, h).paint(\|c, u\| ..)` / `.shader(sl::Shader)` / `.animate(Rate::Display)` / `.hit_shape(Hit::Fill(path))` / `.on_click(f)` — [SHADERS.md](SHADERS.md) |
 | window | `AppWindow` | `new`, `header().action(..)`, `body()`, `end()`, `show()`, `set_mode()`, `shortcut()`, `snapshot()` |
 
 Interior corners are an app preference: `theme::set_corners(Corners::Omarchy |

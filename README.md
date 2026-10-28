@@ -4,7 +4,7 @@ Omarchy toolkit for [fltk-rs](https://github.com/fltk-rs/fltk-rs): the
 classic Omarchy components (the omarchy-shell `Ui/` kit) ready to use, with
 the live Omarchy theme, Hyprland window modes and small app helpers
 (reactive state, cancellable background tasks, virtual lists, offscreen
-snapshots). Import as `fltk_omarchy`. License MIT. Version 0.0.5, not on
+snapshots). Import as `fltk_omarchy`. License MIT. Version 0.0.6, not on
 crates.io (use the git dependency below).
 
 **Keyboard first**: every app built with it can be used without a mouse,
@@ -25,8 +25,9 @@ they close. See [docs/KEYBOARD.md](docs/KEYBOARD.md).
 Each component, with its picture, the code that draws it and its keys:
 [docs/COMPONENTS.md](docs/COMPONENTS.md).
 
-**Custom shapes and shaders** (`gfx`; CPU by default, multi-core with
-`threads(n)`, and GPU behind the optional `gpu` feature): vector paths
+**Custom shapes and shaders** (`gfx`): write a shader once with
+`gfx::sl`, and the toolkit runs it on the GPU (with the optional `gpu`
+feature, at the monitor's refresh rate) or on the CPU: vector paths
 with per-corner radii and squircles, gradients, shadows, blur, blend modes,
 clips, non-rectangular hit-testing, and fragment-style shaders with an area
 limit and a time budget per draw. Pictures, API and measured cost:
@@ -62,7 +63,7 @@ Use it from another crate (same fltk pin and features as this crate):
 ```toml
 [dependencies]
 fltk = { version = "=1.5.23", features = ["use-wayland", "no-images"] }
-lib-fltk-omarchy = { git = "https://github.com/avillagran/lib-fltk-omarchy", tag = "v0.0.5" }
+lib-fltk-omarchy = { git = "https://github.com/avillagran/lib-fltk-omarchy", tag = "v0.0.6" }
 ```
 
 Requires the build dependencies of fltk-sys (cmake, a C++ compiler,
