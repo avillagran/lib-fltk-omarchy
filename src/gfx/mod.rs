@@ -22,6 +22,8 @@ mod path;
 mod raster;
 mod shader;
 mod view;
+#[cfg(feature = "gpu")]
+pub mod gpu;
 
 pub use canvas::{BlendMode, Canvas, Color, Paint, MAX_BLUR};
 pub use path::{Path, Point};

@@ -241,7 +241,7 @@ fn main() {
         std::fs::write(&user, "[font]\nbase-size = 18\n").unwrap();
         theme::reload();
         let mut win = AppWindow::new("t", 800, 440);
-        let mut body = win.body();
+        let _body = win.body();
         let mut r = layout::row();
         layout::spacer();
         let anchor = Button::new("Actions");
@@ -540,6 +540,73 @@ fn main() {
         win.end();
         win.snapshot(std::env::temp_dir().join("omarchy-fltk-unused.png")).ok();
         check(l.w() > 40, &format!("width {}", l.w()))
+    });
+    run("transitions: Omarchy durations, intermediate colors, timer stops, can be turned off", &|shots| {
+        fltk_omarchy::anim::set_enabled(true);
+        let mut win = AppWindow::new("t", 300, 140);
+        let mut body = win.body();
+        let b = Button::new("Save").bordered();
+        body.fit(&*b);
+        let on = State::new(false);
+        let sw = ToggleSwitch::new(&on);
+        body.fit(&*sw);
+        let field = TextField::new();
+        body.fit(&*field);
+        win.end();
+        let shot = |name: &str| -> Result<PathBuf, String> {
+            let p = shots.join(name);
+            let mut w = win.clone();
+            w.snapshot(&p).map_err(|e| e.to_string())?;
+            Ok(p)
+        };
+        shot("anim-0.png")?;
+        let edge = |p: &Path| pixel(p, b.x(), b.y() + b.h() / 2);
+        let before = edge(&shot("anim-1.png")?)?;
+        let mut s0 = sw.clone();
+        let _ = s0.take_focus();
+        press("Shift+Tab"); // keyboard focus on the button: border goes to the accent ring
+        check(focus::is_focused(&*b), "button focused")?;
+        let t0 = Instant::now();
+        let first = edge(&shot("anim-2.png")?)?;
+        while t0.elapsed() < Duration::from_millis(60) { App::pump(); std::thread::sleep(Duration::from_millis(5)); }
+        let mid = edge(&shot("anim-3-mid.png")?)?;
+        let running = fltk_omarchy::anim::pending() > 0;
+        while t0.elapsed() < Duration::from_millis(250) { App::pump(); std::thread::sleep(Duration::from_millis(5)); }
+        let end = edge(&shot("anim-4-end.png")?)?;
+        App::pump();
+        let acc = theme::current().palette.accent;
+        let target = [acc.r(), acc.g(), acc.b()];
+        let dist = |a: [u8; 3], b: [u8; 3]| (0..3).map(|i| (a[i] as i32 - b[i] as i32).abs()).sum::<i32>();
+        check(first == before || dist(first, target) > dist(mid, target), &format!("starts at the old color: {first:?}"))?;
+        check(dist(mid, target) > 0 && dist(mid, target) < dist(before, target), &format!("halfway at 60 ms of 120: {before:?} → {mid:?} → {end:?}"))?;
+        check(end == target && running, &format!("ends on the ring color, timer ran: {end:?}"))?;
+        // Switch knob moves through intermediate positions (120 ms OutCubic).
+        let knob_x = |p: &Path| -> Result<i32, String> {
+            let ky = sw.y() + sw.h() / 2;
+            let fg = theme::current().palette.foreground.darker(1.25);
+            let sel = theme::current().controls.selected.color;
+            let mut xs = Vec::new();
+            for x in sw.x()..sw.x() + sw.w() {
+                let c = pixel(p, x, ky)?;
+                if [fg, sel].iter().any(|k| dist(c, [k.r(), k.g(), k.b()]) < 40) { xs.push(x); }
+            }
+            Ok(xs.first().copied().unwrap_or(-1))
+        };
+        let x_off = knob_x(&shot("sw-0.png")?)?;
+        on.set(true);
+        let t1 = Instant::now();
+        shot("sw-1.png")?;
+        while t1.elapsed() < Duration::from_millis(40) { App::pump(); std::thread::sleep(Duration::from_millis(5)); }
+        let x_mid = knob_x(&shot("sw-2-mid.png")?)?;
+        while t1.elapsed() < Duration::from_millis(250) { App::pump(); std::thread::sleep(Duration::from_millis(5)); }
+        let x_on = knob_x(&shot("sw-3-end.png")?)?;
+        check(x_off < x_mid && x_mid < x_on, &format!("knob x {x_off} → {x_mid} → {x_on}"))?;
+        // Off: the change is immediate.
+        fltk_omarchy::anim::set_enabled(false);
+        on.set(false);
+        let x_now = knob_x(&shot("sw-4-off.png")?)?;
+        fltk_omarchy::anim::set_enabled(true);
+        check(x_now == x_off && fltk_omarchy::anim::pending() == 0, &format!("disabled: jumps to {x_now}"))
     });
     run("keyboard only: Tab order, arrows, shortcuts, focus comes back", &|shots| {
         let mut win = AppWindow::new("t", 560, 420);

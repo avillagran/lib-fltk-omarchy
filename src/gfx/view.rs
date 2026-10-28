@@ -59,7 +59,8 @@ struct State {
     upload: Vec<u8>,
     paint: Option<PaintFn>,
     post: Option<PaintFn>,
-    shader: Option<Box<dyn Shader>>,
+    shader: Option<std::sync::Arc<dyn Shader + Send + Sync>>,
+    threads: usize,
     fps: u32,
     params: [f32; 4],
     started: Instant,
@@ -118,6 +119,7 @@ impl View {
             paint: None,
             post: None,
             shader: None,
+            threads: 1,
             fps: 0,
             params: [0.0; 4],
             started: Instant::now(),
@@ -156,9 +158,11 @@ impl View {
     }
 
     /// Fills every pixel with `shader` (the view becomes opaque over the
-    /// theme background); `paint` draws on top of it.
-    pub fn shader(self, shader: impl Shader + 'static) -> Self {
-        self.st.borrow_mut().shader = Some(Box::new(shader));
+    /// theme background); `paint` draws on top of it. The shader must be
+    /// thread-safe (closures that capture nothing, or only `Copy`/`Arc`
+    /// data, are) so that [`View::threads`] can split the work.
+    pub fn shader(self, shader: impl Shader + Send + Sync + 'static) -> Self {
+        self.st.borrow_mut().shader = Some(std::sync::Arc::new(shader));
         self.invalidate();
         self
     }
@@ -174,6 +178,15 @@ impl View {
     pub fn animate(self, fps: u32) -> Self {
         self.st.borrow_mut().fps = fps.min(120);
         self.start_timer();
+        self
+    }
+
+    /// Shades on `n` threads (bands of rows; 0 = the machine's cores, at most
+    /// 8). Default 1: one core. More threads finish a frame sooner; total
+    /// CPU stays about the same.
+    pub fn threads(self, n: usize) -> Self {
+        let n = if n == 0 { std::thread::available_parallelism().map_or(1, |c| c.get()).min(8) } else { n.min(8) };
+        self.st.borrow_mut().threads = n.max(1);
         self
     }
 
@@ -315,18 +328,27 @@ fn render(st: &Rc<RefCell<State>>, w: i32, h: i32, budget: Duration) -> bool {
     let first_frame = s.stats.frames == 0;
     // Shader tiles, until done or out of budget (the first frame always completes).
     if let Some(shader) = s.shader.take() {
+        let threads = s.threads;
         let (cols, rows) = (rw.div_ceil(TILE), rh.div_ceil(TILE));
-        while s.next_tile < cols * rows {
+        // Single thread: 32×32 tiles. Several: bands of 32 rows, `threads` bands per step.
+        let total = if threads > 1 { rows } else { cols * rows };
+        while s.next_tile < total {
             let t = s.next_tile;
-            let rect = ((t % cols) * TILE, (t / cols) * TILE, TILE, TILE);
-            s.work.shade(rect, shader.as_ref(), &u);
-            s.next_tile += 1;
+            if threads > 1 {
+                let bands = threads.min(total - t);
+                s.work.shade_rows_parallel(t * TILE, (t + bands) * TILE, shader.as_ref(), &u, threads);
+                s.next_tile += bands;
+            } else {
+                let rect = ((t % cols) * TILE, (t / cols) * TILE, TILE, TILE);
+                s.work.shade(rect, shader.as_ref(), &u);
+                s.next_tile += 1;
+            }
             if !first_frame && t0.elapsed() >= budget {
                 break;
             }
         }
         s.shader = Some(shader);
-        if s.next_tile < cols * rows {
+        if s.next_tile < total {
             s.in_progress = Some((u, spent + t0.elapsed()));
             s.stats.partial_draws += 1;
             return false;

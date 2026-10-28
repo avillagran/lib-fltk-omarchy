@@ -50,6 +50,7 @@ fn main() {
     let dir = PathBuf::from(std::env::args().nth(1).unwrap_or_else(|| "docs/components".into()));
     std::fs::create_dir_all(&dir).unwrap();
     let _app = App::without_theme_watch("dev.omarchy.fltk.docs");
+    fltk_omarchy::anim::set_enabled(false); // pictures show final states
 
     // ---- buttons
     let (win, col) = frame(600, 76);

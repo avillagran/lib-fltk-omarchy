@@ -636,6 +636,7 @@ thread_local! {
     static FOCUS_RING: std::cell::Cell<FocusRing> = const { std::cell::Cell::new(FocusRing::Accent) };
     static CURRENT: RefCell<Option<Theme>> = const { RefCell::new(None) };
     static LAST_ERROR: RefCell<Option<ThemeError>> = const { RefCell::new(None) };
+    static GENERATION: std::cell::Cell<u64> = const { std::cell::Cell::new(1) };
     // A listener returns false to unregister itself.
     static LISTENERS: RefCell<Vec<Box<dyn FnMut(&Theme) -> bool>>> = const { RefCell::new(Vec::new()) };
 }
@@ -659,6 +660,7 @@ pub fn with<R>(f: impl FnOnce(&Theme) -> R) -> R {
 
 /// Makes `theme` active: FLTK colormap, default fonts, every window redrawn.
 pub fn set(theme: Theme) {
+    GENERATION.with(|g| g.set(g.get() + 1));
     let theme = theme.with_prefs();
     apply_to_fltk(&theme);
     CURRENT.with(|c| *c.borrow_mut() = Some(theme.clone()));
@@ -694,6 +696,11 @@ pub fn set_focus_ring(ring: FocusRing) {
 
 pub fn focus_ring() -> FocusRing {
     FOCUS_RING.with(|k| k.get())
+}
+
+/// Increases on every [`set`] (transitions jump instead of animating a theme change).
+pub fn generation() -> u64 {
+    GENERATION.with(|g| g.get())
 }
 
 /// Called after every theme change (on the UI thread), for the life of the

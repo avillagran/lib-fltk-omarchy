@@ -2,6 +2,7 @@
 //! (fill + inner border, `Style.cornerRadius` corners), text with the font
 //! tokens, and Nerd Font glyphs. Only call these inside a draw callback.
 
+pub use crate::anim::Look;
 use crate::theme::{Rgb, StateStyle, Theme};
 use fltk::draw;
 use fltk::enums::{Align, Font};
@@ -55,6 +56,26 @@ pub fn surface(x: i32, y: i32, w: i32, h: i32, radius: i32, fill_color: Option<R
 /// fill priority pressed > focus > hover > selected > `base`, border
 /// priority focus > hover > selected (if width > 0) > normal (if `bordered`).
 pub fn control(t: &Theme, x: i32, y: i32, w: i32, h: i32, st: Interaction, under: Rgb, base: Option<Rgb>, bordered: bool) {
+    draw_look(x, y, w, h, t.radius, control_look(t, st, under, base, bordered), under);
+}
+
+/// The background [`control`] would paint, as a value that can be animated.
+pub fn control_look(t: &Theme, st: Interaction, under: Rgb, base: Option<Rgb>, bordered: bool) -> Look {
+    let (fill, border) = control_parts(t, st, under, base, bordered);
+    let f = fill.unwrap_or(under);
+    match border {
+        Some((c, w)) => Look { fill: f, border: c, border_width: w },
+        None => Look { fill: f, border: f, border_width: 0 },
+    }
+}
+
+/// Draws a [`Look`] (no fill is drawn when it equals `under`).
+pub fn draw_look(x: i32, y: i32, w: i32, h: i32, radius: i32, look: Look, under: Rgb) {
+    let fill = (look.fill != under).then_some(look.fill);
+    surface(x, y, w, h, radius, fill, (look.border_width > 0).then_some((look.border, look.border_width)));
+}
+
+fn control_parts(t: &Theme, st: Interaction, under: Rgb, base: Option<Rgb>, bordered: bool) -> (Option<Rgb>, Option<(Rgb, i32)>) {
     let c = &t.controls;
     let fill_color = if st.pressed {
         Some(c.hover.color.over(under, c.pressed_fill_alpha))
@@ -79,7 +100,7 @@ pub fn control(t: &Theme, x: i32, y: i32, w: i32, h: i32, st: Interaction, under
     } else {
         None
     };
-    surface(x, y, w, h, t.radius, fill_color, border);
+    (fill_color, border)
 }
 
 pub fn font(bold: bool) -> Font {

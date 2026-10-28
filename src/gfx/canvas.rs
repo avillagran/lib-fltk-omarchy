@@ -484,6 +484,46 @@ impl Canvas {
     }
 }
 
+impl Canvas {
+    /// Runs a thread-safe shader over rows `y0..y1` (full width) on up to
+    /// `threads` threads, blending with source-over. Used by `View` for
+    /// multi-core shading; ignores clip, opacity and blend mode.
+    pub(crate) fn shade_rows_parallel(&mut self, y0: usize, y1: usize, shader: &(dyn super::shader::Shader + Sync), u: &super::shader::Uniforms, threads: usize) {
+        let (w, y1) = (self.w, y1.min(self.h));
+        if y0 >= y1 || w == 0 {
+            return;
+        }
+        let (sx, sy) = (u.size.0 / w as f32, u.size.1 / self.h.max(1) as f32);
+        let rows = y1 - y0;
+        let per = rows.div_ceil(threads.max(1));
+        let u = *u;
+        let band = &mut self.px[y0 * w * 4..y1 * w * 4];
+        std::thread::scope(|scope| {
+            for (k, chunk) in band.chunks_mut(per * w * 4).enumerate() {
+                scope.spawn(move || {
+                    let ystart = y0 + k * per;
+                    for (j, px) in chunk.chunks_exact_mut(4).enumerate() {
+                        let (x, y) = (j % w, ystart + j / w);
+                        let c = shader.color((x as f32 + 0.5) * sx, (y as f32 + 0.5) * sy, &u);
+                        if c.a >= 1.0 {
+                            px.copy_from_slice(&[q8(c.r), q8(c.g), q8(c.b), 255]);
+                        } else if c.a > 0.0 {
+                            let ia = 1.0 - c.a;
+                            let d = |v: u8| v as f32 / 255.0;
+                            px.copy_from_slice(&[
+                                q8(c.r * c.a + d(px[0]) * ia),
+                                q8(c.g * c.a + d(px[1]) * ia),
+                                q8(c.b * c.a + d(px[2]) * ia),
+                                q8(c.a + d(px[3]) * ia),
+                            ]);
+                        }
+                    }
+                });
+            }
+        });
+    }
+}
+
 /// Three box-blur passes per axis over `rect` of a plane with `ch` channels.
 fn blur_plane(buf: &mut [f32], stride_px: usize, rect: (usize, usize, usize, usize), r: usize, ch: usize) {
     let (x0, y0, x1, y1) = rect;
@@ -664,6 +704,21 @@ mod tests {
         c.shade((0, 0, 8, 8), &s as &dyn Shader, &u);
         assert_eq!(c.pixel(1, 1), RED, "shader sees widget pixels (16 wide) at half resolution");
         assert_eq!(c.pixel(6, 1), BLUE);
+    }
+
+    #[test]
+    fn parallel_shading_matches_single_thread() {
+        let u = Uniforms { time: 0.7, frame: 0, size: (97.0, 61.0), pointer: None, background: WHITE, foreground: WHITE, accent: RED, urgent: RED, params: [0.0; 4] };
+        let s = |x: f32, y: f32, u: &Uniforms| u.accent.mix(BLUE, ((x * 0.1).sin() * (y * 0.07 + u.time).cos()).abs()).with_alpha(if x > 80.0 { 0.5 } else { 1.0 });
+        let mut a = Canvas::new(97, 61);
+        a.clear(Color::rgba(0.2, 0.2, 0.2, 1.0));
+        a.shade((0, 0, 97, 61), &s as &dyn Shader, &u);
+        for threads in [2, 3, 8] {
+            let mut b = Canvas::new(97, 61);
+            b.clear(Color::rgba(0.2, 0.2, 0.2, 1.0));
+            b.shade_rows_parallel(0, 61, &s, &u, threads);
+            assert!(a.px.iter().zip(&b.px).all(|(x, y)| (*x as i16 - *y as i16).abs() <= 1), "{threads} threads");
+        }
     }
 
     #[test]

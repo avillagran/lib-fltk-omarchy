@@ -3,6 +3,7 @@
 //! placed in any `Flex`/`Group` and sized with fltk-rs as usual; each one
 //! also reports its Omarchy implicit size via `.preferred_size()`.
 
+use crate::anim::{Anim, Ease, Lerp};
 use crate::paint::{self, Interaction};
 use crate::state::State;
 use crate::theme::{self, Rgb};
@@ -162,6 +163,7 @@ impl Button {
         let d3 = data.clone();
         track_with_shortcut(&mut inner, st.clone(), true, Rc::new(move || fire(&c2, ())), Rc::new(move || d3.borrow().shortcut));
         let d = data.clone();
+        let mut fade = Anim::new();
         inner.draw(move |w| {
             let d = d.borrow();
             theme::with(|t| {
@@ -169,7 +171,8 @@ impl Button {
                 s.selected |= d.selected || d.active;
                 let under = under();
                 let base = if d.accent { Some(t.palette.accent) } else { None };
-                paint::control(t, w.x(), w.y(), w.w(), w.h(), s, under, base, d.bordered || d.accent);
+                let look = fade.get(paint::control_look(t, s, under, base, d.bordered || d.accent), 120, Ease::Linear, w);
+                paint::draw_look(w.x(), w.y(), w.w(), w.h(), t.radius, look, under);
                 let mut fg = if d.accent {
                     if t.palette.accent.luminance() > 0.55 { t.palette.background } else { t.palette.foreground }
                 } else if d.danger {
@@ -346,6 +349,7 @@ impl ActionButton {
         let c2 = click.clone();
         track(&mut inner, st.clone(), true, Rc::new(move || fire(&c2, ())));
         let g = glyph.to_string();
+        let mut fade = Anim::new();
         inner.draw(move |w| {
             theme::with(|t| {
                 let s = interaction(w, &st);
@@ -361,7 +365,10 @@ impl ActionButton {
                     None
                 };
                 let border = s.focus.then(|| (t.border(&t.controls.focus, under), t.controls.focus.border_width));
-                paint::surface(w.x(), w.y(), w.w(), w.h(), t.radius, fill, border);
+                let f = fill.unwrap_or(under);
+                let target = match border { Some((c, bw)) => paint::Look { fill: f, border: c, border_width: bw }, None => paint::Look { fill: f, border: f, border_width: 0 } };
+                let look = fade.get(target, 60, Ease::Linear, w);
+                paint::draw_look(w.x(), w.y(), w.w(), w.h(), t.radius, look, under);
                 let color = if s.disabled { fg.darker(2.0) } else if hot { hover_color } else { fg };
                 paint::glyph(&g, w.x(), w.y(), w.w(), w.h(), t.font.icon, color);
             });
@@ -457,7 +464,8 @@ pub struct ToggleSwitch {
 }
 fltk::widget_extends!(ToggleSwitch, Widget, inner);
 
-pub(crate) fn draw_switch(t: &theme::Theme, x: i32, y: i32, on: bool, hot: bool, under: Rgb) {
+/// `k`: 0 = off, 1 = on (fractions while the knob moves).
+pub(crate) fn draw_switch(t: &theme::Theme, x: i32, y: i32, k: f64, hot: bool, under: Rgb) {
     let th = t.spacing.control_height.max(28);
     let track_h = 22.max((th as f64 * 0.55).round() as i32);
     let track_w = (track_h as f64 * 1.9).round() as i32;
@@ -466,15 +474,21 @@ pub(crate) fn draw_switch(t: &theme::Theme, x: i32, y: i32, on: bool, hot: bool,
     let rounded = t.radius > 0;
     let r = if rounded { track_h / 2 } else { 0 };
     let c = &t.controls;
-    let (fill, border) = if on {
-        (t.fill(&c.selected, under), (c.selected.border_width > 0).then(|| (t.border(&c.selected, under), c.selected.border_width)))
-    } else {
-        (t.fill(&c.normal, under), Some((t.border(&c.normal, under), c.normal.border_width)))
+    let look = |on: bool| {
+        let (fill, border) = if on {
+            (t.fill(&c.selected, under), (c.selected.border_width > 0).then(|| (t.border(&c.selected, under), c.selected.border_width)))
+        } else {
+            (t.fill(&c.normal, under), Some((t.border(&c.normal, under), c.normal.border_width)))
+        };
+        let fill = if hot { c.hover.color.over(fill, c.hover.fill_alpha) } else { fill };
+        match border { Some((b, bw)) => paint::Look { fill, border: b, border_width: bw }, None => paint::Look { fill, border: fill, border_width: 0 } }
     };
-    let fill = if hot { c.hover.color.over(fill, c.hover.fill_alpha) } else { fill };
-    paint::surface(x, y, track_w, track_h, r, Some(fill), border);
-    let kx = if on { x + track_w - knob - inset } else { x + inset };
-    let kc = if on { c.selected.color } else { t.palette.foreground.darker(1.25) };
+    let k = k.clamp(0.0, 1.0);
+    let l = paint::Look::lerp(look(false), look(true), k);
+    paint::surface(x, y, track_w, track_h, r, Some(l.fill), (l.border_width > 0).then_some((l.border, l.border_width)));
+    let (x_off, x_on) = (x + inset, x + track_w - knob - inset);
+    let kx = (x_off as f64 + (x_on - x_off) as f64 * k).round() as i32;
+    let kc = Rgb::lerp(t.palette.foreground.darker(1.25), c.selected.color, k);
     paint::fill(kx, y + (track_h - knob) / 2, knob, knob, if rounded { knob / 2 } else { 0 }, kc);
 }
 
@@ -494,8 +508,10 @@ impl ToggleSwitch {
         let v = value.clone();
         track(&mut inner, st.clone(), true, Rc::new(move || v.update(|b| *b = !*b)));
         let v = value.clone();
+        let mut knob = Anim::new();
         inner.draw(move |w| {
             let s = interaction(w, &st);
+            let k = knob.get(if v.get() { 1.0 } else { 0.0 }, 120, Ease::OutCubic, w);
             theme::with(|t| {
                 let (tw, th) = switch_size();
                 let x = w.x() + (w.w() - tw) / 2;
@@ -505,7 +521,7 @@ impl ToggleSwitch {
                     paint::surface(x - pad, y - pad, tw + 2 * pad, th + 2 * pad, t.radius, None,
                                    Some((t.border(&t.controls.hover, under()), t.controls.hover.border_width.max(1))));
                 }
-                draw_switch(t, x, y, v.get(), false, under());
+                draw_switch(t, x, y, k, false, under());
             });
         });
         let (tw, th) = switch_size();
@@ -541,12 +557,15 @@ impl Toggle {
         track(&mut inner, st.clone(), true, Rc::new(move || v.update(|b| *b = !*b)));
         let (title, desc) = (title.to_string(), description.to_string());
         let v = value.clone();
+        let (mut fade, mut knob) = (Anim::new(), Anim::new());
         inner.draw(move |w| {
             let s = interaction(w, &st);
+            let k = knob.get(if v.get() { 1.0 } else { 0.0 }, 120, Ease::OutCubic, w);
             theme::with(|t| {
                 let under = under();
-                paint::control(t, w.x(), w.y(), w.w(), w.h(), Interaction { selected: false, ..s }, under,
-                               Some(t.fill(&t.controls.normal, under)), true);
+                let target = paint::control_look(t, Interaction { selected: false, ..s }, under, Some(t.fill(&t.controls.normal, under)), true);
+                let look = fade.get(target, 100, Ease::Linear, w);
+                paint::draw_look(w.x(), w.y(), w.w(), w.h(), t.radius, look, under);
                 let pad = t.spacing.row_padding_x + 1;
                 let (sw, sh) = switch_size();
                 let text_w = w.w() - 2 * pad - sw - t.spacing.xxl;
@@ -559,7 +578,7 @@ impl Toggle {
                 if dh > 0 {
                     paint::text_elided(&desc, w.x() + pad, top + th + t.spacing.xs, text_w, dh, t.font.caption, false, fg.darker(1.5), Align::Left);
                 }
-                draw_switch(t, w.x() + w.w() - pad - sw, w.y() + (w.h() - sh) / 2, v.get(), false, under);
+                draw_switch(t, w.x() + w.w() - pad - sw, w.y() + (w.h() - sh) / 2, k, false, under);
             });
         });
         let h = theme::with(|t| 54.max(t.font.subtitle + t.font.caption + 8 + t.spacing.huge));
@@ -597,9 +616,11 @@ impl Slider {
         inner.set_frame(FrameType::NoBox);
         inner.set_visible_focus();
         let hot = Rc::new(RefCell::new(false));
+        let dragging = Rc::new(Cell::new(false));
         let range = (max - min).max(f64::EPSILON);
         let v = value.clone();
         let h2 = hot.clone();
+        let dr = dragging.clone();
         inner.handle(move |w, ev| {
             let set_from_x = |w: &Widget| {
                 let k = theme::with(|t| 14.max((t.spacing.control_height as f64 * 0.38).round() as i32));
@@ -613,9 +634,9 @@ impl Slider {
             match ev {
                 Event::Enter => { *h2.borrow_mut() = true; w.redraw(); true }
                 Event::Leave => { *h2.borrow_mut() = false; w.redraw(); true }
-                Event::Push => { let _ = w.take_focus(); set_from_x(w); true }
+                Event::Push => { let _ = w.take_focus(); dr.set(true); set_from_x(w); true }
                 Event::Drag => { set_from_x(w); true }
-                Event::Released => true,
+                Event::Released => { dr.set(false); true }
                 Event::MouseWheel => {
                     let dir = match app::event_dy() { app::MouseWheel::Up => 1.0, app::MouseWheel::Down => -1.0, _ => 0.0 };
                     v.update(|x| *x = (*x + dir * step.max(range / 100.0)).clamp(min, max));
@@ -631,14 +652,18 @@ impl Slider {
             }
         });
         let v = value.clone();
+        let (mut scale, mut pos, dragging) = (Anim::new(), Anim::new(), dragging.clone());
         inner.draw(move |w| {
             theme::with(|t| {
                 let under = under();
                 let fg = t.palette.foreground;
                 let track_h = 4.max((t.spacing.control_height as f64 * 0.11).round() as i32);
-                let mut knob = 14.max((t.spacing.control_height as f64 * 0.38).round() as i32);
-                if *hot.borrow() { knob = (knob as f64 * 1.15).round() as i32; }
-                let p = ((v.get() - min) / range).clamp(0.0, 1.0);
+                let base = 14.max((t.spacing.control_height as f64 * 0.38).round() as i32);
+                let grow = scale.get(if *hot.borrow() { 1.15 } else { 1.0 }, 110, Ease::OutCubic, w);
+                let knob = (base as f64 * grow).round() as i32;
+                let target = ((v.get() - min) / range).clamp(0.0, 1.0);
+                // PanelSlider: position eases (140 ms OutCubic) except while dragging.
+                let p = if dragging.get() { pos.jump(target) } else { pos.get(target, 140, Ease::OutCubic, w) };
                 let ty = w.y() + (w.h() - track_h) / 2;
                 let r = track_h / 2;
                 paint::fill(w.x(), ty, w.w(), track_h, r, t.fill(&t.controls.selected, under));
@@ -1155,16 +1180,25 @@ pub struct Row {
 }
 fltk::widget_extends!(Row, Widget, inner);
 
-pub(crate) fn draw_row(t: &theme::Theme, x: i32, y: i32, w: i32, h: i32, icon: &str, label: &str, detail: &str, hot: bool, current: bool, under: Rgb) {
+/// CursorSurface background of a row (hover cursor, or current).
+pub(crate) fn row_look(t: &theme::Theme, hot: bool, current: bool, under: Rgb) -> paint::Look {
     let c = &t.controls;
     let (fill, border) = if hot {
-        (Some(t.fill(&c.hover, under)), Some((t.border(&c.hover, under), c.hover.border_width)))
+        (t.fill(&c.hover, under), Some((t.border(&c.hover, under), c.hover.border_width)))
     } else if current {
-        (Some(t.fill(&c.selected, under)), (c.selected.border_width > 0).then(|| (t.border(&c.selected, under), c.selected.border_width)))
+        (t.fill(&c.selected, under), (c.selected.border_width > 0).then(|| (t.border(&c.selected, under), c.selected.border_width)))
     } else {
-        (None, None)
+        (under, None)
     };
-    paint::surface(x, y, w, h, t.radius, fill, border);
+    match border { Some((b, bw)) => paint::Look { fill, border: b, border_width: bw }, None => paint::Look { fill, border: fill, border_width: 0 } }
+}
+
+pub(crate) fn draw_row(t: &theme::Theme, x: i32, y: i32, w: i32, h: i32, icon: &str, label: &str, detail: &str, hot: bool, current: bool, under: Rgb) {
+    paint::draw_look(x, y, w, h, t.radius, row_look(t, hot, current, under), under);
+    draw_row_content(t, x, y, w, h, icon, label, detail, current);
+}
+
+pub(crate) fn draw_row_content(t: &theme::Theme, x: i32, y: i32, w: i32, h: i32, icon: &str, label: &str, detail: &str, current: bool) {
     let fg = t.palette.foreground;
     let inset = t.spacing.md;
     let mut tx = x + inset + t.spacing.sm;
@@ -1193,10 +1227,16 @@ impl Row {
         let c2 = click.clone();
         track(&mut inner, st.clone(), true, Rc::new(move || fire(&c2, ())));
         let d = data.clone();
+        let mut fade = Anim::new();
         inner.draw(move |w| {
             let (icon, label, detail, current) = d.borrow().clone();
             let s = interaction(w, &st);
-            theme::with(|t| draw_row(t, w.x(), w.y(), w.w(), w.h(), &icon, &label, &detail, s.hover || s.focus, current, under()));
+            theme::with(|t| {
+                let under = under();
+                let look = fade.get(row_look(t, s.hover || s.focus, current, under), 60, Ease::Linear, w);
+                paint::draw_look(w.x(), w.y(), w.w(), w.h(), t.radius, look, under);
+                draw_row_content(t, w.x(), w.y(), w.w(), w.h(), &icon, &label, &detail, current);
+            });
         });
         inner.set_size(240, theme::with(|t| t.font.body + 4 + t.spacing.xl * 2));
         Self { inner, data, click }

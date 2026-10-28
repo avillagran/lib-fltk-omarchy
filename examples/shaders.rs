@@ -121,6 +121,7 @@ fn main() {
     win.end();
 
     if let Some(dir) = shots {
+        fltk_omarchy::anim::set_enabled(false);
         let dir = std::path::PathBuf::from(dir);
         std::fs::create_dir_all(&dir).unwrap();
         for v in [&noise, &grad, &glow, &frosted] {

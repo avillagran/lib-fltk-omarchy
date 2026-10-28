@@ -1,7 +1,7 @@
 //! Cost of a CPU shader: one 520×400 window with a 400×300 View, either
 //! static (rendered once) or animated at 30 fps. Run by script/gfx-bench on
 //! a hidden Hyprland workspace. Prints one JSON line:
-//!   gfx_bench <static|animated> <seconds> <report.json> [noise|gradient] [max_area]
+//!   gfx_bench <static|animated> <seconds> <report.json> [noise|gradient] [max_area] [threads]
 use fltk::prelude::*;
 use fltk_omarchy::gfx::{self, View};
 use fltk_omarchy::{App, AppWindow};
@@ -28,10 +28,11 @@ fn main() {
     let out = a.get(3).cloned().unwrap_or_else(|| "build/gfx-bench.json".into());
     let shader = a.get(4).cloned().unwrap_or_else(|| "noise".into());
     let max_area: usize = a.get(5).and_then(|s| s.parse().ok()).unwrap_or(160_000);
+    let threads: usize = a.get(6).and_then(|s| s.parse().ok()).unwrap_or(1);
     let app = App::without_theme_watch("dev.omarchy.fltk.gfxbench");
     let mut win = AppWindow::new("gfx-bench", 520, 400);
     let mut body = win.body();
-    let view = View::new(400, 300).max_area(max_area);
+    let view = View::new(400, 300).max_area(max_area).threads(threads);
     let mut view = if shader == "gradient" { view.shader(gfx::shaders::gradient()) } else { view.shader(gfx::shaders::noise()) };
     if mode == "animated" {
         view = view.animate(30);
@@ -50,7 +51,7 @@ fn main() {
         let (cpu, frames, wall) = (cpu_s() - c0, v3.stats().frames - f0, t0.elapsed().as_secs_f64());
         let st = v3.stats();
         let line = format!(
-            "{{\"mode\":\"{m}\",\"shader\":\"{sh}\",\"max_area\":{max_area},\"seconds\":{wall:.2},\"frames\":{frames},\"fps\":{:.1},\"cpu_s\":{cpu:.3},\"cpu_pct\":{:.1},\"cpu_ms_per_frame\":{},\"last_frame_ms\":{:.2},\"last_blit_ms\":{:.2},\"partial_draws\":{},\"render_size\":[{},{}],\"view_buffers_kb\":{},\"pss_tree_kb\":{}}}",
+            "{{\"mode\":\"{m}\",\"shader\":\"{sh}\",\"max_area\":{max_area},\"threads\":{threads},\"seconds\":{wall:.2},\"frames\":{frames},\"fps\":{:.1},\"cpu_s\":{cpu:.3},\"cpu_pct\":{:.1},\"cpu_ms_per_frame\":{},\"last_frame_ms\":{:.2},\"last_blit_ms\":{:.2},\"partial_draws\":{},\"render_size\":[{},{}],\"view_buffers_kb\":{},\"pss_tree_kb\":{}}}",
             frames as f64 / wall, 100.0 * cpu / wall,
             if frames > 0 { format!("{:.2}", cpu * 1000.0 / frames as f64) } else { "null".into() },
             st.last_frame_ms, st.last_blit_ms, st.partial_draws, st.render_size.0, st.render_size.1, st.memory / 1024, pss_tree_kb());
