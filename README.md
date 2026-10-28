@@ -4,7 +4,7 @@ Omarchy toolkit for [fltk-rs](https://github.com/fltk-rs/fltk-rs): the
 classic Omarchy components (the omarchy-shell `Ui/` kit) ready to use, with
 the live Omarchy theme, Hyprland window modes and small app helpers
 (reactive state, cancellable background tasks, virtual lists, offscreen
-snapshots). Import as `fltk_omarchy`. License MIT. Version 0.0.6, not on
+snapshots). Import as `fltk_omarchy`. License MIT. Version 0.0.7, not on
 crates.io (use the git dependency below).
 
 **Keyboard first**: every app built with it can be used without a mouse,
@@ -54,6 +54,7 @@ cargo run --example overlays     # dropdown, menu, confirm, notification, list
 cargo run --example app_shell    # Preferences/Actions menus, tabs, search, F1 help, operation toast
 cargo run --example docs_shots -- docs/components   # re-render the pictures of docs/COMPONENTS.md
 cargo run --example shaders      # shapes, gradients, effects, animated CPU shaders
+cargo run --release --example playground   # every component in one window, actions logged to build/playground.log
 cargo run --release --features gpu --example gpu_bench -- check build/gpu-check.json   # GPU shader pixel check
 cargo test --offline             # unit + doc + main-thread UI tests
 ```
@@ -63,7 +64,7 @@ Use it from another crate (same fltk pin and features as this crate):
 ```toml
 [dependencies]
 fltk = { version = "=1.5.23", features = ["use-wayland", "no-images"] }
-lib-fltk-omarchy = { git = "https://github.com/avillagran/lib-fltk-omarchy", tag = "v0.0.6" }
+lib-fltk-omarchy = { git = "https://github.com/avillagran/lib-fltk-omarchy", tag = "v0.0.7" }
 ```
 
 Requires the build dependencies of fltk-sys (cmake, a C++ compiler,

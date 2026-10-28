@@ -1,4 +1,4 @@
-# Components (0.0.6)
+# Components (0.0.7)
 
 Every component is a classic Omarchy control (the omarchy-shell `Ui/`
 kit) drawn with the live theme: colors, fonts, spacing and corner radius
@@ -157,6 +157,14 @@ col.fit(&*TabBar::new(&["Home", "Downloads", "Work"], &tab).on_close(|i| println
 ```
 
 More: `set_tabs(..)`, `request_close(i)`; a middle click closes a tab.
+
+When the tabs do not fit, ‹ › arrows appear at the edges and the strip
+scrolls with them or with the wheel. The selected tab, close glyph
+included, is scrolled into view (`overflowing()`, `scroll_offset()`,
+`tab_rect(i)`).
+
+![tabs overflow](components/tabs-overflow.png)
+
 **Keys:** Ctrl+Tab / Ctrl+PageDown go to the next tab and Ctrl+Shift+Tab /
 Ctrl+PageUp to the previous one, from anywhere in the window. When the bar
 has focus, Left/Right/Home/End pick a tab and Delete closes it.
@@ -313,6 +321,17 @@ op.set_detail("report.pdf · 12 of 30 MB");
 // op.close() when the task ends
 ```
 
+Localized labels, progress of unknown length, and the card follows the
+window's bottom-right corner when the window is resized:
+
+![operation toast, localized](components/operation-toast-localized.png)
+
+```rust
+let mut op = OperationToast::show(&*win, "Copiando 3 archivos").unwrap()
+    .labels("Pausar", "Reanudar", "Cancelar", "En pausa");
+op.set_indeterminate(true);   // a sliding bar instead of a percentage
+```
+
 **Keys:** Tab reaches it (or call `op.focus()` from a window shortcut);
 Left/Right choose Pause or Cancel; Enter or Space press; Esc gives focus
 back without cancelling.
@@ -330,10 +349,16 @@ let help = move || vec![
     ("Window".into(), vec![row("Ctrl+,", "Preferences"), row("F10", "Actions"), row("F1", "This help")]),
 ];
 let w = win.clone();
-win.shortcut("F1", move || ShortcutHelp::open(&*w, "Keyboard shortcuts", help()));
+win.shortcut("F1", move || { ShortcutHelp::open(&*w, "Keyboard shortcuts", help()); });
 ```
 
-**Keys:** Up/Down/PageUp/PageDown scroll; Esc or F1 close.
+`open` returns a handle with `scroll()` and `max_scroll()`. Scrolling is
+bounded to the content, and a scrollbar shows when there is more. Below,
+a 420×320 window at font size 18, after End:
+
+![shortcut help, large font](components/shortcut-help-large-font.png)
+
+**Keys:** Up/Down, PageUp/PageDown, Home/End scroll; Esc or F1 close.
 
 ## AppWindow
 
@@ -361,6 +386,13 @@ app.run();
 More: `set_mode(Mode::Normal | Floating | Fullscreen)`,
 `shortcut("Ctrl+Q", f)`, `set_min_size`, `snapshot(path)`. Header actions
 are buttons: Tab reaches them.
+
+A floating window moves when you drag its title and resizes from its
+bottom corners. Both go through the compositor's own interactive gesture
+(`native::begin_move` / `begin_resize`, the libdecor/xdg_toplevel path,
+no compositor IPC). Hyprland IPC remains as a fallback. In Hyprland the
+window still opens floating at its size: it maps normally and is floated
+right away, so it can be tiled (`Mode::Normal`) and resized later.
 
 ## KeyboardPanel (regions of one canvas)
 
@@ -405,6 +437,62 @@ host widget and the window shortcuts exactly once. Mouse: call
 `p.click(id, ctrl, shift)` from the canvas handler. Also:
 `select_range`, `invert_selection`, `clear_selection`, `selection()` (in
 display order) and `focus::focused_panel()`.
+
+## PopupCard
+
+![popup card](components/popup-card.png)
+
+```rust
+use fltk_omarchy::popups::PopupCard;
+let vol = State::new(0.5);
+let card = PopupCard::open(&*volume_button, 260, 120, move |col| {
+    col.fit(&*Label::section("Output"));
+    let _s = Slider::new(&vol, 0.0, 1.0, 0.1);
+    col.fit(&*Button::new("Mute"));
+}).on_dismiss(|why| println!("{why:?}"));      // Escape, ClickOutside, Closed
+```
+
+It is anchored like `PopupMenu` (below, or above when there is more room)
+and clamped to the window. **Keys:** focus goes to the first control
+inside; Tab and Shift+Tab stay in the card; Esc closes and focus goes back.
+
+## Table and Tree (virtual, on a KeyboardPanel)
+
+![table](components/table.png)
+
+```rust
+use fltk_omarchy::{panel::KeyboardPanel, table::{Column, Table}};
+let panel = KeyboardPanel::new("files");
+panel.set_items(n, |i| id_of(i), |id| index_of(id));    // stable IDs, display order
+let table = Table::new(&panel, vec![Column::new("Name", 0).flex(), Column::new("Size", 90).right(), Column::new("Kind", 80)],
+    |row, col| cell_text(row, col))
+    .icon(|row| glyph::FILE.to_string())
+    .on_sort(|col, ascending| { /* sort, then panel.set_items(..) again */ });
+```
+
+Only visible rows are drawn (10 000 rows: at most 20 drawn per frame in the test). Click a
+header to sort (the chevron shows the direction); drag a column edge to
+resize it. Selection, cursor and keys come from the panel: Ctrl/Shift
+ranges, Ctrl+Space, Ctrl+A, PageUp/PageDown, Home/End, Enter
+(`on_activate`). Double click activates.
+
+![tree](components/tree.png)
+
+```rust
+use fltk_omarchy::table::{Tree, TreeNode};
+let panel = KeyboardPanel::new("tree");
+let tree = Tree::new(&panel, |parent| match parent {
+    None => roots(),                                   // Vec<TreeNode>
+    Some(id) => children_of(id),                       // asked for on first expand only
+});
+// TreeNode::new(id, "Pictures").icon(glyph::FOLDER).branch()
+```
+
+Children are fetched lazily and cached. Call `tree.refresh()` after the
+data changes, or `refresh_node(Some(id))` for one folder. **Keys:** the
+panel's, plus Right (expand, then first child) and Left (collapse, then
+parent). Click the chevron to toggle; double click a branch toggles it,
+a leaf activates.
 
 ## Keyboard focus
 
@@ -454,6 +542,8 @@ with an area limit and a time budget, and shape hit-testing: all in
 | SearchableDropdown | `popups::SearchableDropdown` | `new(placeholder, vec![(label, description)], &State<Option<usize>>)`, `open()`, `filter()` |
 | list | `list::List` | `new(&State<usize>, \|i\| ListRow)`, `.bind_selected()`, `.on_select()`, `.on_activate()`, `select(i)` |
 | header / context menus | `popups::PopupMenu` | `open(&anchor, items, f)` / `open_at(&win, x, y, items, f)` → `PopupHandle` (`.on_dismiss()`, `.close()`, `.is_open()`, `.rect()`) |
+| popup card | `popups::PopupCard` | `open(&anchor, w, h, \|col\| ..)` / `open_at(..)` → `PopupHandle` |
+| table / tree | `table::Table`, `table::Tree` | `Table::new(&panel, columns, \|row, col\| text)`, `.icon()`, `.on_sort()`; `Tree::new(&panel, \|parent\| nodes)`, `expand`, `collapse`, `refresh`, `refresh_node` |
 | keyboard panel | `panel::KeyboardPanel` | `new(name)`, `.layout()`, `set_items(len, id_at, index_of)`, `cursor()`, `selection()`, `click()`, `focus()`, `show_ring()`, `.on_activate()`, `.on_edge()`, `.on_key()`, `.on_change()`; `focus::host(&widget, &[&a, &b])` |
 | menu plugin | `overlay::Menu` | `open(&win, title, items, f)` |
 | ConfirmDialog | `overlay::ConfirmDialog` | `open(&win, message, confirm, destructive, f)` |

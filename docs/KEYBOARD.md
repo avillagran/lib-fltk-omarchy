@@ -1,4 +1,4 @@
-# Keyboard first (0.0.5)
+# Keyboard first (0.0.7)
 
 Every lib-fltk-omarchy app can be used without a mouse, without writing any
 keyboard code. `App::new` installs one keyboard router (`focus::install`)
@@ -64,6 +64,10 @@ Panel keys and the API: [COMPONENTS.md](COMPONENTS.md#keyboardpanel-regions-of-o
 | Notification | reached with Tab; Enter / Space / Delete / Esc dismiss |
 | OperationToast | reached with Tab or `toast.focus()`; Left / Right choose; Enter / Space press; Esc leaves |
 | PopupMenu | Up / Down, j / k (skip disabled, wrap), PageUp / PageDown, Home / End; Enter; Esc |
+| PopupCard | Tab / Shift+Tab stay inside; Esc closes, focus comes back |
+| Table | the KeyboardPanel keys; Enter activates |
+| Tree | the KeyboardPanel keys, plus Right (expand / first child) and Left (collapse / parent) |
+| ShortcutHelp | Up / Down, PageUp / PageDown, Home / End (bounded); Esc / F1 close |
 | KeyboardPanel | Up / Down (Left / Right in a grid), with Ctrl (cursor only), Shift (range), Ctrl+Shift (add range); PageUp / PageDown, Home / End; Ctrl+Space, Ctrl+A; Enter |
 
 ## For app code
@@ -122,6 +126,31 @@ Focus trace: field → Add → ButtonGroup → TabBar → List → menu → List
 TabBar → none. The last step is the test giving focus back to the user's
 window.
 
-Not validated: a physical mouse through the compositor. Injecting pointer
-events needs a daemon (`ydotoold`); this project does not run daemons.
-Clicks are tested with `focus::click_at`.
+## Real mouse (0.0.7)
+
+Validated twice with the user's go-ahead:
+- `script/os-mouse-check` ran `ydotoold` for the duration of the test only.
+  Two button clicks and a switch click registered. A header drag moved
+  the window with the native compositor gesture (+80, +40).
+- The user then tested by hand with `examples/playground`, every action
+  logged to `build/playground.log`. The log shows the native move, the
+  native resize from the corners (960×730 down to 462×402), Normal /
+  Floating / Fullscreen modes, menus, lists, the table, the tree and the
+  toasts, with no panic.
+
+These tests found three bugs, now fixed:
+- **The first real click on a button crashed the app** (a re-entrant
+  `RefCell` borrow when the button took focus). A regression test clicks
+  every clickable control through fltk's event path.
+- **Partial redraws erased controls.** Hovering a control made it
+  disappear, and hovering a menu hid the window behind it. Group draws now
+  skip cfltk's pre-draw, and the window redraws everything that overlaps
+  the damaged area in stacking order (`examples/redraw_check.rs` checks
+  real window pixels).
+- **A window opened floating in Hyprland could not be tiled or resized.**
+  It was mapped with a fixed size to make it float. It now maps normally
+  and is floated right away (`examples/mode_check.rs`).
+
+Pointer warps over IPC (`hl.dsp.cursor.move`) were not reliable for
+aiming on this two-monitor, mixed-scale setup; the real-mouse evidence
+comes from the hand test.

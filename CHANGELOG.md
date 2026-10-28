@@ -1,5 +1,49 @@
 # Changelog
 
+## 0.0.7 — 2026-10-28
+
+For Files (issues #2, #3):
+- **TabBar overflow.** ‹ › arrows, wheel scrolling, and the selected tab
+  (close glyph included) kept in view; `overflowing`, `scroll_offset`,
+  `tab_rect`.
+- **ShortcutHelp.** Home/End, PageUp/PageDown, scrolling bounded to the
+  content, a scrollbar, and a handle with `scroll`/`max_scroll`.
+  **Breaking:** `open` returns the handle (single-expression closures need
+  a `;`).
+- **OperationToast.** `labels(..)` for localization,
+  `set_indeterminate`, the card follows the window corner on resize, the
+  buttons fit their labels, and `rect()`.
+- **PopupCard.** Any widgets in an anchored, clamped card. Esc, a click
+  outside or `close()`; Tab stays inside (`focus::push_modal`) and focus
+  comes back.
+- **`table::Table` and `table::Tree`**, virtual and on a KeyboardPanel:
+  - multi-selection and cursor by ID;
+  - Table: header sort, resizable columns;
+  - Tree: lazy, cached children; Right/Left expand and collapse; chevron
+    click.
+- **Native window gestures** (`native::begin_move` / `begin_resize`):
+  the libdecor/xdg_toplevel interactive move and resize, with the real
+  press serial, no compositor IPC. `AppWindow` uses them for the title
+  drag and the corner grips, with Hyprland IPC as a fallback. Validated
+  with a real mouse.
+
+Fixes found by testing with real input:
+- **The first real click on a button panicked** (a re-entrant `RefCell`
+  borrow in `take_focus`).
+- **Partial redraws erased controls and the content behind menus.**
+  Custom-drawn groups no longer run cfltk's pre-draw, and the window
+  redraws the children that overlap the damaged area, in stacking order.
+- **A Hyprland window opened floating could not be tiled or resized** (it
+  was mapped with a fixed size). It now maps normally and is floated right
+  away.
+- `TextField`'s input paints its own background: fixes overlapping glyphs
+  on partial redraws.
+- `anim` no longer touches widgets deleted mid-transition.
+
+Also: `examples/playground.rs` (every component, actions logged),
+`examples/redraw_check.rs`, `examples/mode_check.rs`, `examples/os_*`,
+`script/os-mouse-check`.
+
 ## 0.0.6 — 2026-10-28
 
 One design, the toolkit picks how to paint:
