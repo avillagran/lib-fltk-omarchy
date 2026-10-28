@@ -48,22 +48,35 @@ use std::collections::HashMap;
 thread_local! {
     // Natural (w, h) recorded when a child is fitted, before Flex layout
     // changes its geometry.
-    static NATURAL: RefCell<HashMap<usize, (i32, i32)>> = RefCell::new(HashMap::new());
+    // The tracker tells a live entry from one left by a deleted widget whose
+    // address fltk reused.
+    static NATURAL: RefCell<HashMap<usize, (fltk::widget::Widget, (i32, i32))>> = RefCell::new(HashMap::new());
 }
 
 fn key<W: WidgetExt>(w: &W) -> usize {
     w.as_widget_ptr() as usize
 }
 
+fn record<W: WidgetExt>(w: &W, size: (i32, i32)) {
+    // SAFETY: `w` is a live widget; the copy only tracks its deletion.
+    let t = unsafe { <fltk::widget::Widget as WidgetBase>::from_widget_ptr(w.as_widget_ptr()) };
+    NATURAL.with(|n| {
+        let mut n = n.borrow_mut();
+        if n.len() > 256 {
+            n.retain(|_, (t, _)| !t.was_deleted());
+        }
+        n.insert(key(w), (t, size));
+    });
+}
+
 /// Records a widget's natural size (done by `fit`; call it for widgets you
 /// size yourself before putting them in a fitted container).
 pub fn remember<W: WidgetExt>(w: &W) {
-    let size = (w.w(), w.h());
-    NATURAL.with(|n| n.borrow_mut().insert(key(w), size));
+    record(w, (w.w(), w.h()));
 }
 
 fn natural_of<W: WidgetExt>(w: &W) -> Option<(i32, i32)> {
-    NATURAL.with(|n| n.borrow().get(&key(w)).copied())
+    NATURAL.with(|n| n.borrow().get(&key(w)).filter(|(t, _)| !t.was_deleted()).map(|(_, s)| *s))
 }
 
 /// Updates the natural size of a fitted widget whose content changed and
@@ -71,7 +84,7 @@ fn natural_of<W: WidgetExt>(w: &W) -> Option<(i32, i32)> {
 pub fn refit<W: WidgetExt>(w: &W, natural: (i32, i32)) {
     let fitted = NATURAL.with(|n| {
         let mut n = n.borrow_mut();
-        n.get_mut(&key(w)).map(|v| *v = natural).is_some()
+        n.get_mut(&key(w)).filter(|(t, _)| !t.was_deleted()).map(|v| v.1 = natural).is_some()
     });
     if !fitted {
         return;
@@ -113,7 +126,7 @@ impl FlexExt for Flex {
     fn close_fitted(&mut self) {
         self.end();
         let (w, h) = natural(self);
-        NATURAL.with(|n| n.borrow_mut().insert(key(self), (w, h)));
+        record(self, (w, h));
         let me = self.clone();
         if let Some(parent) = self.parent() {
             if let Some(mut p) = Flex::from_dyn_widget(&parent) {

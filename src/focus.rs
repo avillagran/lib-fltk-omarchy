@@ -20,6 +20,7 @@
 use fltk::{app, enums::*, prelude::*, widget::Widget};
 use std::cell::{Cell, RefCell};
 use std::ffi::c_char;
+use crate::panel::KeyboardPanel;
 
 type ScopeFn = Box<dyn FnMut(Key) -> bool>;
 
@@ -28,6 +29,14 @@ thread_local! {
     static SCOPES: RefCell<Vec<(Widget, Option<ScopeFn>)>> = RefCell::new(Vec::new());
     static RETURNS: RefCell<Vec<(usize, Widget)>> = const { RefCell::new(Vec::new()) };
     static KEYBOARD: Cell<bool> = const { Cell::new(false) };
+    static HOSTS: RefCell<Vec<Host>> = const { RefCell::new(Vec::new()) };
+}
+
+/// A widget whose focusable regions are keyboard panels.
+struct Host {
+    widget: Widget,
+    panels: Vec<KeyboardPanel>,
+    active: usize,
 }
 
 /// Installs the keyboard router (idempotent; `App::new` calls it).
@@ -95,17 +104,26 @@ pub fn show_ring<W: WidgetExt>(w: &W) -> bool {
 
 /// Tab / arrows handling. `None` = not a navigation key, let fltk route it.
 fn route_key(win: app::WindowPtr) -> Option<bool> {
-    let state = app::event_state();
+    let state = app::event_state() & (Shortcut::Ctrl | Shortcut::Shift | Shortcut::Alt | Shortcut::Meta);
+    let k = app::event_key();
+    // A focused keyboard panel sees every key first (any modifiers). What it
+    // does not use goes on below exactly once (host handler, shortcuts).
+    let panel = current().and_then(|f| active_panel(&f));
+    if let Some(p) = &panel {
+        if k != Key::Tab && p.handle_key(k, state) {
+            return Some(true);
+        }
+    }
     if state.intersects(Shortcut::Ctrl | Shortcut::Alt | Shortcut::Meta) {
         return None;
     }
-    let k = app::event_key();
     let arrow = matches!(k, Key::Left | Key::Right | Key::Up | Key::Down);
     if k != Key::Tab && !arrow {
         return None;
     }
     if let Some(mut f) = current() {
-        if f.handle_event(Event::KeyDown) {
+        // A panel host does not get Tab: the router moves between its panels.
+        if !(panel.is_some() && k == Key::Tab) && f.handle_event(Event::KeyDown) {
             return Some(true);
         }
         if arrow && run_scopes(&f, k) {
@@ -148,15 +166,42 @@ pub fn chain<W: WidgetExt>(window: &W) -> Vec<Widget> {
     out
 }
 
-/// Moves focus to the next (or previous) control that accepts it. Returns
-/// the newly focused widget.
+/// Tab stops: each control, and each keyboard panel of a panel host.
+fn stops<W: WidgetExt>(window: &W) -> Vec<(Widget, Option<usize>)> {
+    let mut out = Vec::new();
+    for w in chain(window) {
+        match host_panels(&w) {
+            Some((n, _)) if n > 0 => out.extend((0..n).map(|r| (w.clone(), Some(r)))),
+            _ => out.push((w, None)),
+        }
+    }
+    out
+}
+
+/// Focuses stop `(w, region)`; true on success.
+fn enter(w: &Widget, region: Option<usize>) -> bool {
+    let mut w = w.clone();
+    if !is_focused(&w) && !(w.take_focus().is_ok() && is_focused(&w)) {
+        return false;
+    }
+    if let Some(r) = region {
+        set_active(&w, r);
+    }
+    true
+}
+
+/// Moves focus to the next (or previous) control, or keyboard panel, that
+/// accepts it. Returns the newly focused widget.
 pub fn step<W: WidgetExt>(window: &W, forward: bool) -> Option<Widget> {
-    let chain = chain(window);
-    let n = chain.len();
+    let stops = stops(window);
+    let n = stops.len();
     if n == 0 {
         return None;
     }
-    let cur = current().and_then(|f| chain.iter().position(|c| ptr(c) == ptr(&f)));
+    let cur = current().and_then(|f| {
+        let region = host_panels(&f).map(|(_, a)| a);
+        stops.iter().position(|(w, r)| ptr(w) == ptr(&f) && (r.is_none() || *r == region))
+    });
     for k in 1..=n {
         let i = match cur {
             Some(c) if forward => (c + k) % n,
@@ -164,20 +209,95 @@ pub fn step<W: WidgetExt>(window: &W, forward: bool) -> Option<Widget> {
             None if forward => k - 1,
             None => n - k,
         };
-        let mut w = chain[i].clone();
+        let (w, r) = &stops[i];
         if Some(i) == cur {
-            return Some(w);
+            return Some(w.clone());
         }
-        if w.take_focus().is_ok() && is_focused(&w) {
-            return Some(w);
+        if enter(w, *r) {
+            return Some(w.clone());
         }
     }
     None
 }
 
-/// Focuses the first control of `window` that accepts focus.
+/// Focuses the first control (or keyboard panel) of `window` that accepts focus.
 pub fn first<W: WidgetExt>(window: &W) -> Option<Widget> {
-    chain(window).into_iter().find_map(|mut w| (w.take_focus().is_ok() && is_focused(&w)).then_some(w))
+    stops(window).into_iter().find_map(|(w, r)| enter(&w, r).then_some(w))
+}
+
+// ------------------------------------------------------------ panel hosts
+
+/// Makes `widget` (a canvas that draws several regions) host these keyboard
+/// panels, in Tab order. Calling it again replaces the list (e.g. a dual
+/// pane turned into a single list). The widget must accept `Event::Focus`.
+pub fn host<W: WidgetExt>(widget: &W, panels: &[&KeyboardPanel]) {
+    // SAFETY: `widget` is a live widget; the copy only tracks it.
+    let w = unsafe { Widget::from_widget_ptr(widget.as_widget_ptr()) };
+    let id = ptr(&w);
+    let old = HOSTS.with(|h| {
+        let mut h = h.borrow_mut();
+        h.retain(|e| !e.widget.was_deleted());
+        let i = h.iter().position(|e| ptr(&e.widget) == id);
+        i.map(|i| h.remove(i))
+    });
+    let previous = old.as_ref().and_then(|o| o.panels.get(o.active).cloned());
+    if let Some(o) = &old {
+        for p in &o.panels {
+            if !panels.iter().any(|n| *n == p) {
+                p.set_host(None);
+            }
+        }
+    }
+    for p in panels {
+        p.set_host(Some(w.clone()));
+    }
+    let active = previous.and_then(|p| panels.iter().position(|n| **n == p)).unwrap_or(0);
+    let mut redraw = w.clone();
+    HOSTS.with(|h| h.borrow_mut().push(Host { widget: w, panels: panels.iter().map(|p| (*p).clone()).collect(), active }));
+    redraw.redraw();
+}
+
+/// (panel count, active index) when `w` hosts panels.
+fn host_panels(w: &Widget) -> Option<(usize, usize)> {
+    let id = ptr(w);
+    HOSTS.with(|h| h.borrow().iter().find(|e| !e.widget.was_deleted() && ptr(&e.widget) == id).map(|e| (e.panels.len(), e.active)))
+}
+
+fn active_panel(w: &Widget) -> Option<KeyboardPanel> {
+    let id = ptr(w);
+    HOSTS.with(|h| h.borrow().iter().find(|e| !e.widget.was_deleted() && ptr(&e.widget) == id).and_then(|e| e.panels.get(e.active).cloned()))
+}
+
+fn set_active(w: &Widget, region: usize) {
+    let id = ptr(w);
+    let changed = HOSTS.with(|h| {
+        let mut h = h.borrow_mut();
+        let e = h.iter_mut().find(|e| ptr(&e.widget) == id)?;
+        let r = region.min(e.panels.len().saturating_sub(1));
+        let changed = e.active != r;
+        e.active = r;
+        Some(changed)
+    });
+    if changed == Some(true) {
+        w.clone().redraw();
+    }
+}
+
+/// The keyboard panel that has focus, if any (for drawing and status text).
+pub fn focused_panel() -> Option<KeyboardPanel> {
+    current().and_then(|f| active_panel(&f))
+}
+
+pub(crate) fn is_panel_focused(p: &KeyboardPanel) -> bool {
+    focused_panel().is_some_and(|f| f == *p)
+}
+
+pub(crate) fn focus_panel(p: &KeyboardPanel) {
+    let Some(w) = p.host() else { return };
+    let region = HOSTS.with(|h| h.borrow().iter().find(|e| ptr(&e.widget) == ptr(&w)).and_then(|e| e.panels.iter().position(|x| x == p)));
+    if let Some(r) = region {
+        enter(&w, Some(r));
+    }
 }
 
 /// Arrow-key handler for a group of controls: while focus is anywhere
@@ -268,6 +388,16 @@ extern "C" {
     static mut FL_E_TEXT: *mut c_char;
     #[link_name = "_ZN2Fl8e_lengthE"]
     static mut FL_E_LENGTH: i32;
+    #[link_name = "_ZN2Fl3e_xE"]
+    static mut FL_E_X: i32;
+    #[link_name = "_ZN2Fl3e_yE"]
+    static mut FL_E_Y: i32;
+    #[link_name = "_ZN2Fl8e_x_rootE"]
+    static mut FL_E_X_ROOT: i32;
+    #[link_name = "_ZN2Fl8e_y_rootE"]
+    static mut FL_E_Y_ROOT: i32;
+    #[link_name = "_ZN2Fl8e_clicksE"]
+    static mut FL_E_CLICKS: i32;
 }
 
 thread_local! {
@@ -334,4 +464,24 @@ pub fn visible_in_window<W: WidgetExt>(w: &W) -> bool {
         p = g.parent();
     }
     true
+}
+
+/// Sends a left click (press + release) at window coordinates `(x, y)` of
+/// `window` through fltk's normal event path (tests, scripted tours).
+pub fn click_at<W: WindowExt>(window: &W, x: i32, y: i32) {
+    let win = window.as_widget_ptr() as app::WindowPtr;
+    // SAFETY: fltk's event globals are plain data, used on the UI thread.
+    unsafe {
+        FL_E_X = x;
+        FL_E_Y = y;
+        FL_E_X_ROOT = window.x() + x;
+        FL_E_Y_ROOT = window.y() + y;
+        FL_E_CLICKS = 0;
+        FL_E_KEYSYM = Key::from_i32(0xfee8 + 1).bits(); // FL_Button + 1 (left)
+        FL_E_STATE = 0x0100_0000; // FL_BUTTON1
+    }
+    dispatch(Event::Push, win);
+    // SAFETY: as above.
+    unsafe { FL_E_STATE = 0 };
+    dispatch(Event::Released, win);
 }

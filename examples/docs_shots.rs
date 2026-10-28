@@ -8,6 +8,9 @@ use fltk_omarchy::layout::{self, FlexExt};
 use fltk_omarchy::list::{List, ListRow};
 use fltk_omarchy::overlay::{ConfirmDialog, Dropdown, Menu, MenuItem, Notification, Urgency};
 use fltk_omarchy::popups::{OperationToast, PopupItem, PopupMenu, SearchableDropdown, ShortcutHelp};
+use fltk_omarchy::panel::KeyboardPanel;
+use fltk_omarchy::paint;
+use std::rc::Rc;
 use fltk_omarchy::widgets::{glyph, *};
 use fltk_omarchy::{theme, App, AppWindow, State};
 use std::path::{Path, PathBuf};
@@ -177,6 +180,21 @@ fn main() {
     ], |i| println!("picked {i}"));
     save(&mut win, &dir, "popup-menu");
 
+    // ---- popup menu larger than the window: clamped, scrolls, keeps the cursor visible
+    let (win, col) = frame(600, 230);
+    let mut r = layout::row();
+    layout::spacer();
+    let more = Button::icon("\u{f0241}", "Actions");
+    r.fit(&*more);
+    r.close_fitted();
+    let mut win = done(win, col);
+    let items: Vec<PopupItem> = (1..=12).map(|i| PopupItem::new(glyph::FILE, &format!("Action {i}")).shortcut(&format!("Ctrl+{i}"))).collect();
+    let menu = PopupMenu::open(&*more, items, |i| println!("picked {i}"))
+        .on_dismiss(|reason| println!("closed: {reason:?}"));   // Picked(i), Escape, ClickOutside, Closed
+    press("End");                                              // scrolls to the last entry
+    save(&mut win, &dir, "popup-menu-scroll");
+    menu.close();                                              // e.g. the data changed
+
     // ---- Omarchy menu (type to filter)
     let (win, col) = frame(600, 420);
     let mut win = done(win, col);
@@ -262,4 +280,48 @@ fn main() {
     press("Tab"); press("Down"); press("Down"); // list cursor
     w.snapshot(dir.join("keyboard-3-list.png")).unwrap();
     println!("{}", dir.join("keyboard-*.png").display());
+
+    // ---- keyboard panels: two Tab stops inside one canvas (dual pane)
+    let mut w = AppWindow::new("Panels", 600, 320);
+    let mut body = w.body();
+    body.fit(&*TextField::new().placeholder("~/Work"));
+    let names: Rc<Vec<&str>> = Rc::new(vec!["docs", "src", "tests", "Cargo.toml", "README.md", "LICENSE", "build.rs", "notes.txt"]);
+    let left = KeyboardPanel::new("left");
+    let right = KeyboardPanel::new("right");
+    for p in [&left, &right] {
+        // IDs are stable keys from your model (here: 100 + position).
+        p.set_items(names.len(), |i| 100 + i as u64, |id| id.checked_sub(100).map(|x| x as usize));
+    }
+    let mut canvas = fltk::widget::Widget::default().with_size(560, 200);
+    canvas.handle(|_, ev| matches!(ev, fltk::enums::Event::Focus | fltk::enums::Event::Unfocus));
+    let (l2, r2, n2) = (left.clone(), right.clone(), names.clone());
+    canvas.draw(move |c| theme::with(|t| {
+        let half = c.w() / 2;
+        for (k, p) in [&l2, &r2].into_iter().enumerate() {
+            let x = c.x() + k as i32 * half + 2;
+            let bg = t.palette.background;
+            for (i, name) in n2.iter().enumerate() {
+                let id = 100 + i as u64;
+                let y = c.y() + 6 + i as i32 * 24;
+                let fill = if p.cursor() == Some(id) && p.has_focus() { Some(t.fill(&t.controls.hover, bg)) }
+                    else if p.is_selected(id) { Some(t.fill(&t.controls.selected, bg)) } else { None };
+                paint::surface(x + 4, y, half - 12, 22, t.radius, fill, None);
+                paint::text(name, x + 14, y, half - 30, 22, t.font.body, p.is_selected(id), t.palette.foreground, fltk::enums::Align::Left);
+            }
+            if p.show_ring() {
+                paint::stroke(x, c.y(), half - 4, c.h(), t.radius, 1, t.border(&t.controls.focus, bg));
+            }
+        }
+    }));
+    body.fit(&canvas);
+    fltk_omarchy::focus::host(&canvas, &[&left, &right]);   // Tab: path → left → right
+    left.on_activate(|id| println!("open {id}"));
+    let r3 = right.clone();
+    left.on_edge(move |k| k == fltk::enums::Key::Right && { r3.focus(); true });
+    w.end();
+    fltk_omarchy::focus::first(&*w);
+    press("Tab"); press("Down"); press("Down");              // left: cursor on "src"
+    press("Tab"); press("Down"); press("Shift+Down"); press("Shift+Down"); // right: range
+    w.snapshot(dir.join("keyboard-panels.png")).unwrap();
+    println!("{}", dir.join("keyboard-panels.png").display());
 }

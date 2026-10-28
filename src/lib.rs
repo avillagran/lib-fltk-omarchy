@@ -6,6 +6,7 @@ pub mod layout;
 pub mod list;
 pub mod overlay;
 pub mod paint;
+pub mod panel;
 pub mod png;
 pub mod popups;
 pub mod state;

@@ -5,8 +5,9 @@ use fltk::prelude::*;
 use fltk_omarchy::focus::{self, press};
 use fltk_omarchy::layout::{self, FlexExt};
 use fltk_omarchy::list::{List, ListRow};
+use fltk_omarchy::panel::{KeyboardPanel, PanelLayout};
 use fltk_omarchy::overlay::{ConfirmDialog, Dropdown, Menu, MenuItem, Notification, Urgency};
-use fltk_omarchy::popups::{OperationToast, PopupItem, PopupMenu, SearchableDropdown};
+use fltk_omarchy::popups::{Dismiss, OperationToast, PopupItem, PopupMenu, SearchableDropdown};
 use fltk_omarchy::theme::Corners;
 use fltk_omarchy::Mode;
 use fltk_omarchy::task::{Outcome, Task};
@@ -234,6 +235,192 @@ fn main() {
         press("Escape");
         check(win.children() == before, "dialog closed")
     });
+    run("popup menu: 12 entries in 800x440 at a large font clamp, scroll and stay usable", &|shots| {
+        let user = PathBuf::from(std::env::var("OMARCHY_FLTK_USER_SHELL").unwrap());
+        std::fs::write(&user, "[font]\nbase-size = 18\n").unwrap();
+        theme::reload();
+        let mut win = AppWindow::new("t", 800, 440);
+        let mut body = win.body();
+        let mut r = layout::row();
+        layout::spacer();
+        let anchor = Button::new("Actions");
+        r.fit(&*anchor);
+        r.close_fitted();
+        win.end();
+        win.snapshot(shots.join("popup-0.png")).map_err(|e| e.to_string())?; // lays out
+        let mut a2 = anchor.clone();
+        let _ = a2.take_focus();
+        let mut items: Vec<PopupItem> = (0..12).map(|i| PopupItem::new("", &format!("Action {i}")).shortcut(&format!("Ctrl+{i}"))).collect();
+        items[0] = PopupItem::new("", "A label far too long to fit in this small window, with words and words and more words to cut").shortcut("Ctrl+L");
+        items[3] = items[3].clone().divider();
+        items[5] = items[5].clone().disabled();
+        items[11] = items[11].clone().checked(true);
+        let picked = Rc::new(RefCell::new(Vec::new()));
+        let p2 = picked.clone();
+        let reasons = Rc::new(RefCell::new(Vec::new()));
+        let r2 = reasons.clone();
+        let h = PopupMenu::open(&*anchor, items.clone(), move |i| p2.borrow_mut().push(i)).on_dismiss(move |d| r2.borrow_mut().push(d));
+        let (x, y, w, hh) = h.rect().ok_or("rect")?;
+        let (_, content) = PopupMenu::measure(&items, 440, anchor.y() + anchor.h());
+        check(y >= 0 && y + hh <= 440 && x >= 0 && x + w <= 800, &format!("card inside the window: {:?}", h.rect()))?;
+        check(content > hh, &format!("entries ({content}px) taller than the card ({hh}px): it scrolls"))?;
+        check(x + w <= anchor.x() + anchor.w() + 1 || x <= 2, &format!("right-aligned under a right-side anchor, or clamped: {:?} anchor {}..{}", h.rect(), anchor.x(), anchor.x() + anchor.w()))?;
+        win.snapshot(shots.join("popup-1-top.png")).map_err(|e| e.to_string())?;
+        press("End");
+        win.snapshot(shots.join("popup-2-end.png")).map_err(|e| e.to_string())?;
+        // The last row is now at the bottom of the card: click it.
+        let row = theme::current().spacing.popup_row_height;
+        focus::click_at(&*win, x + w / 2, y + hh - row / 2 - 3);
+        check(*picked.borrow() == vec![11], &format!("click on the scrolled last row picks it: {:?}", picked.borrow()))?;
+        check(*reasons.borrow() == vec![Dismiss::Picked(11)] && !h.is_open(), "dismissed with Picked(11)")?;
+        check(focus::is_focused(&*anchor), "focus back on the anchor")?;
+        // Keys: Home, PageDown skips past the disabled entry, Up wraps.
+        picked.borrow_mut().clear();
+        let p3 = picked.clone();
+        PopupMenu::open(&*anchor, items.clone(), move |i| p3.borrow_mut().push(i));
+        press("Down"); press("Down"); press("Down"); press("Down"); press("Down"); // 0→1→2→3→4→6
+        press("Enter");
+        check(*picked.borrow() == vec![6], &format!("Down skips the disabled entry: {:?}", picked.borrow()))?;
+        let p4 = picked.clone();
+        PopupMenu::open(&*anchor, items.clone(), move |i| p4.borrow_mut().push(i));
+        press("Up"); press("Enter");
+        check(picked.borrow().last() == Some(&11), "Up from the first entry wraps to the last")?;
+        let p5 = picked.clone();
+        PopupMenu::open(&*anchor, items.clone(), move |i| p5.borrow_mut().push(i));
+        press("PageDown"); press("PageDown"); press("Home"); press("Enter");
+        check(picked.borrow().last() == Some(&0), "Home goes back to the first entry")?;
+        std::fs::remove_file(&user).unwrap();
+        theme::reload();
+        Ok(())
+    });
+    run("popup menu lifecycle: Esc, click outside, close(), deleted window", &|_| {
+        let mut win = AppWindow::new("t", 400, 300);
+        let mut body = win.body();
+        let anchor = Button::new("Menu");
+        body.fit(&*anchor);
+        win.end();
+        win.snapshot(std::env::temp_dir().join("omarchy-fltk-unused.png")).ok();
+        let f10 = Rc::new(RefCell::new(0));
+        let f2 = f10.clone();
+        win.shortcut("F10", move || *f2.borrow_mut() += 1);
+        let items = || vec![PopupItem::new("", "One"), PopupItem::new("", "Two")];
+        let picks = Rc::new(RefCell::new(0));
+        let mut a = anchor.clone();
+        let _ = a.take_focus();
+        let pk = picks.clone();
+        let h = PopupMenu::open(&*anchor, items(), move |_| *pk.borrow_mut() += 1);
+        press("Escape");
+        check(h.dismissed() == Some(Dismiss::Escape) && focus::is_focused(&*anchor), "Esc: reason and focus")?;
+        press("F10");
+        check(*f10.borrow() == 1, "window shortcut works right after Esc")?;
+        let pk = picks.clone();
+        let h = PopupMenu::open(&*anchor, items(), move |_| *pk.borrow_mut() += 1);
+        focus::click_at(&*win, 390, 290);
+        check(h.dismissed() == Some(Dismiss::ClickOutside) && *picks.borrow() == 0, "click outside: no pick")?;
+        let pk = picks.clone();
+        let seen = Rc::new(RefCell::new(Vec::new()));
+        let s2 = seen.clone();
+        let h = PopupMenu::open(&*anchor, items(), move |_| *pk.borrow_mut() += 1).on_dismiss(move |d| s2.borrow_mut().push(d));
+        check(h.is_open(), "open")?;
+        h.close();
+        h.close();
+        let s3 = seen.clone();
+        let _ = h.clone().on_dismiss(move |d| s3.borrow_mut().push(d));
+        check(*seen.borrow() == vec![Dismiss::Closed, Dismiss::Closed] && !h.is_open() && *picks.borrow() == 0,
+              &format!("close(): once, no pick, late on_dismiss runs now: {:?}", seen.borrow()))?;
+        check(focus::is_focused(&*anchor), "focus back after close()")?;
+        // Window deleted while the menu is open: no callback, no panic.
+        let fired = Rc::new(RefCell::new(false));
+        let f3 = fired.clone();
+        let h = PopupMenu::open(&*anchor, items(), |_| {}).on_dismiss(move |_| *f3.borrow_mut() = true);
+        fltk::window::Window::delete((*win).clone());
+        App::pump();
+        h.close();
+        check(!h.is_open() && !*fired.borrow(), "deleted window: not open, no callback")
+    });
+    run("keyboard panels: dual pane in one canvas, path field, app Ctrl+Tab once, menus", &|shots| {
+        let mut win = AppWindow::new("t", 640, 360);
+        let mut body = win.body();
+        let path = State::new(String::new());
+        let field = TextField::new().placeholder("Path").bind(&path);
+        body.fit(&*field);
+        let left = KeyboardPanel::new("left");
+        let right = KeyboardPanel::new("right").layout(PanelLayout::Grid { columns: 4 });
+        // Stable IDs, not indexes.
+        left.set_items(20, |i| 1000 + i as u64, |id| id.checked_sub(1000).map(|x| x as usize));
+        right.set_items(12, |i| 5000 + 3 * i as u64, |id| id.checked_sub(5000).filter(|x| x % 3 == 0).map(|x| (x / 3) as usize));
+        let mut canvas = fltk::widget::Widget::default().with_size(600, 220);
+        canvas.handle(|_, ev| matches!(ev, fltk::enums::Event::Focus | fltk::enums::Event::Unfocus));
+        let (l2, r2) = (left.clone(), right.clone());
+        canvas.draw(move |w| theme::with(|t| {
+            let half = w.w() / 2;
+            for (i, p) in [&l2, &r2].into_iter().enumerate() {
+                let x = w.x() + i as i32 * half;
+                if let Some(c) = p.cursor_index() {
+                    fltk_omarchy::paint::fill(x + 8, w.y() + 8 + 20 * (c as i32 % 8), half - 16, 18, 0, t.fill(&t.controls.selected, t.palette.background));
+                }
+                if p.show_ring() {
+                    fltk_omarchy::paint::stroke(x + 2, w.y() + 2, half - 4, w.h() - 4, t.radius, 2, t.border(&t.controls.focus, t.palette.background));
+                }
+            }
+        }));
+        body.fit(&canvas);
+        focus::host(&canvas, &[&left, &right]);
+        let after = Button::new("After");
+        body.fit(&*after);
+        let activated = Rc::new(RefCell::new(Vec::new()));
+        let a2 = activated.clone();
+        right.on_activate(move |id| a2.borrow_mut().push(id));
+        let r3 = right.clone();
+        left.on_edge(move |k| { if k == fltk::enums::Key::Right { r3.focus(); true } else { false } });
+        let tabs_switched = Rc::new(RefCell::new(0));
+        let t2 = tabs_switched.clone();
+        win.shortcut("Ctrl+Tab", move || *t2.borrow_mut() += 1); // the app's own tabs
+        win.end();
+        win.snapshot(shots.join("panels-0.png")).map_err(|e| e.to_string())?;
+
+        focus::first(&*win).ok_or("first")?;
+        press("Shift+w"); press("o");
+        check(path.get() == "Wo", &format!("path edit: {:?}", path.get()))?;
+        press("Tab");
+        check(left.has_focus() && !right.has_focus() && focus::focused_panel() == Some(left.clone()), "Tab enters the left panel")?;
+        press("Down"); press("Down");
+        check(left.cursor() == Some(1001) && left.selection() == vec![1001], "cursor and selection by ID")?;
+        press("Tab");
+        check(right.has_focus() && focus::is_focused(&canvas), "Tab: second stop in the same widget")?;
+        press("Right"); press("Right"); press("Down");
+        check(right.cursor_index() == Some(5) && right.cursor() == Some(5015), &format!("grid moves: {:?}", right.cursor_index()))?;
+        press("Shift+Left");
+        check(right.selection() == vec![5012, 5015], &format!("Shift range: {:?}", right.selection()))?;
+        win.snapshot(shots.join("panels-1-right.png")).map_err(|e| e.to_string())?;
+        let ring = pixel(&shots.join("panels-1-right.png"), canvas.x() + canvas.w() / 2 + 3, canvas.y() + 40)?;
+        let off = pixel(&shots.join("panels-1-right.png"), canvas.x() + 3, canvas.y() + 40)?;
+        let acc = theme::current().palette.accent;
+        check(ring == [acc.r(), acc.g(), acc.b()] && off != ring, &format!("ring on the right panel only: {ring:?} / {off:?}"))?;
+        press("Enter");
+        check(*activated.borrow() == vec![5012], &format!("Enter activates the cursor item: {:?}", activated.borrow()))?;
+        press("Ctrl+Tab");
+        check(*tabs_switched.borrow() == 1 && right.has_focus() && right.cursor() == Some(5012), "the app's Ctrl+Tab runs once; panels unchanged")?;
+        press("Shift+Tab");
+        check(left.has_focus(), "Shift+Tab back to the left panel")?;
+        press("Right");
+        check(right.has_focus(), "Right at the list edge goes to the other panel (on_edge)")?;
+        // A menu opened from the panel gives focus back to the same panel.
+        let h = PopupMenu::open(&canvas, vec![PopupItem::new("", "Copy"), PopupItem::new("", "Paste")], |_| {});
+        check(!right.has_focus(), "menu has the keyboard")?;
+        press("Escape");
+        check(h.dismissed() == Some(Dismiss::Escape) && right.has_focus(), "Esc: back to the right panel")?;
+        press("Tab");
+        check(focus::is_focused(&*after), "Tab leaves the canvas after its last panel")?;
+        press("Tab");
+        check(focus::current().is_some_and(|f| f.as_widget_ptr() == field.input().as_widget_ptr()), "wraps to the path field")?;
+        // F9-like: one panel only; the other loses its host.
+        focus::host(&canvas, &[&left]);
+        right.focus();
+        check(!right.has_focus(), "a removed panel cannot take focus")?;
+        left.focus();
+        check(left.has_focus() && focus::is_focused(&canvas), "panel.focus() from code")
+    });
     run("keyboard only: Tab order, arrows, shortcuts, focus comes back", &|shots| {
         let mut win = AppWindow::new("t", 560, 420);
         let mut body = win.body();
@@ -360,9 +547,57 @@ fn main() {
         pump_until(|| theme::current().palette.accent == theme::Rgb(0xe68e0d));
         check(theme::current().palette.accent == theme::Rgb(0xe68e0d), "accent after in-place edit")
     });
+    run("theme: partial writes keep the last valid theme, recovery and overrides apply", &|_| {
+        let state = PathBuf::from(std::env::var("OMARCHY_FLTK_STATE_DIR").unwrap());
+        let user = PathBuf::from(std::env::var("OMARCHY_FLTK_USER_SHELL").unwrap());
+        let colors = state.join("theme/colors.toml");
+        std::fs::write(&colors, COLORS_A).unwrap();
+        theme::reload();
+        let accent = |c: u32| theme::current().palette.accent == theme::Rgb(c);
+        check(accent(0xe68e0d), "starts on theme A")?;
+        // Cut in the middle of a write: the watcher sees it, nothing changes.
+        std::fs::write(&colors, "accent = \"#33ccff\"\nbackground = \"#1a1b").unwrap();
+        let t0 = Instant::now();
+        while t0.elapsed() < Duration::from_millis(400) { App::pump(); std::thread::sleep(Duration::from_millis(10)); }
+        check(accent(0xe68e0d), "truncated colors.toml keeps the last theme")?;
+        check(!theme::reload() && matches!(theme::last_error(), Some(theme::ThemeError::Parse { line: 2, .. })), &format!("parse error reported: {:?}", theme::last_error()))?;
+        std::fs::write(&colors, "").unwrap();
+        check(!theme::reload() && matches!(theme::last_error(), Some(theme::ThemeError::Missing { .. })), "empty file: missing keys")?;
+        std::fs::write(&colors, "accent = \"#33ccff\"\nbackground = \"#1a1b2\"\nforeground = \"#c0caf5\"\n").unwrap();
+        check(!theme::reload() && matches!(theme::last_error(), Some(theme::ThemeError::BadColor { .. })), "cut color value")?;
+        check(accent(0xe68e0d), "still theme A")?;
+        // Directory being replaced, then the new theme lands.
+        std::fs::remove_dir_all(state.join("theme")).unwrap();
+        check(!theme::reload() && matches!(theme::last_error(), Some(theme::ThemeError::Read { .. })), "missing theme dir")?;
+        std::fs::create_dir_all(state.join("next")).unwrap();
+        std::fs::write(state.join("next/colors.toml"), COLORS_B).unwrap();
+        std::fs::rename(state.join("next"), state.join("theme")).unwrap();
+        pump_until(|| accent(0x33ccff));
+        check(accent(0x33ccff) && theme::last_error().is_none(), "recovers with the next valid theme")?;
+        // User shell.toml overrides: valid applies, malformed keeps, removal reverts.
+        std::fs::write(&user, "[font]\nbase-size = 14\n").unwrap();
+        theme::reload();
+        check(theme::current().font.base == 14, "user override applied")?;
+        std::fs::write(&user, "[font\nbase-size = 18\n").unwrap();
+        check(!theme::reload() && theme::current().font.base == 14, "malformed override keeps the last theme")?;
+        std::fs::remove_file(&user).unwrap();
+        theme::reload();
+        check(theme::current().font.base == 12, "override removed")?;
+        std::fs::write(&colors_path(&state), COLORS_A).unwrap();
+        theme::reload();
+        // No Omarchy at all: the built-in fallback still loads.
+        std::env::set_var("OMARCHY_FLTK_STATE_DIR", state.join("does-not-exist"));
+        let fallback = theme::Theme::try_load();
+        std::env::set_var("OMARCHY_FLTK_STATE_DIR", &state);
+        check(fallback.is_ok_and(|t| t.palette.accent == theme::Rgb(0x7aa2f7)), "fallback without Omarchy")
+    });
     drop(app);
     println!("{}", if failed == 0 { "all ui checks passed" } else { "ui checks FAILED" });
     std::process::exit(if failed == 0 { 0 } else { 1 });
+}
+
+fn colors_path(state: &Path) -> PathBuf {
+    state.join("theme/colors.toml")
 }
 
 fn check(ok: bool, what: &str) -> Result<(), String> {

@@ -305,14 +305,86 @@ magenta = "#bb9af7"
 cyan = "#7dcfff"
 "##;
 
+/// Why a theme could not be read; [`reload`] keeps the last valid theme.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ThemeError {
+    /// A file that must exist is missing or unreadable (e.g. the theme
+    /// directory is being replaced).
+    Read { path: PathBuf, message: String },
+    /// Malformed TOML (often a file cut in the middle of a write).
+    Parse { path: PathBuf, line: usize, message: String },
+    /// A required key is missing (`colors.toml`: background, foreground).
+    Missing { path: PathBuf, key: String },
+    /// A color value that is not `#rgb`, `#rrggbb` or `#rrggbbaa`.
+    BadColor { path: PathBuf, key: String, value: String },
+}
+
+impl std::fmt::Display for ThemeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ThemeError::Read { path, message } => write!(f, "{}: {message}", path.display()),
+            ThemeError::Parse { path, line, message } => write!(f, "{}:{line}: {message}", path.display()),
+            ThemeError::Missing { path, key } => write!(f, "{}: missing `{key}`", path.display()),
+            ThemeError::BadColor { path, key, value } => write!(f, "{}: `{key}` is not a color: {value:?}", path.display()),
+        }
+    }
+}
+
+impl std::error::Error for ThemeError {}
+
+/// Reads and strictly parses a TOML file; `required` = missing is an error.
+fn read_strict(path: &Path, required: bool) -> Result<Table, ThemeError> {
+    match std::fs::read_to_string(path) {
+        Ok(text) => toml::parse_strict(&text).map_err(|e| ThemeError::Parse { path: path.into(), line: e.line, message: e.message }),
+        Err(e) if !required && e.kind() == std::io::ErrorKind::NotFound => Ok(Table::new()),
+        Err(e) => Err(ThemeError::Read { path: path.into(), message: e.to_string() }),
+    }
+}
+
 impl Theme {
-    /// Loads the current Omarchy theme, or the built-in fallback.
+    /// Loads and validates the current Omarchy theme.
+    ///
+    /// - Omarchy not installed (no state dir): `Ok` with the built-in fallback.
+    /// - `colors.toml` missing, unreadable, malformed, without `background`
+    ///   or `foreground`, or with a value starting with `#` that is not a
+    ///   color: `Err`.
+    /// - Theme or user `shell.toml` malformed: `Err` (missing is fine).
+    pub fn try_load() -> Result<Theme, ThemeError> {
+        if !omarchy_state_dir().exists() {
+            return Ok(Theme::load());
+        }
+        let dir = theme_dir();
+        let path = dir.join("colors.toml");
+        let colors = read_strict(&path, true)?;
+        for key in ["background", "foreground"] {
+            if !colors.contains_key(key) {
+                return Err(ThemeError::Missing { path: path.clone(), key: key.into() });
+            }
+        }
+        for (key, v) in &colors {
+            let text = v.as_str().unwrap_or("");
+            let colorish = text.trim_start().starts_with('#') || key == "background" || key == "foreground";
+            if colorish && Rgb::parse(text).is_none() {
+                return Err(ThemeError::BadColor { path: path.clone(), key: key.clone(), value: text.into() });
+            }
+        }
+        let mut shell = read_strict(&dir.join("shell.toml"), false)?;
+        shell.extend(read_strict(&user_shell_toml(), false)?); // user keys win
+        Ok(Theme::build(&colors, &shell))
+    }
+
+    /// Loads the current Omarchy theme, or the built-in fallback. Tolerant:
+    /// malformed lines are skipped (used for the first theme of the app).
     pub fn load() -> Theme {
         let dir = theme_dir();
         let colors = read(&dir.join("colors.toml"));
         let colors = if colors.is_empty() { toml::parse(FALLBACK_COLORS) } else { colors };
         let mut shell = read(&dir.join("shell.toml"));
         shell.extend(read(&user_shell_toml())); // user keys win
+        Theme::build(&colors, &shell)
+    }
+
+    fn build(colors: &Table, shell: &Table) -> Theme {
         let name = std::fs::read_to_string(omarchy_state_dir().join("theme.name"))
             .map(|s| s.trim().to_string())
             .unwrap_or_else(|_| "Omarchy".into());
@@ -324,7 +396,7 @@ impl Theme {
         } else {
             (0, 5)
         };
-        Theme::from_tables(&name, &colors, &shell, radius, gaps)
+        Theme::from_tables(&name, colors, shell, radius, gaps)
     }
 
     /// Builds a theme from parsed `colors.toml` and merged `shell.toml` tables.
@@ -563,6 +635,7 @@ thread_local! {
     static CORNERS: std::cell::Cell<Corners> = const { std::cell::Cell::new(Corners::Omarchy) };
     static FOCUS_RING: std::cell::Cell<FocusRing> = const { std::cell::Cell::new(FocusRing::Accent) };
     static CURRENT: RefCell<Option<Theme>> = const { RefCell::new(None) };
+    static LAST_ERROR: RefCell<Option<ThemeError>> = const { RefCell::new(None) };
     // A listener returns false to unregister itself.
     static LISTENERS: RefCell<Vec<Box<dyn FnMut(&Theme) -> bool>>> = const { RefCell::new(Vec::new()) };
 }
@@ -645,13 +718,31 @@ pub fn on_change_while<W: fltk::prelude::WidgetExt>(w: &W, mut f: impl FnMut(&Th
 }
 
 /// Re-reads the Omarchy theme; applies it if it changed. Returns true on change.
+/// Re-reads and validates the Omarchy theme; applies it if it changed.
+/// Returns true on change. When the files are invalid (a write in
+/// progress, a theme directory being replaced) the last valid theme stays
+/// and [`last_error`] says why; the next valid write is picked up.
 pub fn reload() -> bool {
-    let fresh = Theme::load().with_prefs();
-    if with(|t| *t == fresh) {
-        return false;
+    match Theme::try_load() {
+        Ok(t) => {
+            LAST_ERROR.with(|e| *e.borrow_mut() = None);
+            let fresh = t.with_prefs();
+            if with(|t| *t == fresh) {
+                return false;
+            }
+            set(fresh);
+            true
+        }
+        Err(e) => {
+            LAST_ERROR.with(|l| *l.borrow_mut() = Some(e));
+            false
+        }
     }
-    set(fresh);
-    true
+}
+
+/// Why the last [`reload`] kept the previous theme (None after a valid one).
+pub fn last_error() -> Option<ThemeError> {
+    LAST_ERROR.with(|e| e.borrow().clone())
 }
 
 fn apply_to_fltk(t: &Theme) {

@@ -93,10 +93,10 @@ fn main() {
     let open_actions = Rc::new(move || PopupMenu::open(&*b2, action_items(), |i| println!("action {i}")));
     let (p1, a1) = (open_prefs.clone(), open_actions.clone());
     gear.clone().on_click(move || p1());
-    bolt.clone().on_click(move || a1());
+    bolt.clone().on_click(move || { a1(); });
     let (p2, a2) = (open_prefs.clone(), open_actions.clone());
     win.shortcut("Ctrl+,", move || p2());
-    win.shortcut("F10", move || a2());
+    win.shortcut("F10", move || { a2(); });
     let w3 = win.clone();
     win.shortcut("F1", move || ShortcutHelp::open(&*w3, "Keyboard shortcuts", help()));
 
