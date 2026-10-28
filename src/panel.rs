@@ -72,6 +72,7 @@ struct Callbacks {
     activate: Option<Box<dyn FnMut(ItemId)>>,
     edge: Option<Box<dyn FnMut(Key) -> bool>>,
     key: Option<Box<dyn FnMut(Key, Shortcut) -> bool>>,
+    focus: Option<Box<dyn FnMut(bool)>>,
 }
 
 struct Inner {
@@ -362,6 +363,27 @@ impl KeyboardPanel {
     pub fn on_change(&self, f: impl FnMut() + 'static) -> &Self {
         self.cbs.borrow_mut().change = Some(Box::new(f));
         self
+    }
+
+    /// This panel gained (`true`) or lost (`false`) keyboard focus: Tab,
+    /// Shift+Tab, [`KeyboardPanel::focus`], a host change, focus given back
+    /// by a menu, a click. Runs synchronously, before the app-wide
+    /// [`crate::focus::on_panel_focus`] listeners; the losing panel first.
+    pub fn on_focus(&self, f: impl FnMut(bool) + 'static) -> &Self {
+        self.cbs.borrow_mut().focus = Some(Box::new(f));
+        self
+    }
+
+    pub(crate) fn notify_focus(&self, focused: bool) {
+        // Taken out while it runs, so it may call back into this panel.
+        let f = self.cbs.borrow_mut().focus.take();
+        if let Some(mut f) = f {
+            f(focused);
+            let mut c = self.cbs.borrow_mut();
+            if c.focus.is_none() {
+                c.focus = Some(f);
+            }
+        }
     }
 
     /// Enter on the cursor item.

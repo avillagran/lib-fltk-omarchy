@@ -47,6 +47,9 @@ pub fn install() {
     // SAFETY: `dispatch` forwards every event it does not consume to fltk's
     // default handler with the same window pointer.
     unsafe { app::event_dispatch(dispatch) };
+    // Catch-all for focus changes made outside any event (app code calling
+    // `take_focus` from a timer): reported before the loop waits again.
+    app::add_check(|_| sync_panels(PanelFocusCause::Other));
 }
 
 fn dispatch(ev: Event, win: app::WindowPtr) -> bool {
@@ -55,13 +58,13 @@ fn dispatch(ev: Event, win: app::WindowPtr) -> bool {
         Event::Push => set_keyboard_mode(false),
         _ => {}
     }
-    if ev == Event::KeyDown {
-        if let Some(used) = route_key(win) {
-            return used;
-        }
-    }
+    let used = if ev == Event::KeyDown { route_key(win) } else { None };
     // SAFETY: `win` comes from fltk for this very event.
-    unsafe { app::handle_raw(ev, win) }
+    let used = used.unwrap_or_else(|| unsafe { app::handle_raw(ev, win) });
+    // A click, an overlay opened by a key, app code in a callback: the panel
+    // focus is reported before the next event is dispatched.
+    sync_panels(PanelFocusCause::Other);
+    used
 }
 
 fn ptr<W: WidgetExt>(w: &W) -> usize {
@@ -267,6 +270,12 @@ fn enter(w: &Widget, region: Option<usize>) -> bool {
 /// Moves focus to the next (or previous) control, or keyboard panel, that
 /// accepts it. Returns the newly focused widget.
 pub fn step<W: WidgetExt>(window: &W, forward: bool) -> Option<Widget> {
+    let r = step_inner(window, forward);
+    sync_panels(if forward { PanelFocusCause::Tab } else { PanelFocusCause::ShiftTab });
+    r
+}
+
+fn step_inner<W: WidgetExt>(window: &W, forward: bool) -> Option<Widget> {
     let stops = stops(window);
     let n = stops.len();
     if n == 0 {
@@ -296,7 +305,9 @@ pub fn step<W: WidgetExt>(window: &W, forward: bool) -> Option<Widget> {
 
 /// Focuses the first control (or keyboard panel) of `window` that accepts focus.
 pub fn first<W: WidgetExt>(window: &W) -> Option<Widget> {
-    stops(window).into_iter().find_map(|(w, r)| enter(&w, r).then_some(w))
+    let r = stops(window).into_iter().find_map(|(w, r)| enter(&w, r).then_some(w));
+    sync_panels(PanelFocusCause::Focus);
+    r
 }
 
 // ------------------------------------------------------------ panel hosts
@@ -329,6 +340,14 @@ pub fn host<W: WidgetExt>(widget: &W, panels: &[&KeyboardPanel]) {
     let mut redraw = w.clone();
     HOSTS.with(|h| h.borrow_mut().push(Host { widget: w, panels: panels.iter().map(|p| (*p).clone()).collect(), active }));
     redraw.redraw();
+    sync_panels(PanelFocusCause::HostChanged);
+}
+
+/// The active panel of a panel host, focused or not (the pane that stays
+/// "current" while focus is in a path field or a menu).
+pub fn active_panel_of<W: WidgetExt>(widget: &W) -> Option<KeyboardPanel> {
+    // SAFETY: `widget` is a live widget; the copy is only compared.
+    active_panel(&unsafe { Widget::from_widget_ptr(widget.as_widget_ptr()) })
 }
 
 /// (panel count, active index) when `w` hosts panels.
@@ -372,6 +391,122 @@ pub(crate) fn focus_panel(p: &KeyboardPanel) {
     if let Some(r) = region {
         enter(&w, Some(r));
     }
+    sync_panels(PanelFocusCause::Focus);
+}
+
+// ------------------------------------------------------ panel focus events
+
+/// Why the focused keyboard panel changed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PanelFocusCause {
+    /// Tab, or [`step`] forward.
+    Tab,
+    /// Shift+Tab, or [`step`] backward.
+    ShiftTab,
+    /// [`KeyboardPanel::focus`] or [`first`].
+    Focus,
+    /// [`host`] replaced the panel list (the focused panel went away or moved).
+    HostChanged,
+    /// A menu, dialog or popup opened and took the keyboard.
+    Overlay,
+    /// A menu, dialog or toast closed and gave focus back.
+    Restored,
+    /// Anything else: a click, `take_focus` in app code, a toast reached
+    /// with Tab, the host widget hidden or deleted.
+    #[default]
+    Other,
+}
+
+/// One change of the focused keyboard panel (see [`on_panel_focus`]).
+#[derive(Debug, Clone)]
+pub struct PanelFocus {
+    /// The panel that had focus (`None`: an ordinary control or nothing).
+    pub previous: Option<KeyboardPanel>,
+    /// The panel that has focus now.
+    pub current: Option<KeyboardPanel>,
+    pub cause: PanelFocusCause,
+}
+
+type PanelFocusFn = Box<dyn FnMut(&PanelFocus)>;
+
+thread_local! {
+    static PANEL_SEEN: RefCell<Option<KeyboardPanel>> = const { RefCell::new(None) };
+    static PANEL_LISTENERS: RefCell<Vec<(u64, Option<PanelFocusFn>)>> = const { RefCell::new(Vec::new()) };
+    static PANEL_NEXT_ID: Cell<u64> = const { Cell::new(1) };
+    static SYNCING: Cell<bool> = const { Cell::new(false) };
+    static PENDING_CAUSE: Cell<Option<PanelFocusCause>> = const { Cell::new(None) };
+}
+
+/// Handle returned by [`on_panel_focus`]; pass it to [`remove_panel_focus`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PanelFocusListener(u64);
+
+/// Runs `f` every time the focused keyboard panel changes, synchronously,
+/// inside the event or call that changed it. Order and guarantees are in
+/// docs/KEYBOARD.md ("Panel focus events"). Per-panel:
+/// [`KeyboardPanel::on_focus`].
+pub fn on_panel_focus(f: impl FnMut(&PanelFocus) + 'static) -> PanelFocusListener {
+    let id = PANEL_NEXT_ID.with(|n| n.replace(n.get() + 1));
+    PANEL_LISTENERS.with(|l| l.borrow_mut().push((id, Some(Box::new(f)))));
+    PanelFocusListener(id)
+}
+
+pub fn remove_panel_focus(listener: PanelFocusListener) {
+    PANEL_LISTENERS.with(|l| l.borrow_mut().retain(|(id, _)| *id != listener.0));
+}
+
+/// Compares the focused panel with the last one reported and notifies the
+/// change. Re-entrant calls (a listener that moves focus) are folded into
+/// the running loop, so changes are reported one at a time, in order.
+pub(crate) fn sync_panels(cause: PanelFocusCause) {
+    if SYNCING.with(|s| s.replace(true)) {
+        PENDING_CAUSE.with(|p| p.set(Some(cause)));
+        return;
+    }
+    let mut cause = cause;
+    // Bounded: listeners that keep moving focus cannot loop forever.
+    for _ in 0..16 {
+        PENDING_CAUSE.with(|p| p.set(None));
+        let now = focused_panel();
+        let prev = PANEL_SEEN.with(|s| s.borrow().clone());
+        if now == prev {
+            match PENDING_CAUSE.with(|p| p.take()) {
+                Some(c) => { cause = c; continue; }
+                None => break,
+            }
+        }
+        PANEL_SEEN.with(|s| *s.borrow_mut() = now.clone());
+        let ev = PanelFocus { previous: prev, current: now, cause };
+        // Both hosts repaint (focus ring, active pane); the paint comes after
+        // the listeners, at the next flush.
+        for p in ev.previous.iter().chain(ev.current.iter()) {
+            if let Some(mut h) = p.host() {
+                h.redraw();
+            }
+        }
+        if let Some(p) = &ev.previous {
+            p.notify_focus(false);
+        }
+        if let Some(p) = &ev.current {
+            p.notify_focus(true);
+        }
+        let ids: Vec<u64> = PANEL_LISTENERS.with(|l| l.borrow().iter().map(|(id, _)| *id).collect());
+        for id in ids {
+            // Taken out while it runs: it may add or remove listeners.
+            let f = PANEL_LISTENERS.with(|l| l.borrow_mut().iter_mut().find(|(i, _)| *i == id).and_then(|(_, f)| f.take()));
+            if let Some(mut f) = f {
+                f(&ev);
+                PANEL_LISTENERS.with(|l| {
+                    if let Some(slot) = l.borrow_mut().iter_mut().find(|(i, f)| *i == id && f.is_none()) {
+                        slot.1 = Some(f);
+                    }
+                });
+            }
+        }
+        // A listener that moved focus is reported next, with its own cause.
+        cause = PENDING_CAUSE.with(|p| p.take()).unwrap_or(PanelFocusCause::Other);
+    }
+    SYNCING.with(|s| s.set(false));
 }
 
 /// Arrow-key handler for a group of controls: while focus is anywhere
@@ -450,12 +585,14 @@ pub(crate) fn give_back(layer: &Widget, window: Option<Widget>) {
     if let Some(mut p) = prev {
         if !p.was_deleted() && visible_in_window(&p) && p.take_focus().is_ok() && is_focused(&p) {
             p.redraw();
+            sync_panels(PanelFocusCause::Restored);
             return;
         }
     }
     if let Some(w) = window {
-        first(&w);
+        let _ = stops(&w).into_iter().find_map(|(w, r)| enter(&w, r).then_some(w));
     }
+    sync_panels(PanelFocusCause::Restored);
 }
 
 // ------------------------------------------------------------ key injection

@@ -1,4 +1,4 @@
-# Components (0.0.8)
+# Components (0.0.9)
 
 Every component is a classic Omarchy control (the omarchy-shell `Ui/`
 kit) drawn with the live theme: colors, fonts, spacing and corner radius
@@ -443,6 +443,22 @@ host widget and the window shortcuts exactly once. Mouse: call
 `select_range`, `invert_selection`, `clear_selection`, `selection()` (in
 display order) and `focus::focused_panel()`.
 
+Focus changes are reported synchronously, with the panel itself:
+
+```rust
+left.on_focus(|focused| println!("left focused: {focused}"));
+let listener = focus::on_panel_focus(|e| {
+    // e.previous / e.current: Option<KeyboardPanel>; e.cause: Tab, ShiftTab,
+    // Focus, HostChanged, Overlay, Restored or Other
+    if let Some(p) = &e.current { /* model.active_pane = p.name() */ }
+});
+focus::active_panel_of(&canvas);   // the host's active pane, focused or not
+focus::remove_panel_focus(listener);
+```
+
+Order and lifetime guarantees:
+[KEYBOARD.md](KEYBOARD.md#panel-focus-events).
+
 ## PopupCard
 
 ![popup card](components/popup-card.png)
@@ -549,7 +565,7 @@ with an area limit and a time budget, and shape hit-testing: all in
 | header / context menus | `popups::PopupMenu` | `open(&anchor, items, f)` / `open_at(&win, x, y, items, f)` → `PopupHandle` (`.on_dismiss()`, `.close()`, `.is_open()`, `.rect()`) |
 | popup card | `popups::PopupCard` | `open(&anchor, w, h, \|col\| ..)` / `open_at(..)` → `PopupHandle` |
 | table / tree | `table::Table`, `table::Tree` | `Table::new(&panel, columns, \|row, col\| text)`, `.icon()`, `.on_sort()`; `Tree::new(&panel, \|parent\| nodes)`, `expand`, `collapse`, `refresh`, `refresh_node` |
-| keyboard panel | `panel::KeyboardPanel` | `new(name)`, `.layout()`, `set_items(len, id_at, index_of)`, `cursor()`, `selection()`, `click()`, `focus()`, `show_ring()`, `.on_activate()`, `.on_edge()`, `.on_key()`, `.on_change()`; `focus::host(&widget, &[&a, &b])` |
+| keyboard panel | `panel::KeyboardPanel` | `new(name)`, `.layout()`, `set_items(len, id_at, index_of)`, `cursor()`, `selection()`, `click()`, `focus()`, `show_ring()`, `.on_activate()`, `.on_edge()`, `.on_key()`, `.on_change()`, `.on_focus()`; `focus::host(&widget, &[&a, &b])`, `focus::on_panel_focus(f)` |
 | menu plugin | `overlay::Menu` | `open(&win, title, items, f)` |
 | ConfirmDialog | `overlay::ConfirmDialog` | `open(&win, message, confirm, destructive, f)` |
 | notifications | `overlay::Notification` | `show(&win, glyph, summary, body, Urgency::..)`, `count()` |

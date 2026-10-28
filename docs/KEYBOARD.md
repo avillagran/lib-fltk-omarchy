@@ -1,4 +1,4 @@
-# Keyboard first (0.0.8)
+# Keyboard first (0.0.9)
 
 Every lib-fltk-omarchy app can be used without a mouse, without writing any
 keyboard code. `App::new` installs one keyboard router (`focus::install`)
@@ -80,6 +80,72 @@ registers them as keyboard panels: `focus::host(&canvas, &[&left, &right])`.
   pane back into one list.
 
 Panel keys and the API: [COMPONENTS.md](COMPONENTS.md#keyboardpanel-regions-of-one-canvas).
+
+### Panel focus events
+
+The app learns which panel has focus from an event, not by polling. The
+toolkit's own Tab router moves focus; the app does not need one.
+
+```rust
+left.on_focus(|focused| { /* this pane gained (true) or lost (false) focus */ });
+let listener = focus::on_panel_focus(|e: &focus::PanelFocus| {
+    // e.previous, e.current: Option<KeyboardPanel> (None = an ordinary
+    // control, a menu, or nothing); e.cause: why it changed.
+});
+focus::remove_panel_focus(listener);
+```
+
+`focus::focused_panel()` is the panel that has the keyboard now. The event
+fires each time it changes, whatever the cause:
+
+| `cause` | When |
+|---|---|
+| `Tab` / `ShiftTab` | Tab, Shift+Tab, `focus::step` |
+| `Focus` | `KeyboardPanel::focus()`, `focus::first` |
+| `HostChanged` | `focus::host` replaced the panel list and the focused pane went away |
+| `Overlay` | a menu, dropdown or dialog opened and took the keyboard |
+| `Restored` | it closed (Esc, a pick, a click outside, or a key passed on to the app) and gave focus back |
+| `Other` | a click, `take_focus` in app code, a toast reached with Tab, the host hidden or deleted |
+
+**Order guarantees**
+1. Synchronous. The event runs inside the key press, click or call that
+   moved focus, before it returns. When `press("Tab")`, `right.focus()` or
+   `focus::host(..)` returns, the listeners have already run.
+2. Before the next event. A change made while handling an event is reported
+   before fltk dispatches the next one, so the next key always meets an
+   updated model. A change made outside any event (app code in a timer) is
+   reported at the next loop turn, before anything is painted.
+3. Before the repaint. Both hosts are marked for redraw, and the paint
+   happens after the listeners. A draw callback sees the new state, and so
+   does the model the listeners updated.
+4. Consistent. Inside a listener, `focus::focused_panel() == e.current`
+   and `e.current.has_focus()`.
+5. One at a time. Callbacks run in this order: the losing panel's
+   `on_focus(false)`, the gaining panel's `on_focus(true)`, then the
+   `on_panel_focus` listeners in registration order. If a listener moves
+   focus itself, that change is reported next, as its own event with its
+   own cause, never nested. Each event's `previous` is the last event's
+   `current`.
+6. Only real changes. Moving the cursor inside a pane, or replacing the host
+   list while the active pane stays, sends nothing.
+
+**Lifetime**
+- `previous` / `current` are `KeyboardPanel` handles: shared, cheap to
+  clone, and compared by identity (`==`). They stay valid after the host
+  widget is deleted.
+- If the host is deleted while one of its panes has focus, one event
+  reports `previous: Some(pane)`, `current: None`.
+- Listeners live until `remove_panel_focus`. `on_focus` lives as long as
+  the panel.
+- A listener may add or remove listeners, focus panels, and open or close
+  menus.
+- A listener that keeps a panel handle keeps that panel alive; that is
+  safe.
+
+When focus is in an ordinary control (a path field), `current` is `None`.
+`focus::active_panel_of(&host)` still returns the pane that stays current
+for the host (the last focused one), e.g. for the source of a file
+operation started from a menu.
 
 ## Keys per component
 

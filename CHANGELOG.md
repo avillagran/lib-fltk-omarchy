@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.0.9 — 2026-10-28
+
+For Files (issue #7):
+- **Keyboard panel focus events.** `focus::on_panel_focus(|e| ..)` (with
+  `remove_panel_focus`) and `KeyboardPanel::on_focus(|focused| ..)`. They
+  report every change of the focused panel, with the panel handle and a
+  cause: `Tab`, `ShiftTab`, `Focus`, `HostChanged`, `Overlay`, `Restored`,
+  `Other`. Events are synchronous, sent before the next event and before
+  the repaint, one at a time even when a listener moves focus, and only on
+  real changes. Guarantees are in docs/KEYBOARD.md ("Panel focus events").
+- `focus::active_panel_of(&host)`: a host's active pane even while focus is
+  elsewhere.
+
+Fix:
+- Tabbing into a panel host from an ordinary control did not repaint the
+  host when its active pane stayed the same, so the focus ring could be
+  stale. Hosts now repaint on every panel focus change.
+
 ## 0.0.8 — 2026-10-28
 
 For Files (issue #6):

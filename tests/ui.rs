@@ -15,7 +15,7 @@ use fltk_omarchy::Mode;
 use fltk_omarchy::task::{Outcome, Task};
 use fltk_omarchy::widgets::*;
 use fltk_omarchy::{theme, App, AppWindow, State};
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
@@ -758,6 +758,125 @@ fn main() {
         check(hits.borrow().len() == n && win.children() == layers + 1, "confirm dialog keeps F10")?;
         press("Escape");
         check(win.children() == layers, "dialog closed")
+    });
+    run("issue #7: keyboard panel focus events are synchronous, ordered and carry the panel", &|shots| {
+        use fltk_omarchy::focus::{PanelFocus, PanelFocusCause as C};
+        let mut win = AppWindow::new("t", 640, 360);
+        let mut body = win.body();
+        let field = TextField::new().placeholder("Path");
+        body.fit(&*field);
+        let left = KeyboardPanel::new("left");
+        let right = KeyboardPanel::new("right");
+        left.set_items(5, |i| i as u64, |id| Some(id as usize));
+        right.set_items(5, |i| 100 + i as u64, |id| id.checked_sub(100).map(|x| x as usize));
+        let mut canvas = fltk::widget::Widget::default().with_size(600, 200);
+        canvas.handle(|_, ev| matches!(ev, fltk::enums::Event::Focus | fltk::enums::Event::Unfocus));
+        body.fit(&canvas);
+        focus::host(&canvas, &[&left, &right]);
+        let after = Button::new("After");
+        body.fit(&*after);
+        win.end();
+        win.snapshot(std::env::temp_dir().join("omarchy-fltk-unused.png")).ok();
+
+        let name = |p: &Option<KeyboardPanel>| p.as_ref().map_or("-".to_string(), |p| p.name());
+        let log = Rc::new(RefCell::new(Vec::<String>::new()));
+        // The app's model: the active pane, updated only from the event.
+        let model = Rc::new(RefCell::new(String::new()));
+        let (l2, m2, c2) = (log.clone(), model.clone(), canvas.clone());
+        let listener = focus::on_panel_focus(move |e: &PanelFocus| {
+            // At notification time the router state already matches the event,
+            // and the host repaint is still pending.
+            let consistent = focus::focused_panel() == e.current;
+            let pending = e.current.is_none() || c2.damage();
+            l2.borrow_mut().push(format!("{}>{} {:?}{}", name(&e.previous), name(&e.current), e.cause,
+                                         if consistent && pending { "" } else { " INCONSISTENT" }));
+            if let Some(p) = &e.current { *m2.borrow_mut() = p.name(); }
+        });
+        let per_left = Rc::new(RefCell::new(Vec::new()));
+        let pl = per_left.clone();
+        let l3 = log.clone();
+        left.on_focus(move |f| { pl.borrow_mut().push(f); l3.borrow_mut().push(format!("left.on_focus({f})")); });
+        // The next key a panel sees is logged too: ordering against events.
+        let l4 = log.clone();
+        right.on_key(move |k, _| { if k == fltk::enums::Key::from_char('x') { l4.borrow_mut().push("right got x".into()); true } else { false } });
+
+        let mut f2 = field.input();
+        let _ = f2.take_focus();
+        App::pump();
+        log.borrow_mut().clear();
+        let take = |log: &Rc<RefCell<Vec<String>>>| std::mem::take(&mut *log.borrow_mut());
+        let expect = |want: &[&str], what: &str| -> Result<(), String> {
+            let got = take(&log);
+            check(got == want, &format!("{what}: got {got:?}"))
+        };
+
+        press("Tab");
+        expect(&["left.on_focus(true)", "->left Tab"], "Tab into the left pane, before press() returns")?;
+        check(*model.borrow() == "left", "the model follows the event")?;
+        press("Tab");
+        press("x");
+        expect(&["left.on_focus(false)", "left>right Tab", "right got x"], "Tab left → right, reported before the next key reaches the panel")?;
+        win.snapshot(shots.join("issue7-right.png")).map_err(|e| e.to_string())?;
+        press("Shift+Tab");
+        expect(&["left.on_focus(true)", "right>left ShiftTab"], "Shift+Tab right → left")?;
+        press("Shift+Tab");
+        expect(&["left.on_focus(false)", "left>- ShiftTab"], "Shift+Tab out of the panes")?;
+        check(focus::current().is_some_and(|f| f.as_widget_ptr() == field.input().as_widget_ptr()),
+              "Shift+Tab out to the path field: current is None")?;
+        check(focus::active_panel_of(&canvas) == Some(left.clone()), "the host keeps left as its active pane")?;
+
+        right.focus();
+        expect(&["->right Focus"], "KeyboardPanel::focus")?;
+        // Host replacement drops the focused pane.
+        focus::host(&canvas, &[&left]);
+        expect(&["left.on_focus(true)", "right>left HostChanged"], "host replaced: right → left")?;
+        focus::host(&canvas, &[&left, &right]);
+        check(take(&log).is_empty(), "host restored with left still active: no event")?;
+
+        // Overlays: focus leaves, then comes back with Restored.
+        let h = PopupMenu::open(&canvas, vec![PopupItem::new("", "Copy")], |_| {});
+        expect(&["left.on_focus(false)", "left>- Overlay"], "menu takes focus")?;
+        press("Escape");
+        expect(&["left.on_focus(true)", "->left Restored"], "Esc gives focus back to the pane")?;
+        check(h.dismissed() == Some(Dismiss::Escape),
+              &format!("Esc gives focus back to the pane: {:?}", log.borrow()))?;
+        // An F-key closing a menu (issue #6) restores the pane too.
+        let h = PopupMenu::open(&canvas, vec![PopupItem::new("", "Copy")], |_| {});
+        expect(&["left.on_focus(false)", "left>- Overlay"], "menu again")?;
+        press("F5");
+        expect(&["left.on_focus(true)", "->left Restored"], "F5 closes the menu, pane restored")?;
+        check(h.dismissed() == Some(Dismiss::Closed), "F5: Closed")?;
+
+        // A click on an ordinary control.
+        focus::click_at(&*win, after.x() + 5, after.y() + 5);
+        expect(&["left.on_focus(false)", "left>- Other"], "click on a button")?;
+
+        // Focus moved by app code outside any event: reported at the next check.
+        let mut c3 = canvas.clone();
+        let _ = c3.take_focus();
+        check(take(&log).is_empty(), "not yet: no event ran")?;
+        App::pump();
+        expect(&["left.on_focus(true)", "->left Other"], "reported before the loop waits / paints")?;
+
+        // A listener that moves focus: reported next, in order, no recursion.
+        let r2 = right.clone();
+        let once = Rc::new(Cell::new(true));
+        let bounce = focus::on_panel_focus(move |e| {
+            if e.cause == C::ShiftTab && once.replace(false) { r2.focus(); }
+        });
+        press("Shift+Tab");
+        expect(&["left.on_focus(false)", "left>- ShiftTab", "->right Focus"], "re-entrant focus change reported after the first")?;
+        focus::remove_panel_focus(bounce);
+
+        // Lifetime: the window goes away while a pane has focus.
+        let keep = right.clone();
+        fltk::window::Window::delete((*win).clone());
+        App::pump();
+        expect(&["right>- Other"], "host deleted")?;
+        check(keep.name() == "right", "host deleted: reported once, the panel handle stays valid")?;
+        focus::remove_panel_focus(listener);
+        let pl = per_left.borrow().clone();
+        check(pl.iter().filter(|f| **f).count() == pl.iter().filter(|f| !**f).count(), &format!("left: every gain has a loss: {pl:?}"))
     });
     run("file manager pieces: overflowing tabs, bounded help, localized toast, popup card", &|shots| {
         // Tabs wider than the bar: arrows, scrolling, the selected tab in view.

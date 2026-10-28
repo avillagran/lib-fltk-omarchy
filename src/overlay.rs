@@ -51,6 +51,7 @@ pub(crate) fn open_layer<A: WidgetExt>(anchor: &A, rect: Option<(i32, i32, i32, 
         // Set directly: the layer's handler is installed after this returns,
         // so it could not accept FL_FOCUS yet.
         app::set_focus(&layer);
+        crate::focus::sync_panels(crate::focus::PanelFocusCause::Overlay);
     }
     group.redraw();
     Some(layer)
