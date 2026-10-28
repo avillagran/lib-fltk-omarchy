@@ -13,13 +13,13 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 /// Window background under overlays.
-fn bg(t: &Theme) -> Rgb {
+pub(crate) fn bg(t: &Theme) -> Rgb {
     t.palette.background
 }
 
 /// Adds a widget covering the anchor's window (or `rect`) on top of
 /// everything; returns it. `modal` layers take keyboard focus.
-fn open_layer<A: WidgetExt>(anchor: &A, rect: Option<(i32, i32, i32, i32)>, modal: bool) -> Option<Widget> {
+pub(crate) fn open_layer<A: WidgetExt>(anchor: &A, rect: Option<(i32, i32, i32, i32)>, modal: bool) -> Option<Widget> {
     let win = anchor.top_window()?;
     let mut group = fltk::group::Group::from_dyn_widget_ptr(win.as_widget_ptr())?;
     let prev = fltk::group::Group::try_current();
@@ -40,7 +40,7 @@ fn open_layer<A: WidgetExt>(anchor: &A, rect: Option<(i32, i32, i32, i32)>, moda
     Some(layer)
 }
 
-fn close_layer(layer: &Widget) {
+pub(crate) fn close_layer(layer: &Widget) {
     if let Some(mut g) = layer.top_window().and_then(|w| fltk::group::Group::from_dyn_widget_ptr(w.as_widget_ptr())) {
         g.remove(layer);
         g.redraw();
@@ -49,7 +49,7 @@ fn close_layer(layer: &Widget) {
 }
 
 /// Card surface with the given section style.
-fn card(t: &Theme, x: i32, y: i32, w: i32, h: i32, surface: &theme::Surface, border_width: i32) {
+pub(crate) fn card(t: &Theme, x: i32, y: i32, w: i32, h: i32, surface: &theme::Surface, border_width: i32) {
     let fill = surface.fill(bg(t));
     let border = surface.border.over(fill, surface.border_alpha);
     paint::surface(x, y, w, h, t.radius, Some(fill), Some((border, border_width)));

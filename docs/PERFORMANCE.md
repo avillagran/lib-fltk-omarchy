@@ -27,6 +27,27 @@ Workloads (`examples/bench_*.rs`, `bench/*.qml`), functionally equivalent:
 
 ## Results
 
+Two sessions, each comparing everything within the same session. PSS
+splits shared library pages among every process that maps them (the
+Omarchy shell also loads Qt), so absolute numbers move between sessions;
+compare rows of the same session.
+
+### Session 2 — 2026-10-28 (`fltk` features `use-wayland`, `no-images`)
+
+| Case | startup (median) | PSS (median) | PSS (max) | idle CPU / 5 s |
+|---|---|---|---|---|
+| lib-fltk-omarchy minimal | 47 ms | 13.7 MB | 13.7 MB | 0.00 s |
+| QML software minimal | 133 ms | 39.5 MB | 39.5 MB | 0.00 s |
+| QML GPU minimal | 153 ms | 80.3 MB | 80.3 MB | 0.00 s |
+| lib-fltk-omarchy app | 51 ms | 13.8 MB | 13.9 MB | 0.00 s |
+| QML software app | 123 ms | 45.5 MB | 48.7 MB | 0.00 s |
+| QML GPU app | 192 ms | 90.0 MB | 90.7 MB | 0.00 s |
+
+App workload: 3.3× less memory than QML software, 6.5× less than QML GPU;
+first frame 2.4–3.8× sooner.
+
+### Session 1 — 2026-10-27 (`fltk` feature `use-wayland`)
+
 | Case | startup (median) | PSS (median) | PSS (max) | idle CPU / 5 s |
 |---|---|---|---|---|
 | lib-fltk-omarchy minimal | 57 ms | 16.0 MB | 16.0 MB | 0.00 s |
@@ -36,8 +57,8 @@ Workloads (`examples/bench_*.rs`, `bench/*.qml`), functionally equivalent:
 | QML software app | 134 ms | 72.6 MB | 72.8 MB | 0.00 s |
 | QML GPU app | 168 ms | 125.4 MB | 126.5 MB | 0.00 s |
 
-For these workloads: about 4.5× less memory than QML's software renderer
-and 7.8× less than QML on the GPU; first frame 2–2.7× sooner. Binary size
+Session 1, app workload: 4.5× less memory than QML software, 7.8× less
+than QML GPU; first frame 2–2.7× sooner. Binary size
 of the release `bench_app`: 1.26 MB (FLTK statically linked).
 
 ## Window size matters

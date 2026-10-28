@@ -5,6 +5,9 @@ use fltk::prelude::*;
 use fltk_omarchy::layout::FlexExt;
 use fltk_omarchy::list::{List, ListRow};
 use fltk_omarchy::overlay::{Menu, MenuItem, Notification, Urgency};
+use fltk_omarchy::popups::{OperationToast, PopupItem, PopupMenu, SearchableDropdown};
+use fltk_omarchy::theme::Corners;
+use fltk_omarchy::Mode;
 use fltk_omarchy::task::{Outcome, Task};
 use fltk_omarchy::widgets::*;
 use fltk_omarchy::{theme, App, AppWindow, State};
@@ -140,6 +143,63 @@ fn main() {
         h.cancel();
         pump_until(|| done.borrow().is_some());
         check(*done.borrow() == Some(Outcome::Cancelled) && t0.elapsed() < Duration::from_millis(500), "cancelled quickly")
+    });
+    run("corner preference: square vs rounded button corner pixel", &|shots| {
+        let mut win = AppWindow::new("t", 300, 140);
+        let mut body = win.body();
+        let b = Button::new("Go").primary();
+        body.fit(&*b);
+        win.end();
+        theme::set_corners(Corners::Square);
+        let p = shots.join("corner-square.png");
+        win.snapshot(&p).map_err(|e| e.to_string())?;
+        let square = pixel(&p, b.x(), b.y())?;
+        theme::set_corners(Corners::Rounded);
+        let p = shots.join("corner-rounded.png");
+        win.snapshot(&p).map_err(|e| e.to_string())?;
+        let rounded = pixel(&p, b.x(), b.y())?;
+        theme::set_corners(Corners::Omarchy);
+        let bg = theme::current().palette.background;
+        check(square != [bg.r(), bg.g(), bg.b()], &format!("square corner painted {square:?}"))?;
+        check(rounded == [bg.r(), bg.g(), bg.b()], &format!("rounded corner shows background {rounded:?}"))?;
+        check(theme::current().badge_radius() == 8, "badges keep a fixed radius")
+    });
+    run("popup menu, tab bar, searchable filter, window mode parse", &|shots| {
+        let mut win = AppWindow::new("t", 400, 300);
+        let mut body = win.body();
+        let tab = State::new(0usize);
+        let closed = Rc::new(RefCell::new(None));
+        let c2 = closed.clone();
+        let tabs = TabBar::new(&["A", "B"], &tab).on_close(move |i| *c2.borrow_mut() = Some(i));
+        body.fit(&*tabs);
+        let anchor = Button::new("Menu");
+        body.fit(&*anchor);
+        win.end();
+        let before = win.children();
+        PopupMenu::open(&*anchor, vec![PopupItem::new("", "One").shortcut("Ctrl+1"), PopupItem::new("", "Two").disabled()], |_| {});
+        win.snapshot(shots.join("popup.png")).map_err(|e| e.to_string())?;
+        check(win.children() == before + 1, "popup layer added")?;
+        tabs.request_close(1);
+        check(*closed.borrow() == Some(1), "tab close callback")?;
+        let opts = vec![("Home".to_string(), "~/".to_string()), ("Work".to_string(), "~/Work".to_string())];
+        check(SearchableDropdown::filter(&opts, "work") == vec![1], "filter by label")?;
+        check(SearchableDropdown::filter(&opts, "~/") == vec![0, 1], "filter by description")?;
+        check(Mode::parse("fullscreen") == Some(Mode::Fullscreen) && Mode::Normal.as_str() == "normal", "mode parse")
+    });
+    run("operation toast pause/cancel callbacks", &|_| {
+        let mut win = AppWindow::new("t", 420, 300);
+        win.end();
+        let paused = Rc::new(RefCell::new(Vec::new()));
+        let cancelled = Rc::new(RefCell::new(false));
+        let (p2, c2) = (paused.clone(), cancelled.clone());
+        let mut t = OperationToast::show(&*win, "Copying").ok_or("toast")?
+            .on_pause(move |p| p2.borrow_mut().push(p)).on_cancel(move || *c2.borrow_mut() = true);
+        t.set_progress(0.5);
+        t.toggle_pause();
+        t.toggle_pause();
+        t.cancel();
+        t.close();
+        check(*paused.borrow() == vec![true, false] && *cancelled.borrow(), "callbacks")
     });
     run("live theme switch: omarchy-theme-set style rename is picked up", &|shots| {
         let state = PathBuf::from(std::env::var("OMARCHY_FLTK_STATE_DIR").unwrap());

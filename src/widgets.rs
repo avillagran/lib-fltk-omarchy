@@ -7,7 +7,7 @@ use crate::paint::{self, Interaction};
 use crate::state::{State, Subscription};
 use crate::theme::{self, Rgb};
 use fltk::{app, draw, enums::*, prelude::*, widget::Widget};
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 pub mod glyph {
@@ -1218,4 +1218,113 @@ impl Row {
     pub fn click(&self) {
         fire(&self.click, ());
     }
+}
+
+// ================================================================== TabBar
+
+/// Tab strip with the control state tokens: selected tab = selected fill +
+/// bold, hover = hover fill, close glyph on hover/selected (if closable).
+/// Middle click closes. The selected index lives in a `State<usize>`.
+#[derive(Clone)]
+pub struct TabBar {
+    inner: Widget,
+    tabs: Rc<RefCell<Vec<String>>>,
+    value: State<usize>,
+    close: Cb<usize>,
+    closable: Rc<Cell<bool>>,
+    _sub: Rc<Subscription>,
+}
+fltk::widget_extends!(TabBar, Widget, inner);
+
+impl TabBar {
+    pub fn new(tabs: &[&str], value: &State<usize>) -> TabBar {
+        let mut inner = Widget::default();
+        inner.set_frame(FrameType::NoBox);
+        let tabs: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(tabs.iter().map(|s| s.to_string()).collect()));
+        let hover = Rc::new(Cell::new(-1i32));
+        let closable = Rc::new(Cell::new(false));
+        let close: Cb<usize> = cb();
+        let geom = {
+            let tabs = tabs.clone();
+            move |w: &Widget| -> Vec<(i32, i32)> {
+                theme::with(|t| {
+                    let pad = t.spacing.control_padding_x;
+                    let mut x = w.x();
+                    tabs.borrow().iter().map(|l| {
+                        let tw = (measure_offscreen(l, t.font.body) + 2 * pad + t.font.body + t.spacing.md).clamp(80, 220);
+                        let r = (x, tw);
+                        x += tw + t.spacing.xxs;
+                        r
+                    }).collect()
+                })
+            }
+        };
+        let geom = Rc::new(geom);
+        let (tb, v, hv, cl, g) = (tabs.clone(), value.clone(), hover.clone(), closable.clone(), geom.clone());
+        inner.draw(move |w| {
+            theme::with(|t| {
+                let under = under();
+                let fg = t.palette.foreground;
+                paint::hairline(w.x(), w.y() + w.h() - 1, w.w(), fg, under, 0.12);
+                for (i, ((x, tw), label)) in g(w).into_iter().zip(tb.borrow().iter()).enumerate() {
+                    let sel = v.get() == i;
+                    let hot = hv.get() == i as i32;
+                    let fill = if sel { Some(t.fill(&t.controls.selected, under)) } else if hot { Some(t.fill(&t.controls.hover, under)) } else { None };
+                    paint::surface(x, w.y(), tw, w.h() - 1, t.radius, fill, None);
+                    if sel {
+                        paint::fill(x, w.y() + w.h() - 2, tw, 2, 0, t.palette.accent);
+                    }
+                    let pad = t.spacing.control_padding_x;
+                    let close_w = if cl.get() { t.font.body + t.spacing.md } else { 0 };
+                    paint::text_elided(label, x + pad, w.y(), tw - 2 * pad - close_w, w.h(), t.font.body, sel, if sel { fg } else { fg.darker(1.2) }, Align::Left);
+                    if cl.get() && (sel || hot) {
+                        paint::glyph(glyph::CROSS, x + tw - pad - t.font.body, w.y(), t.font.body, w.h(), t.font.body_small, fg.darker(1.4));
+                    }
+                }
+            });
+        });
+        let (v, hv, cl, g, cc) = (value.clone(), hover.clone(), closable.clone(), geom.clone(), close.clone());
+        inner.handle(move |w, ev| {
+            let at = |w: &Widget| -> Option<(usize, bool)> {
+                let ex = app::event_x();
+                let pad = theme::with(|t| t.spacing.control_padding_x + t.font.body);
+                g(w).iter().position(|(x, tw)| ex >= *x && ex < x + tw).map(|i| { let (x, tw) = g(w)[i]; (i, ex >= x + tw - pad) })
+            };
+            match ev {
+                Event::Enter => true,
+                Event::Move => { let h = at(w).map(|(i, _)| i as i32).unwrap_or(-1); if hv.get() != h { hv.set(h); w.redraw(); } true }
+                Event::Leave => { hv.set(-1); w.redraw(); true }
+                Event::Push => {
+                    if let Some((i, on_close)) = at(w) {
+                        if app::event_mouse_button() == app::MouseButton::Middle || (cl.get() && on_close) { fire(&cc, i); }
+                        else { v.set(i); }
+                    }
+                    true
+                }
+                _ => false,
+            }
+        });
+        inner.set_size(400, theme::with(|t| t.spacing.control_height + 2));
+        let mut w2 = inner.clone();
+        let sub = value.subscribe(move |_| w2.redraw());
+        TabBar { inner, tabs, value: value.clone(), close, closable, _sub: Rc::new(sub) }
+    }
+
+    /// Shows a close glyph and calls `f(index)` (also on middle click).
+    pub fn on_close(self, f: impl FnMut(usize) + 'static) -> Self {
+        *self.close.borrow_mut() = Some(Box::new(f));
+        self.closable.set(true);
+        self
+    }
+
+    pub fn set_tabs(&mut self, tabs: &[&str]) {
+        *self.tabs.borrow_mut() = tabs.iter().map(|s| s.to_string()).collect();
+        if self.value.get() >= tabs.len() && !tabs.is_empty() { self.value.set(tabs.len() - 1); }
+        self.inner.redraw();
+    }
+
+    pub fn tabs(&self) -> Vec<String> { self.tabs.borrow().clone() }
+    pub fn selected(&self) -> usize { self.value.get() }
+    /// Programmatic close request (fires on_close).
+    pub fn request_close(&self, i: usize) { fire(&self.close, i); }
 }

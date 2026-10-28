@@ -173,6 +173,37 @@ pub struct Spacing {
     pub popup_padding: i32,
 }
 
+/// Interior corner style, an app preference (Files: `corners = "omarchy" | "square" | "rounded"`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Corners {
+    /// Follow Hyprland `decoration:rounding` (what omarchy-shell does).
+    #[default]
+    Omarchy,
+    /// Always square.
+    Square,
+    /// Always rounded (8 px at base size 12, or Hyprland's radius if larger).
+    Rounded,
+}
+
+impl Corners {
+    pub fn parse(s: &str) -> Option<Corners> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "omarchy" | "auto" => Some(Corners::Omarchy),
+            "square" => Some(Corners::Square),
+            "rounded" | "round" => Some(Corners::Rounded),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Corners::Omarchy => "omarchy",
+            Corners::Square => "square",
+            Corners::Rounded => "rounded",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Theme {
     pub name: String,
@@ -184,8 +215,11 @@ pub struct Theme {
     pub notifications: Surface,
     pub font: Fonts,
     pub spacing: Spacing,
-    /// Hyprland `decoration:rounding` (Style.cornerRadius).
+    /// Effective interior corner radius (from `corners` and Hyprland).
     pub radius: i32,
+    /// Raw Hyprland `decoration:rounding` (Style.cornerRadius).
+    pub hypr_radius: i32,
+    pub corners: Corners,
     /// Half of Hyprland `general:gaps_out` (Style.gapsOut).
     pub gaps_out: i32,
     /// Font family; "monospace" follows `omarchy-font-set` through fontconfig.
@@ -409,9 +443,29 @@ impl Theme {
             font,
             spacing,
             radius,
+            hypr_radius: radius,
+            corners: Corners::Omarchy,
             gaps_out,
             font_family: std::env::var("OMARCHY_FLTK_FONT").unwrap_or_else(|_| "monospace".into()),
         }
+    }
+
+    /// Same theme with another corner preference.
+    pub fn with_corners(mut self, corners: Corners) -> Theme {
+        self.corners = corners;
+        let rounded = ((8.0 * self.font.base as f64 / 12.0).round() as i32).max(self.hypr_radius);
+        self.radius = match corners {
+            Corners::Omarchy => self.hypr_radius,
+            Corners::Square => 0,
+            Corners::Rounded => rounded,
+        };
+        self
+    }
+
+    /// Fixed radius for thumbnails, type badges and previews: always
+    /// curved, independent of the corner preference.
+    pub fn badge_radius(&self) -> i32 {
+        (8.0 * self.font.base as f64 / 12.0).round() as i32
     }
 
     // ---- resolved state colors over a given surface background ----
@@ -448,6 +502,7 @@ fn shell_color(shell: &Table, key: &str, p: &Palette) -> Option<Rgb> {
 // ---------------------------------------------------------------- current
 
 thread_local! {
+    static CORNERS: std::cell::Cell<Corners> = const { std::cell::Cell::new(Corners::Omarchy) };
     static CURRENT: RefCell<Option<Theme>> = const { RefCell::new(None) };
     static LISTENERS: RefCell<Vec<Box<dyn FnMut(&Theme)>>> = const { RefCell::new(Vec::new()) };
 }
@@ -461,7 +516,7 @@ pub fn current() -> Theme {
 pub fn with<R>(f: impl FnOnce(&Theme) -> R) -> R {
     CURRENT.with(|c| {
         if c.borrow().is_none() {
-            let t = Theme::load();
+            let t = Theme::load().with_corners(CORNERS.with(|k| k.get()));
             *c.borrow_mut() = Some(t);
         }
         // Shared borrow: nested `with` calls (draw helpers) are fine.
@@ -471,6 +526,7 @@ pub fn with<R>(f: impl FnOnce(&Theme) -> R) -> R {
 
 /// Makes `theme` active: FLTK colormap, default fonts, every window redrawn.
 pub fn set(theme: Theme) {
+    let theme = theme.with_corners(CORNERS.with(|k| k.get()));
     apply_to_fltk(&theme);
     CURRENT.with(|c| *c.borrow_mut() = Some(theme.clone()));
     // Taken out while running so a listener may register another one.
@@ -485,6 +541,17 @@ pub fn set(theme: Theme) {
     fltk::app::redraw();
 }
 
+/// Sets the interior corner preference and restyles every window.
+/// It survives theme reloads.
+pub fn set_corners(corners: Corners) {
+    CORNERS.with(|k| k.set(corners));
+    set(current());
+}
+
+pub fn corners() -> Corners {
+    CORNERS.with(|k| k.get())
+}
+
 /// Called after every theme change (on the UI thread).
 pub fn on_change(f: impl FnMut(&Theme) + 'static) {
     LISTENERS.with(|l| l.borrow_mut().push(Box::new(f)));
@@ -492,7 +559,7 @@ pub fn on_change(f: impl FnMut(&Theme) + 'static) {
 
 /// Re-reads the Omarchy theme; applies it if it changed. Returns true on change.
 pub fn reload() -> bool {
-    let fresh = Theme::load();
+    let fresh = Theme::load().with_corners(CORNERS.with(|k| k.get()));
     if with(|t| *t == fresh) {
         return false;
     }
@@ -549,6 +616,18 @@ mod tests {
         assert_eq!(t.spacing.control_height, 40);
         assert_eq!(t.controls.normal.fill_alpha, 0.1);
         assert_eq!(t.menu.border, Rgb(0x33ccff));
+    }
+
+    #[test]
+    fn corner_preference() {
+        let t = Theme::from_tables("x", &toml::parse(COLORS), &Table::new(), 0, 5);
+        assert_eq!(t.clone().with_corners(Corners::Rounded).radius, 8);
+        assert_eq!(t.clone().with_corners(Corners::Square).radius, 0);
+        let t10 = Theme::from_tables("x", &toml::parse(COLORS), &Table::new(), 10, 5);
+        assert_eq!(t10.clone().with_corners(Corners::Omarchy).radius, 10);
+        assert_eq!(t10.with_corners(Corners::Square).radius, 0);
+        assert_eq!(Corners::parse("rounded"), Some(Corners::Rounded));
+        assert_eq!(t.badge_radius(), 8);
     }
 
     #[test]

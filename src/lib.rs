@@ -6,6 +6,7 @@ pub mod list;
 pub mod overlay;
 pub mod paint;
 pub mod png;
+pub mod popups;
 pub mod state;
 pub mod task;
 pub mod theme;

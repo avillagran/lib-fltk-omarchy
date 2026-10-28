@@ -19,6 +19,28 @@ pub enum Mode {
     Normal,
     /// Floating at the requested size; header drag + corner resize.
     Floating,
+    /// Native fullscreen (FLTK); leave it through the app's own controls.
+    Fullscreen,
+}
+
+impl Mode {
+    /// Parses the config value used by Files' `window_mode` and similar.
+    pub fn parse(s: &str) -> Option<Mode> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "normal" => Some(Mode::Normal),
+            "floating" | "float" => Some(Mode::Floating),
+            "fullscreen" => Some(Mode::Fullscreen),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Mode::Normal => "normal",
+            Mode::Floating => "floating",
+            Mode::Fullscreen => "fullscreen",
+        }
+    }
 }
 
 const GRIP: i32 = 14;
@@ -193,8 +215,18 @@ impl AppWindow {
 
     /// Switches mode; when shown on Hyprland, floats/tiles this window now.
     pub fn set_mode(&mut self, mode: Mode) {
-        self.mode.set(mode);
+        let previous = self.mode.replace(mode);
         self.header.set_draggable(mode == Mode::Floating);
+        if self.win.shown() {
+            if mode == Mode::Fullscreen {
+                self.win.fullscreen(true);
+                self.win.redraw();
+                return;
+            }
+            if previous == Mode::Fullscreen || self.win.fullscreen_active() {
+                self.win.fullscreen(false);
+            }
+        }
         if self.win.shown() && hyprland::available() {
             let title = self.win.label();
             let size = self.size;
@@ -231,7 +263,9 @@ impl AppWindow {
             self.header.set_draggable(true);
         } else {
             self.win.show();
-            if self.mode.get() == Mode::Floating {
+            if self.mode.get() == Mode::Fullscreen {
+                self.win.fullscreen(true);
+            } else if self.mode.get() == Mode::Floating {
                 let m = self.mode.get();
                 self.set_mode(m);
             }

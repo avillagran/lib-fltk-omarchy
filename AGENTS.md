@@ -28,7 +28,10 @@ classic Omarchy look. Import as `fltk_omarchy`.
    glyphs (`widgets::glyph`).
 8. Use theme colors (`theme::with(|t| t.palette.accent)`), never hard-coded
    hex, so `omarchy-theme-set` restyles the app live.
-9. Verify visually: `win.snapshot("shot.png")` renders offscreen without
+9. Preferences and Actions are separate menus: a gear (`Ctrl+,`) and a
+   bolt (`F10`) header action, each opening a `PopupMenu`. Offer
+   `theme::set_corners(..)` in Preferences; use `badge_radius()` for thumbnails.
+10. Verify visually: `win.snapshot("shot.png")` renders offscreen without
    showing a window; look at the PNG.
 
 ## Minimal app

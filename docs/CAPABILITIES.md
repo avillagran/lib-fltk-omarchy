@@ -7,7 +7,7 @@ lib-fltk-omarchy does not claim QML equivalence.
 
 | Area | QML typical | lib-fltk-omarchy 0.0.1 | Status |
 |---|---|---|---|
-| Omarchy look | omarchy-shell `Ui/` kit | Button, ActionButton, ButtonGroup, TextField, NumberField, ToggleSwitch, Toggle, Slider, Hero, section header, Separator, Row, Dropdown, Menu, ConfirmDialog, notification cards, tooltips — same tokens as `Style.qml`/`Color.qml` | Partial: SearchableDropdown, MultiSelect, PopupCard anchored to a bar, KeyboardPanel cursor model are planned |
+| Omarchy look | omarchy-shell `Ui/` kit | Button, ActionButton, ButtonGroup, TextField, NumberField, ToggleSwitch, Toggle, Slider, Hero, section header, Separator, Row, Dropdown, Menu, ConfirmDialog, notification cards, tooltips — same tokens as `Style.qml`/`Color.qml` plus SearchableDropdown, PopupMenu (header/context menus), TabBar, ShortcutHelp, OperationToast | Partial: MultiSelect, PopupCard anchored to a bar, KeyboardPanel cursor model are planned |
 | Theme | — | colors.toml + shell.toml (theme + user override), Hyprland rounding/gaps, `monospace` font via fontconfig, live reload via inotify | Implemented (tested with a fake state dir and in a real window) |
 | Layouts | Row/Column/Grid/anchors | fltk-rs `Flex`/`Group`/`Grid` + `layout::{column,row,section,fit,close_fitted}` with Omarchy spacing | Implemented (anchors: use fltk positioning) |
 | Reactive state | property bindings | `State<T>`, `map`, `combine`, `watch`/`subscribe`, bound components, two-way inputs | Implemented |
@@ -23,6 +23,7 @@ lib-fltk-omarchy does not claim QML equivalence.
 | DPI | automatic | FLTK per-screen scaling on Wayland; spacing and fonts scale with `[font] base-size` like the shell | Implemented |
 | Localization | qsTr | UTF-8 everywhere | Planned |
 | Async tasks | WorkerScript | `task::Task` (bounded pool, cooperative cancel, coalesced progress, UI-thread callbacks), `task::post` | Implemented |
-| Window modes | Window flags | `Mode::Normal` / `Mode::Floating` (float at map, header drag, corner resize) via Hyprland IPC on own windows only | Implemented (drag/resize with a real pointer not yet validated) |
+| Window modes | Window flags | `Mode::Normal` / `Mode::Floating` (float at map, header drag, corner resize via Hyprland IPC on own windows only) / `Mode::Fullscreen` (FLTK) | Implemented (drag/resize with a real pointer not yet validated; native xdg_toplevel move/resize without Hyprland is planned) |
+| Corner preference | — | `Corners::{Omarchy, Square, Rounded}` interior radius, fixed `badge_radius` | Implemented (pixel-tested) |
 | Headless rendering | grabToImage | `AppWindow::snapshot(path)` PNG without showing | Implemented |
 | GPU effects | ShaderEffect | — | Unsupported by design (software rendering) |
