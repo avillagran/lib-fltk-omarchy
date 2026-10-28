@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.0.4 — 2026-10-28
+
+Custom shapes and CPU shaders (`gfx`, software only; fltk features
+unchanged):
+- `Path`:
+  - lines, quadratic and cubic Béziers, arcs, polygons;
+  - rectangles with a radius per corner, circles, ellipses, superellipses
+    (squircles);
+  - translate, scale, rotate;
+  - `contains` and `near_outline` for hit-testing.
+- `Canvas`:
+  - anti-aliased `fill` and `stroke`, with width, joins (miter, round,
+    bevel) and caps (butt, round, square);
+  - `Paint`: solid, linear, radial and conic gradients;
+  - `clip` by shape and `layer` with group opacity;
+  - `shadow` and `blur`, limited to 32 px;
+  - `BlendMode`: Normal, Multiply, Screen, Add, Darken, Lighten.
+
+  Pixels are premultiplied RGBA8.
+- `Shader`: a per-pixel function with `Uniforms` (time, frame, size,
+  pointer, theme palette, four params). Examples: `noise`, `gradient`,
+  `accent_glow`, `blobs` (for the background-blur demo), plus
+  `value_noise`, `fbm` and `hash2`.
+- `View` widget:
+  - `paint`, `shader`, `post`, `animate(fps)`;
+  - `max_area`: large views render at a lower resolution and are scaled
+    up;
+  - `budget_ms`: tiled rendering continues on the next draw;
+  - reused buffers;
+  - animation paused while hidden;
+  - `hit_shape` for non-rectangular widgets, and `on_click` with keyboard
+    focus and a ring along the shape;
+  - `stats()`.
+- `examples/shaders.rs`, `examples/gfx_bench.rs`, `script/gfx-bench`,
+  docs/SHADERS.md with pictures and the measured cost.
+
+Fix: a `Label` bound before `fit` (`Label::new("").bind(..)`) kept the
+width of the empty text and drew nothing. `layout::refit` now returns
+whether the widget was fitted.
+
 ## 0.0.3 — 2026-10-28
 
 For Files (issues #1, #3, #4, #5):

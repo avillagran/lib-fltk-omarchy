@@ -80,6 +80,12 @@ startup spread follows the machine load. PSS is in the range of the
 earlier sessions, and QML moved by more between sessions. The keyboard
 router adds no measurable cost.
 
+## CPU shaders (0.0.4)
+
+The cost of an animated `gfx::View` against a static one, measured in the
+same session: [SHADERS.md](SHADERS.md#cost-measured). Animation adds CPU
+(35–45 % of one core for 484×300 at 30 fps) but no memory.
+
 ## Window size matters
 
 Memory grows with window area for any software-rendered toolkit (two

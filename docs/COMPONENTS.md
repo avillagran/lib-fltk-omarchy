@@ -1,4 +1,4 @@
-# Components (0.0.3)
+# Components (0.0.4)
 
 Every component is a classic Omarchy control (the omarchy-shell `Ui/`
 kit) drawn with the live theme: colors, fonts, spacing and corner radius
@@ -410,6 +410,25 @@ The same window driven only by keys: Tab, Right (ButtonGroup → Week); Tab,
 Ctrl+Tab (TabBar → Downloads); Tab, Down, Down (List → Item 1). The focused
 control gets the accent ring. See [KEYBOARD.md](KEYBOARD.md).
 
+## Custom shapes and shaders (`gfx`)
+
+![shapes and shaders](components/gfx-gallery.png)
+
+```rust
+use fltk_omarchy::gfx::{self, Hit, Paint, Path, Stroke, View};
+let card = View::new(240, 120).paint(|c, u| {
+    let shape = Path::rounded_rect(8.0, 8.0, 224.0, 104.0, [16.0, 16.0, 4.0, 4.0]);
+    c.shadow(&shape, 0.0, 4.0, 8, u.foreground.with_alpha(0.35));
+    c.fill(&shape, Paint::linear((0.0, 0.0), (240.0, 0.0), &[(0.0, u.accent), (1.0, u.background)]));
+    c.stroke(&shape, &Stroke::new(1.5), u.foreground.with_alpha(0.4));
+});
+let glow = View::new(240, 120).shader(gfx::shaders::accent_glow()).animate(30);
+```
+
+Paths, gradients, shadows, blur, blend modes, clips, layers, CPU shaders
+with an area limit and a time budget, and shape hit-testing: all in
+[SHADERS.md](SHADERS.md).
+
 ## Reference
 
 | Omarchy (`shell/Ui`) | Rust | Main API |
@@ -436,6 +455,7 @@ control gets the accent ring. See [KEYBOARD.md](KEYBOARD.md).
 | operations tray | `popups::OperationToast` | `show(&win, title)`, `.on_pause()`, `.on_cancel()`, `set_progress`, `set_detail`, `focus()`, `close()` |
 | F1 help | `popups::ShortcutHelp` | `open(&win, title, sections)` |
 | PanelToolTip | fltk tooltips | styled globally; `.tooltip()` / `set_tooltip` |
+| custom visuals | `gfx::View`, `gfx::Path`, `gfx::Paint` | `View::new(w, h).paint(\|c, u\| ..)` / `.shader(s)` / `.animate(fps)` / `.hit_shape(Hit::Fill(path))` / `.on_click(f)` — [SHADERS.md](SHADERS.md) |
 | window | `AppWindow` | `new`, `header().action(..)`, `body()`, `end()`, `show()`, `set_mode()`, `shortcut()`, `snapshot()` |
 
 Interior corners are an app preference: `theme::set_corners(Corners::Omarchy |

@@ -42,7 +42,12 @@ classic Omarchy look. Import as `fltk_omarchy`.
    A canvas that draws several regions (lists, grid, dual pane) uses
    `panel::KeyboardPanel` + `focus::host(&canvas, &[&a, &b])`: one Tab stop
    per region, cursor and selection by stable IDs, no widget per item.
-11. Verify visually: `win.snapshot("shot.png")` renders offscreen without
+11. Custom visuals: `gfx::View::new(w, h).paint(|c, u| ..)` with `gfx::Path`
+    and colors from `u` (`u.accent`, `u.background`…), never hex. Animated
+    shaders cost CPU (35–45 % of a core at 484×300 @ 30 fps): keep them small
+    (`max_area`), low fps, and only where they add something. No GPU.
+    Guide: docs/SHADERS.md.
+12. Verify visually: `win.snapshot("shot.png")` renders offscreen without
    showing a window; look at the PNG. Verify keys with
    `focus::press("Tab")`, `press("Down")`, `press("Enter")`… (same path as
    a real key).
