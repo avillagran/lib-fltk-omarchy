@@ -362,24 +362,31 @@ impl PopupMenu {
                 }
                 Event::KeyDown => {
                     let k = app::event_key();
+                    let cmd = crate::overlay::command_mods();
                     match k {
-                        Key::Escape => { finish(&st, l, Dismiss::Escape); return true; }
-                        Key::Down => step(1),
-                        Key::Up => step(-1),
-                        Key::PageDown => page(1),
-                        Key::PageUp => page(-1),
-                        Key::Home => { if let Some(&e) = enabled.first() { cur.set(e) } }
-                        Key::End => { if let Some(&e) = enabled.last() { cur.set(e) } }
-                        Key::Enter | Key::KPEnter => { if cur.get() >= 0 { pick(l, cur.get() as usize); } return true; }
-                        _ if k == Key::from_char('j') => step(1),
-                        _ if k == Key::from_char('k') => step(-1),
-                        _ => return true,
+                        Key::Escape if !cmd => { finish(&st, l, Dismiss::Escape); return true; }
+                        Key::Tab => return true, // Tab stays in the menu
+                        Key::Down if !cmd => step(1),
+                        Key::Up if !cmd => step(-1),
+                        Key::PageDown if !cmd => page(1),
+                        Key::PageUp if !cmd => page(-1),
+                        Key::Home if !cmd => { if let Some(&e) = enabled.first() { cur.set(e) } }
+                        Key::End if !cmd => { if let Some(&e) = enabled.last() { cur.set(e) } }
+                        Key::Enter | Key::KPEnter if !cmd => { if cur.get() >= 0 { pick(l, cur.get() as usize); } return true; }
+                        _ if crate::overlay::plain_letter(k, 'j') => step(1),
+                        _ if crate::overlay::plain_letter(k, 'k') => step(-1),
+                        _ => {
+                            // Not a menu key (F1, F10, Ctrl+…): close the menu, give focus
+                            // back and let the key reach the app's shortcuts.
+                            finish(&st, l, Dismiss::Closed);
+                            return false;
+                        }
                     }
                     reveal(cur.get());
                     l.redraw();
                     true
                 }
-                Event::Focus | Event::Enter | Event::Shortcut => true,
+                Event::Focus | Event::Enter => true,
                 _ => false,
             }
         });
@@ -542,15 +549,24 @@ fn open_search(trigger: &mut Widget, options: &Rc<Vec<(String, String)>>, value:
             Event::KeyDown => {
                 let k = app::event_key();
                 let n = vis.borrow().len();
+                let cmd = crate::overlay::command_mods();
                 match k {
-                    Key::Escape => finish(l, None),
-                    Key::Down => { if n > 0 { cu.set((cu.get() + 1).min(n - 1)); ensure(cu.get()); l.redraw(); } }
-                    Key::Up => { cu.set(cu.get().saturating_sub(1)); ensure(cu.get()); l.redraw(); }
-                    Key::Enter | Key::KPEnter => { let p = vis.borrow().get(cu.get()).copied(); finish(l, p); }
-                    Key::BackSpace => { q.borrow_mut().pop(); refilter(l); }
+                    Key::Escape if !cmd => finish(l, None),
+                    Key::Tab => {}
+                    Key::Down if !cmd => { if n > 0 { cu.set((cu.get() + 1).min(n - 1)); ensure(cu.get()); l.redraw(); } }
+                    Key::Up if !cmd => { cu.set(cu.get().saturating_sub(1)); ensure(cu.get()); l.redraw(); }
+                    Key::Enter | Key::KPEnter if !cmd => { let p = vis.borrow().get(cu.get()).copied(); finish(l, p); }
+                    Key::BackSpace if !cmd => { q.borrow_mut().pop(); refilter(l); }
                     _ => {
                         let t = app::event_text();
-                        if !app::is_event_ctrl() && !t.is_empty() && t.chars().all(|c| !c.is_control()) { q.borrow_mut().push_str(&t); refilter(l); }
+                        if !cmd && !t.is_empty() && t.chars().all(|c| !c.is_control()) {
+                            q.borrow_mut().push_str(&t);
+                            refilter(l);
+                        } else {
+                            // Not search input: close, then the key goes on to the app.
+                            finish(l, None);
+                            return false;
+                        }
                     }
                 }
                 true
@@ -577,7 +593,7 @@ fn open_search(trigger: &mut Widget, options: &Rc<Vec<(String, String)>>, value:
                 l.redraw();
                 true
             }
-            Event::Focus | Event::Enter | Event::Shortcut => true,
+            Event::Focus | Event::Enter => true,
             _ => false,
         }
     });
@@ -662,15 +678,21 @@ impl ShortcutHelp {
             let line = theme::with(|t| t.font.body + t.spacing.xl);
             match ev {
             Event::KeyDown => {
+                let cmd = crate::overlay::command_mods();
                 match app::event_key() {
-                    Key::Escape | Key::F1 => close_layer(l),
-                    Key::Down => go(scroll.get() + line),
-                    Key::Up => go(scroll.get() - line),
-                    Key::PageDown => go(scroll.get() + (view - line).max(line)),
-                    Key::PageUp => go(scroll.get() - (view - line).max(line)),
-                    Key::Home => go(0),
-                    Key::End => go(max),
-                    _ => {}
+                    Key::Escape | Key::F1 if !cmd => close_layer(l),
+                    Key::Tab => {}
+                    Key::Down if !cmd => go(scroll.get() + line),
+                    Key::Up if !cmd => go(scroll.get() - line),
+                    Key::PageDown if !cmd => go(scroll.get() + (view - line).max(line)),
+                    Key::PageUp if !cmd => go(scroll.get() - (view - line).max(line)),
+                    Key::Home if !cmd => go(0),
+                    Key::End if !cmd => go(max),
+                    _ => {
+                        // Any other key closes the help and reaches the app.
+                        close_layer(l);
+                        return false;
+                    }
                 }
                 true
             }
@@ -680,7 +702,7 @@ impl ShortcutHelp {
                 true
             }
             Event::Push => { close_layer(l); true }
-            Event::Focus | Event::Enter | Event::Shortcut => true,
+            Event::Focus | Event::Enter => true,
             _ => false,
             }
         });

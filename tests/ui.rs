@@ -649,6 +649,116 @@ fn main() {
         let forced = View::new(10, 10).shader(gfx::shaders::rings()).backend(gfx::Backend::Cpu);
         check(forced.active_backend() == gfx::Backend::Cpu, "forced CPU")
     });
+    run("issue #6: app shortcuts reach the window while a popup is open; j/k only unmodified", &|shots| {
+        let mut win = AppWindow::new("t", 420, 320);
+        let mut body = win.body();
+        let anchor = Button::new("Menu");
+        body.fit(&*anchor);
+        let dv = State::new(0usize);
+        let mut dd = Dropdown::new("Output", &["A", "B", "C"], &dv);
+        body.fit(&*dd);
+        let sv = State::new(None::<usize>);
+        let opts = vec![("Home".to_string(), "~/".to_string()), ("Work".to_string(), "~/Work".to_string())];
+        let mut sd = SearchableDropdown::new("Go to", opts, &sv);
+        body.fit(&*sd);
+        win.end();
+        win.snapshot(std::env::temp_dir().join("omarchy-fltk-unused.png")).ok();
+        let hits = Rc::new(RefCell::new(Vec::<&'static str>::new()));
+        for spec in ["F1", "F10", "Ctrl+,", "Ctrl+j", "Alt+k", "Ctrl+Down"] {
+            let h2 = hits.clone();
+            win.shortcut(spec, move || h2.borrow_mut().push(spec));
+        }
+        let layers = win.children();
+        let items = || vec![PopupItem::new("", "One"), PopupItem::new("", "Two"), PopupItem::new("", "Three")];
+        let open = |picks: &Rc<RefCell<Vec<usize>>>, seen: &Rc<RefCell<Vec<Dismiss>>>| {
+            let mut a = anchor.clone();
+            let _ = a.take_focus();
+            let (p, s) = (picks.clone(), seen.clone());
+            PopupMenu::open(&*anchor, items(), move |i| p.borrow_mut().push(i)).on_dismiss(move |d| s.borrow_mut().push(d))
+        };
+        let picks = Rc::new(RefCell::new(Vec::new()));
+        let seen = Rc::new(RefCell::new(Vec::new()));
+
+        // Every global key: the menu closes with Closed, focus comes back, the
+        // window shortcut runs exactly once, nothing is picked.
+        for spec in ["F1", "F10", "Ctrl+,", "Ctrl+j", "Alt+k", "Ctrl+Down"] {
+            hits.borrow_mut().clear();
+            seen.borrow_mut().clear();
+            let h = open(&picks, &seen);
+            check(h.is_open() && !focus::is_focused(&*anchor), &format!("{spec}: menu open with the keyboard"))?;
+            press(spec);
+            check(*hits.borrow() == vec![spec], &format!("{spec}: window shortcut ran once: {:?}", hits.borrow()))?;
+            check(!h.is_open() && h.dismissed() == Some(Dismiss::Closed) && *seen.borrow() == vec![Dismiss::Closed],
+                  &format!("{spec}: dismissed with Closed: {:?}", seen.borrow()))?;
+            check(focus::is_focused(&*anchor) && win.children() == layers && picks.borrow().is_empty(),
+                  &format!("{spec}: focus back, layer gone, no pick"))?;
+        }
+
+        // Navigation still works: plain j/k, arrows, Tab stays, Enter picks.
+        let h = open(&picks, &seen);
+        press("j"); press("j"); press("k");
+        press("Tab");
+        check(h.is_open() && !focus::is_focused(&*anchor), "Tab stays in the open menu")?;
+        win.snapshot(shots.join("issue6-menu.png")).map_err(|e| e.to_string())?;
+        press("Down"); press("Enter");
+        check(*picks.borrow() == vec![2] && h.dismissed() == Some(Dismiss::Picked(2)) && focus::is_focused(&*anchor),
+              &format!("j, j, k, Down, Enter picks Three: {:?}", picks.borrow()))?;
+        let h = open(&picks, &seen);
+        press("Escape");
+        check(h.dismissed() == Some(Dismiss::Escape) && focus::is_focused(&*anchor), "Esc keeps its reason")?;
+        check(hits.borrow().len() == 1, "Esc and navigation keys reach no window shortcut")?;
+
+        // Dropdown popup: Ctrl+j is not navigation; it closes and reaches the app.
+        hits.borrow_mut().clear();
+        dd.open();
+        press("Ctrl+j");
+        pump_until(|| win.children() == layers);
+        check(*hits.borrow() == vec!["Ctrl+j"] && dv.get() == 0 && win.children() == layers && focus::is_focused(&*dd),
+              &format!("dropdown: Ctrl+j → app, value kept, closed, focus back: {:?} {}", hits.borrow(), dv.get()))?;
+        dd.open();
+        press("j"); press("Enter");
+        pump_until(|| win.children() == layers);
+        check(dv.get() == 1, "dropdown: plain j still navigates")?;
+        dd.open();
+        press("F10");
+        pump_until(|| win.children() == layers);
+        check(hits.borrow().last() == Some(&"F10") && win.children() == layers, "dropdown: F10 reaches the app")?;
+
+        // SearchableDropdown: typing filters; F1 and Ctrl+, close and reach the app.
+        hits.borrow_mut().clear();
+        sd.open();
+        press("w");
+        check(win.children() == layers + 1, "searchable: typing keeps it open")?;
+        press("Ctrl+,");
+        check(*hits.borrow() == vec!["Ctrl+,"] && win.children() == layers && sv.get().is_none(), "searchable: Ctrl+, → app")?;
+        sd.open();
+        press("F1");
+        check(hits.borrow().last() == Some(&"F1") && win.children() == layers, "searchable: F1 → app")?;
+
+        // Menu (type to filter) and ShortcutHelp follow the same rule.
+        hits.borrow_mut().clear();
+        let mut a = anchor.clone();
+        let _ = a.take_focus();
+        Menu::open(&*win, "Go", vec![MenuItem::new("", "Apps"), MenuItem::new("", "System")], |_| {});
+        press("a");
+        check(win.children() == layers + 1 && hits.borrow().is_empty(), "menu: typing filters")?;
+        press("F10");
+        check(*hits.borrow() == vec!["F10"] && win.children() == layers && focus::is_focused(&*anchor), "menu: F10 → app, focus back")?;
+        let _help = ShortcutHelp::open(&*win, "Keys", vec![("App".into(), vec![("F10".into(), "Menu".into())])]);
+        press("Ctrl+,");
+        check(hits.borrow().last() == Some(&"Ctrl+,") && win.children() == layers, "help: Ctrl+, → app")?;
+        let _help = ShortcutHelp::open(&*win, "Keys", vec![("App".into(), vec![("F10".into(), "Menu".into())])]);
+        let n = hits.borrow().len();
+        press("F1");
+        check(hits.borrow().len() == n && win.children() == layers, "help: F1 still just closes the help")?;
+
+        // ConfirmDialog is a decision: it keeps the keyboard.
+        ConfirmDialog::open(&*win, "Sure?", "Yes", false, |_| {});
+        press("F10");
+        check(hits.borrow().len() == n && win.children() == layers + 1, "confirm dialog keeps F10")?;
+        press("Escape");
+        check(win.children() == layers, "dialog closed")
+    });
     run("file manager pieces: overflowing tabs, bounded help, localized toast, popup card", &|shots| {
         // Tabs wider than the bar: arrows, scrolling, the selected tab in view.
         let mut win = AppWindow::new("t", 360, 300);

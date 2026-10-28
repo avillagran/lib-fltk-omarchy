@@ -12,6 +12,18 @@ use fltk::{app, enums::*, prelude::*, widget::Widget};
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
+/// Keyboard policy of popups (menus, dropdowns, help): see docs/KEYBOARD.md.
+/// True when Ctrl, Alt or Super is held: the key is an app shortcut, not
+/// popup input (navigation, typing).
+pub(crate) fn command_mods() -> bool {
+    app::event_state().intersects(Shortcut::Ctrl | Shortcut::Alt | Shortcut::Meta)
+}
+
+/// `j` / `k` navigate only with no modifier at all.
+pub(crate) fn plain_letter(k: Key, c: char) -> bool {
+    k == Key::from_char(c) && !app::event_state().intersects(Shortcut::Ctrl | Shortcut::Alt | Shortcut::Meta | Shortcut::Shift)
+}
+
 /// Window background under overlays.
 pub(crate) fn bg(t: &Theme) -> Rgb {
     t.palette.background
@@ -53,7 +65,16 @@ pub(crate) fn close_layer(layer: &Widget) {
     parent.remove(layer);
     parent.redraw();
     crate::focus::give_back(layer, win);
-    app::delete_widget(layer.clone());
+    // Deferred: layers close from inside their own handler, and fltk keeps
+    // using the widget after it returns (a key goes on to the window).
+    // fltk-rs `app::delete_widget` deletes right away.
+    // SAFETY: a live widget pointer; fltk deletes it on the next loop turn.
+    unsafe { Fl_delete_widget(layer.as_widget_ptr() as *mut std::ffi::c_void) }
+}
+
+extern "C" {
+    // cfltk wrapper of Fl::delete_widget (linked through fltk-sys).
+    fn Fl_delete_widget(w: *mut std::ffi::c_void);
 }
 
 /// Card surface with the given section style.
@@ -230,15 +251,22 @@ fn open_popup(trigger: &mut Widget, options: &Rc<RefCell<Vec<String>>>, value: &
             }
             Event::KeyDown => {
                 let k = app::event_key();
-                if k == Key::Escape {
+                let cmd = command_mods();
+                if k == Key::Escape && !cmd {
                     finish(l, None, &mut trig);
-                } else if k == Key::Down || k == Key::from_char('j') {
+                } else if k == Key::Tab {
+                    // stays in the popup
+                } else if (k == Key::Down && !cmd) || plain_letter(k, 'j') {
                     cur.set((cur.get() + 1).min(n - 1)); ensure(cur.get()); l.redraw();
-                } else if k == Key::Up || k == Key::from_char('k') {
+                } else if (k == Key::Up && !cmd) || plain_letter(k, 'k') {
                     cur.set((cur.get() - 1).max(0)); ensure(cur.get()); l.redraw();
-                } else if matches!(k, Key::Enter | Key::KPEnter) {
+                } else if matches!(k, Key::Enter | Key::KPEnter) && !cmd {
                     let c = cur.get();
                     finish(l, Some(c), &mut trig);
+                } else {
+                    // Not a dropdown key: close, then the key reaches the app.
+                    finish(l, None, &mut trig);
+                    return false;
                 }
                 true
             }
@@ -690,11 +718,16 @@ impl Menu {
                             refilter(l);
                         }
                         _ if ctrl && k == Key::from_char('u') => { fl.borrow_mut().clear(); refilter(l); }
+                        Key::Tab => {}
                         _ => {
                             let text = app::event_text();
-                            if !ctrl && !text.is_empty() && text.chars().all(|c| !c.is_control()) {
+                            if !command_mods() && !text.is_empty() && text.chars().all(|c| !c.is_control()) {
                                 fl.borrow_mut().push_str(&text);
                                 refilter(l);
+                            } else {
+                                // Not menu input (F1, F10, Ctrl+…): close and let the app have it.
+                                close_layer(l);
+                                return false;
                             }
                         }
                     }
@@ -722,7 +755,7 @@ impl Menu {
                     l.redraw();
                     true
                 }
-                Event::Focus | Event::Enter | Event::Shortcut => true,
+                Event::Focus | Event::Enter => true,
                 _ => false,
             }
         });

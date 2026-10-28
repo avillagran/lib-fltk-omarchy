@@ -1,11 +1,11 @@
-# Capability matrix vs typical QML apps (0.0.7)
+# Capability matrix vs typical QML apps (0.0.8)
 
 **Implemented** = in the code and covered by `tests/ui.rs`, unit tests or the
 real-window scenario. **Partial** = usable with the stated gaps.
 **Planned** = intended, not in the code. **Unsupported** = not available.
 lib-fltk-omarchy does not claim QML equivalence.
 
-| Area | QML typical | lib-fltk-omarchy 0.0.7 | Status |
+| Area | QML typical | lib-fltk-omarchy 0.0.8 | Status |
 |---|---|---|---|
 | Omarchy look | omarchy-shell `Ui/` kit | Button, ActionButton, ButtonGroup, TextField, NumberField, ToggleSwitch, Toggle, Slider, Hero, section header, Separator, Row, Dropdown, Menu, ConfirmDialog, notification cards, tooltips — same tokens as `Style.qml`/`Color.qml` plus SearchableDropdown, PopupMenu (header/context menus, clamped and scrolling, dismissal handle), TabBar, ShortcutHelp, OperationToast | Implemented: plus PopupCard, virtual Table and Tree, overflowing TabBar, localized/indeterminate OperationToast |
 | Theme | — | colors.toml + shell.toml (theme + user override), Hyprland rounding/gaps, `monospace` font via fontconfig, live reload via inotify; strict validation on reload keeps the last valid theme (`theme::last_error`) | Implemented (tested with a fake state dir and in a real window) |

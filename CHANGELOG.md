@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.0.8 — 2026-10-28
+
+For Files (issue #6):
+- **App shortcuts work while a popup is open.** In PopupMenu, Dropdown,
+  SearchableDropdown, Menu and ShortcutHelp, a key the popup does not use
+  closes it and then goes on to the app: F1, F10, `Ctrl+,` reach
+  `AppWindow::shortcut` once. PopupMenu reports `Dismiss::Closed`, and
+  focus goes back first. Esc keeps `Dismiss::Escape`, and Tab stays
+  trapped. Popups no longer swallow `Event::Shortcut`. Policy in
+  docs/KEYBOARD.md ("Popups and app shortcuts").
+- **`j` / `k` navigate only with no modifier.** `Ctrl+j`, `Alt+k` and
+  `Shift+j` are app keys. Arrows, Enter, Home/End and PageUp/PageDown with
+  Ctrl / Alt / Super are app keys too.
+- ConfirmDialog still keeps the keyboard until answered (documented).
+
+Fix:
+- Closing an overlay layer from its own key handler freed the layer while
+  fltk was still using it (`app::delete_widget` deletes right away). Layers
+  now use fltk's deferred `Fl::delete_widget`.
+
 ## 0.0.7 — 2026-10-28
 
 For Files (issues #2, #3):

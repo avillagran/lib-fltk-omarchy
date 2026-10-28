@@ -1,4 +1,4 @@
-# Keyboard first (0.0.7)
+# Keyboard first (0.0.8)
 
 Every lib-fltk-omarchy app can be used without a mouse, without writing any
 keyboard code. `App::new` installs one keyboard router (`focus::install`)
@@ -17,7 +17,8 @@ and every component follows the same rules.
    dropdown trigger); Enter opens the list's cursor row.
 4. **Menus and dialogs** take the keyboard when they open. Tab does not
    leave them, Esc closes them, and focus goes back to the control that had
-   it.
+   it. App shortcuts still work while a menu is open (see
+   [Popups and app shortcuts](#popups-and-app-shortcuts)).
 5. **Esc never closes an app window.**
 6. **Window-wide keys** keep working wherever focus is:
    `AppWindow::shortcut("F10", ..)`, `Button::shortcut("Ctrl+S")`, and
@@ -28,6 +29,41 @@ and every component follows the same rules.
    same as its hover cursor (the Omarchy default), the ring gets a
    full-strength accent border so it cannot be missed.
    `theme::set_focus_ring(FocusRing::Theme)` uses the theme tokens exactly.
+
+## Popups and app shortcuts
+
+A list popup (PopupMenu, Dropdown, SearchableDropdown, Menu, ShortcutHelp)
+uses only its own keys. **Any other key closes the popup and then goes on
+to the app**, like a press on a closed menu:
+
+1. The popup closes. A `PopupMenu` reports `Dismiss::Closed` to
+   `on_dismiss`; nothing is picked.
+2. Focus goes back to the control that had it.
+3. The same key goes on through fltk's normal path: the focused control,
+   its parents, then `AppWindow::shortcut` / `Button::shortcut`. It runs
+   once.
+
+So F1, F10, `Ctrl+,`, `Ctrl+Q` or `Alt+1` work whether or not a menu is
+open. The app needs no extra code.
+
+| Key | In an open popup |
+|---|---|
+| Up / Down, PageUp / PageDown, Home / End, Enter | the popup's own keys (no Ctrl / Alt / Super) |
+| `j` / `k` | navigate only with **no modifier at all**. `Ctrl+j`, `Alt+k`, `Shift+j` are not navigation |
+| Esc | closes with `Dismiss::Escape`; no app shortcut sees it |
+| Tab / Shift+Tab | stay in the popup (the Tab trap) |
+| printable text, no Ctrl / Alt / Super | filters in Menu and SearchableDropdown; Backspace, Ctrl+U, Ctrl+Backspace edit the filter there |
+| F1 in ShortcutHelp | closes the help (it is the help key) |
+| anything else (F-keys, Ctrl / Alt / Super + key, letters in PopupMenu / Dropdown) | closes the popup (PopupMenu: `Dismiss::Closed`), focus back, the key reaches the app |
+
+Two kinds of layer keep their own rules:
+- **ConfirmDialog** is a decision. It keeps the keyboard until it is
+  answered or cancelled: F10 or Ctrl+Q do nothing while it is open.
+- **PopupCard** holds your own controls. Keys they do not use go on to the
+  app and the card stays open; Esc closes it.
+
+If a shortcut needs a menu to stay open, handle that key in the app and
+reopen the menu.
 
 ## Keyboard panels (one canvas, several Tab stops)
 
@@ -56,14 +92,14 @@ Panel keys and the API: [COMPONENTS.md](COMPONENTS.md#keyboardpanel-regions-of-o
 | Slider | Left / Right / Up / Down |
 | TabBar | anywhere: Ctrl+Tab, Ctrl+Shift+Tab, Ctrl+PageDown, Ctrl+PageUp. Focused: Left / Right / Home / End, Delete closes |
 | List | Up / Down, j / k, PageUp / PageDown, Home / End, Enter |
-| Dropdown | Enter / Space / Down open; Up / Down, j / k; Enter; Esc |
+| Dropdown | Enter / Space / Down open; Up / Down, j / k (no modifier); Enter; Esc |
 | SearchableDropdown | Enter / Down open; type to filter; Up / Down; Enter; Esc |
 | Menu | type to filter; Up / Down, PageUp / PageDown; Enter / Right; Backspace, Ctrl+Backspace, Ctrl+U; Esc clears, then closes |
 | ConfirmDialog | Left / Right / Tab; Enter; Esc cancels |
 | ShortcutHelp | Up / Down / PageUp / PageDown scroll; Esc / F1 close |
 | Notification | reached with Tab; Enter / Space / Delete / Esc dismiss |
 | OperationToast | reached with Tab or `toast.focus()`; Left / Right choose; Enter / Space press; Esc leaves |
-| PopupMenu | Up / Down, j / k (skip disabled, wrap), PageUp / PageDown, Home / End; Enter; Esc |
+| PopupMenu | Up / Down, j / k with no modifier (skip disabled, wrap), PageUp / PageDown, Home / End; Enter; Esc. Other keys close it (`Closed`) and reach the app |
 | PopupCard | Tab / Shift+Tab stay inside; Esc closes, focus comes back |
 | Table | the KeyboardPanel keys; Enter activates |
 | Tree | the KeyboardPanel keys, plus Right (expand / first child) and Left (collapse / parent) |

@@ -145,7 +145,7 @@ dependencies = [
 
 [[package]]
 name = "lib-fltk-omarchy"
-version = "0.0.7"
+version = "0.0.8"
 dependencies = [
  "fltk",
  "glow",

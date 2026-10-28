@@ -1,4 +1,4 @@
-# Components (0.0.7)
+# Components (0.0.8)
 
 Every component is a classic Omarchy control (the omarchy-shell `Ui/`
 kit) drawn with the live theme: colors, fonts, spacing and corner radius
@@ -259,6 +259,11 @@ menu.close();                                              // e.g. the data chan
 
 Dropping the handle leaves the menu open. If the window is deleted with the
 menu open, no callback runs.
+
+App shortcuts work while the menu is open. A key the menu does not use
+(F1, F10, `Ctrl+,`, `Ctrl+j`) closes it with `Dismiss::Closed`, gives focus
+back and then runs the window shortcut once. `j` / `k` navigate only with
+no modifier. See [KEYBOARD.md](KEYBOARD.md#popups-and-app-shortcuts).
 
 **Keys:** Up/Down or j/k move, skip disabled entries and wrap;
 PageUp/PageDown and Home/End jump; Enter picks; Esc closes; Tab stays in
