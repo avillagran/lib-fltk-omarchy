@@ -1,7 +1,8 @@
-# Shapes, paints and CPU shaders (0.0.4)
+# Shapes, paints, CPU and GPU shaders (0.0.5)
 
 `fltk_omarchy::gfx` draws custom visuals in **software**, on the CPU: no
-GPU, no OpenGL and no extra fltk features. The crate keeps
+GPU, no OpenGL and no extra fltk features. An optional GPU path exists
+behind the `gpu` crate feature, **off by default** (see [GPU](#gpu)). The crate keeps
 `use-wayland` and `no-images`, so an app that depends on it builds exactly
 as before. Colors come from the theme through `Uniforms`, so every visual
 follows `omarchy-theme-set`.
@@ -117,6 +118,19 @@ Helpers: `gfx::shaders::{value_noise, fbm, hash2}`.
 what `paint` drew before. It cannot blur other widgets, because FLTK gives no
 cheap access to the pixels behind a widget.
 
+### Several cores
+
+`View::threads(n)` shades bands of rows on `n` threads (0 = the machine's
+cores, at most 8; default 1). The frame finishes sooner. Total CPU stays
+about the same: in the measurement below it went down a little. The
+shader must be `Send + Sync`: closures that capture nothing, or only
+`Copy`/`Arc` data, qualify. A pixel test checks that 2, 3 and 8 threads
+give the same pixels as one.
+
+```rust
+let noise = View::new(400, 300).shader(gfx::shaders::noise()).threads(4).animate(30);
+```
+
 ### Limits that keep the UI responsive
 
 - **Area limit** (`max_area`, default 160 000 px): a larger View renders
@@ -154,7 +168,78 @@ Outside the shape, mouse events go to whatever is below, as if the View
 were not there. With `on_click` the View is also a keyboard control: Tab
 reaches it, Enter or Space press it, and the focus ring follows the shape.
 
+## GPU
+
+`gfx::gpu::GpuView` runs a GLSL fragment shader with the same uniforms as
+the CPU shaders. It only exists with the crate feature `gpu`, which is
+**off by default**:
+
+```toml
+lib-fltk-omarchy = { git = "https://github.com/avillagran/lib-fltk-omarchy", tag = "v0.0.5", features = ["gpu"] }
+```
+
+```rust
+use fltk_omarchy::gfx::gpu::GpuView;
+let glow = GpuView::new(400, 300, r#"
+    vec4 shade(vec2 p) {                       // p: widget pixels, y down
+        float d = length(p - u_size * 0.5) / min(u_size.x, u_size.y);
+        return mix(u_accent, u_background, smoothstep(0.0, 0.5, d));
+    }
+"#).animate(60);
+// Uniforms: u_time, u_size, u_pointer (−1 outside), u_background, u_foreground,
+// u_accent, u_urgent, u_params. Compile errors: glow.last_error().
+```
+
+Why it is opt-in:
+- **Features.** The `gpu` feature turns on fltk's `enable-glwindow`
+  (fltk-sys builds FLTK with OpenGL) and adds the `glow` crate (MIT /
+  Apache-2.0 / Zlib). Cargo unifies features, so an app that enables it
+  changes the fltk-sys build of the whole program. Without the feature,
+  fltk-sys keeps exactly `default`, `use-wayland` and `no-images`.
+- **Memory.** Loading the GL driver costs about 35 MB of PSS, whether the
+  view animates or not (table below).
+- **A FLTK limitation on Wayland.** A GL subwindow can only start once its
+  window is on an output. FLTK waits for that on the subwindow's first
+  draw. On a hidden or inactive workspace that never happens, and the app
+  blocks there until the window becomes visible. `GpuView` avoids blocking
+  its own first frame: it stays hidden until its window has been shown for
+  a few frames, then lays itself out. A window that starts on a workspace
+  nobody is looking at still waits until it is viewed. Offscreen snapshots
+  cannot capture GL output, so tests use `read_pixel(x, y, f)`.
+
+Checked in a real window (`gpu_bench check`): the left half of the test
+shader read back the theme accent `[230,142,13]` and the right half the
+background `[18,18,18]`. A broken shader reported Mesa's compile log and
+showed the theme background.
+
 ## Cost (measured)
+
+### GPU vs CPU (0.0.5)
+
+Same session on 2026-10-28, Asahi Linux (Apple M2, Mesa), Hyprland,
+release build. The setup: a 520×400 window with one 484×300 view running
+the same 3-octave noise, on the current workspace (floating, without
+focus; GL needs a visible window). `script/gpu-bench`, 3 runs of 5 s each;
+raw data in `docs/gpu-bench-2026-10-28.jsonl`. The table shows medians;
+PSS includes SwapPss and covers the whole process tree.
+
+| Case | fps | CPU | CPU per frame | Frame render | PSS |
+|---|---|---|---|---|---|
+| CPU `View`, static | — | 0.0 % | — | — | 15.9 MB |
+| CPU `View`, animated, 1 thread | 30 | 52.8 % | 17.6 ms | 10.3 ms | 16.5 MB |
+| CPU `View`, animated, `threads(4)` | 30 | 45.1 % | 15.1 ms | 3.9 ms | 16.6 MB |
+| `GpuView`, static | — | 0.0 % | — | first draw 22 ms (compile) | 51.2 MB |
+| `GpuView`, animated | 30 | 0.7 % | 0.24 ms | 0.08 ms to submit | 51.2 MB |
+
+- The GPU path costs almost no CPU, but takes about 35 MB more memory and
+  adds the OpenGL build. The release binary was 132 KB larger.
+- `threads(4)` cut the frame render from 10.3 to 3.9 ms. Frames that
+  needed two draws because of the 6 ms budget went from about 200 to about
+  12 per run.
+- Rule of thumb: decorative animation in an app that already uses GL →
+  `GpuView`. Everything else → CPU `View`, small `max_area`, low fps.
+
+### CPU shaders, earlier session (0.0.4)
 
 Same session on 2026-10-28, Asahi Linux (Apple M2), Hyprland, release
 build (`opt-level = "s"`, thin LTO). The setup: a 520×400 window with one
@@ -179,14 +264,5 @@ How to read it:
   flush, and the extra draws when a frame exceeded the budget. The View
   render and blit columns are the View's own share.
 
-Not measured: GPU-heavy content (not supported), multi-core shading (tiles
-run on the UI thread), and other machines.
-
-## GPU
-
-Not implemented. Enabling fltk's `enable-glwindow` in this crate would
-change the fltk-sys build of every app that depends on it, because Cargo
-unifies features (Files has a header guard that would break). If it is ever
-added, it will be an optional crate feature, **off by default**, in its own
-module, with its memory and startup cost measured and documented. The
-software path stays the default.
+Not measured in that session: GPU and multi-core shading (both added in
+0.0.5, measured above) and other machines.

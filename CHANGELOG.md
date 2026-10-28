@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.0.5 — 2026-10-28
+
+- **Control transitions** (`anim`) with Omarchy's durations and curves:
+  - Button 120 ms; ActionButton and rows 60 ms; Toggle 100 ms;
+  - ToggleSwitch 120 ms color, with the knob on OutCubic;
+  - Slider position 140 ms OutCubic (none while dragging), knob scale
+    110 ms.
+
+  One shared 60 fps timer redraws only the widgets mid-transition. Theme
+  changes repaint at once. Turn them off with `anim::set_enabled(false)` or
+  `OMARCHY_FLTK_ANIMATIONS=0`. `paint::control_look`, `draw_look` and
+  `anim::{Anim, Look, Ease}` are available for custom widgets.
+- **Multi-core CPU shaders**: `View::threads(n)` (bands of rows,
+  `std::thread::scope`). Shaders are now `Send + Sync`.
+- **GPU shaders** behind the optional `gpu` feature, **off by default**:
+  - `gfx::gpu::GpuView` (GLSL `vec4 shade(vec2 p)` with the theme uniforms,
+    `animate`, `set_params`, `last_error`, `read_pixel`);
+  - the feature enables fltk's `enable-glwindow` and `glow`.
+
+  Without the feature, fltk-sys features are unchanged.
+- **Real keyboard validated** through Hyprland: `script/os-input-check`,
+  `examples/os_input_check`, results in docs/KEYBOARD.md.
+- Measurements: `script/gpu-bench` (GPU vs CPU, 1 and 4 threads); data in
+  `docs/gpu-bench-2026-10-28.jsonl`.
+
+Notes:
+- FLTK's Wayland GL subwindow blocks until its window is on an output.
+  `GpuView` waits for its window before showing itself, but an app that
+  starts on an unseen workspace still waits until it is viewed.
+- **Breaking:** `View::shader` requires `Send + Sync` (closures that
+  capture nothing qualify).
+
 ## 0.0.4 — 2026-10-28
 
 Custom shapes and CPU shaders (`gfx`, software only; fltk features

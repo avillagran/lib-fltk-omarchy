@@ -1,4 +1,4 @@
-# Components (0.0.4)
+# Components (0.0.5)
 
 Every component is a classic Omarchy control (the omarchy-shell `Ui/`
 kit) drawn with the live theme: colors, fonts, spacing and corner radius
@@ -9,6 +9,12 @@ so it goes in any `Flex`/`Group`; it is created with its Omarchy size and
 You can drop the Rust handle: `row.fit(&*Toggle::new(..))` keeps following
 its `State`, because bindings belong to the fltk widget and end when the
 widget is deleted.
+
+State changes animate with Omarchy's durations: Button 120 ms,
+ActionButton and rows 60 ms, Toggle 100 ms, ToggleSwitch 120 ms with the
+knob easing, Slider 140 ms (not while dragging). A theme change repaints at
+once. `fltk_omarchy::anim::set_enabled(false)` or
+`OMARCHY_FLTK_ANIMATIONS=0` turns transitions off.
 
 Every component works from the keyboard. Tab and Shift+Tab move between
 controls, arrows act inside the focused one, and menus give focus back when

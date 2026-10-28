@@ -45,8 +45,12 @@ classic Omarchy look. Import as `fltk_omarchy`.
 11. Custom visuals: `gfx::View::new(w, h).paint(|c, u| ..)` with `gfx::Path`
     and colors from `u` (`u.accent`, `u.background`…), never hex. Animated
     shaders cost CPU (35–45 % of a core at 484×300 @ 30 fps): keep them small
-    (`max_area`), low fps, and only where they add something. No GPU.
-    Guide: docs/SHADERS.md.
+    (`max_area`), low fps, and only where they add something; `threads(4)`
+    shortens frames. The GPU path (`gfx::gpu::GpuView`) needs the `gpu`
+    crate feature (off by default, +35 MB PSS, changes the fltk build): only
+    for apps that accept that. Guide: docs/SHADERS.md.
+    Control transitions follow Omarchy durations automatically; tests and
+    screenshots that need final states call `anim::set_enabled(false)`.
 12. Verify visually: `win.snapshot("shot.png")` renders offscreen without
    showing a window; look at the PNG. Verify keys with
    `focus::press("Tab")`, `press("Down")`, `press("Enter")`… (same path as

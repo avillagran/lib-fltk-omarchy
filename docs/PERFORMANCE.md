@@ -84,7 +84,10 @@ router adds no measurable cost.
 
 The cost of an animated `gfx::View` against a static one, measured in the
 same session: [SHADERS.md](SHADERS.md#cost-measured). Animation adds CPU
-(35–45 % of one core for 484×300 at 30 fps) but no memory.
+(35–45 % of one core for 484×300 at 30 fps) but no memory. 0.0.5 adds
+multi-core shading and the optional GPU path (0.7 % CPU, +35 MB PSS for the
+GL driver), measured in the same session:
+[SHADERS.md](SHADERS.md#gpu-vs-cpu-005).
 
 ## Window size matters
 

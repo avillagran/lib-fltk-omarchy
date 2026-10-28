@@ -1,4 +1,4 @@
-# Keyboard first (0.0.3)
+# Keyboard first (0.0.5)
 
 Every lib-fltk-omarchy app can be used without a mouse, without writing any
 keyboard code. `App::new` installs one keyboard router (`focus::install`)
@@ -98,6 +98,30 @@ same path as a real key press. It also works on windows that are never
 shown. `tests/ui.rs` drives a whole window with it ("keyboard only" check),
 and `examples/docs_shots.rs` uses it for the keyboard pictures.
 
-Not validated yet: key delivery from a physical keyboard through the
-compositor. The router sits after that point, but no test types on a real
-device.
+## Real keyboard through the compositor (0.0.5)
+
+`script/os-input-check` opens `examples/os_input_check` floating on the
+current workspace and gives it focus. It types real keys with `wtype` (the
+Wayland virtual-keyboard protocol, delivered by Hyprland like hardware
+keys), then gives focus back to the window that had it. It needs the
+user's go-ahead: for about 3 s, keystrokes go to the test window.
+
+Result on 2026-10-28 (`docs/os-input-2026-10-28.json`), Hyprland 0.56.2:
+
+| Keys | Result |
+|---|---|
+| `omarchy` typed into the focused field | text `"omarchy"` |
+| Tab, Enter, Space | Add pressed twice |
+| Tab, Right, Right | ButtonGroup on Month (2) |
+| Tab, Ctrl+Tab | TabBar on Work (1), app-wide shortcut |
+| Tab, Down ×3 | List cursor on Item 2 |
+| F10, Down, Enter | window shortcut opened the PopupMenu, Copy (1) picked, focus back on the list |
+| Shift+Tab | TabBar |
+
+Focus trace: field → Add → ButtonGroup → TabBar → List → menu → List →
+TabBar → none. The last step is the test giving focus back to the user's
+window.
+
+Not validated: a physical mouse through the compositor. Injecting pointer
+events needs a daemon (`ydotoold`); this project does not run daemons.
+Clicks are tested with `focus::click_at`.
