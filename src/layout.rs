@@ -80,14 +80,15 @@ fn natural_of<W: WidgetExt>(w: &W) -> Option<(i32, i32)> {
 }
 
 /// Updates the natural size of a fitted widget whose content changed and
-/// re-fixes it in its parent flex. No-op for widgets that were not fitted.
-pub fn refit<W: WidgetExt>(w: &W, natural: (i32, i32)) {
+/// re-fixes it in its parent flex. Returns false (and does nothing) for
+/// widgets that were not fitted yet.
+pub fn refit<W: WidgetExt>(w: &W, natural: (i32, i32)) -> bool {
     let fitted = NATURAL.with(|n| {
         let mut n = n.borrow_mut();
         n.get_mut(&key(w)).filter(|(t, _)| !t.was_deleted()).map(|v| v.1 = natural).is_some()
     });
     if !fitted {
-        return;
+        return false;
     }
     if let Some(parent) = w.parent() {
         if let Some(mut p) = Flex::from_dyn_widget(&parent) {
@@ -96,6 +97,7 @@ pub fn refit<W: WidgetExt>(w: &W, natural: (i32, i32)) {
             p.redraw();
         }
     }
+    true
 }
 
 fn is_column(f: &Flex) -> bool {

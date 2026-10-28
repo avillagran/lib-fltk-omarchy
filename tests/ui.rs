@@ -3,6 +3,7 @@
 //! Uses a fake Omarchy state dir so results do not depend on the desktop.
 use fltk::prelude::*;
 use fltk_omarchy::focus::{self, press};
+use fltk_omarchy::gfx::{self, Hit, View};
 use fltk_omarchy::layout::{self, FlexExt};
 use fltk_omarchy::list::{List, ListRow};
 use fltk_omarchy::panel::{KeyboardPanel, PanelLayout};
@@ -445,6 +446,100 @@ fn main() {
         check(!right.has_focus(), "a removed panel cannot take focus")?;
         left.focus();
         check(left.has_focus() && focus::is_focused(&canvas), "panel.focus() from code")
+    });
+    run("gfx View: paint with alpha, area limit, budget, hit shape, keyboard, pause, theme", &|shots| {
+        let acc = theme::current().palette.accent;
+        let bg = theme::current().palette.background;
+        let mut win = AppWindow::new("t", 400, 300);
+        let mut body = win.body();
+        let card = View::new(200, 80).paint(|c, u| c.fill(&gfx::Path::rounded_rect(0.0, 0.0, 200.0, 80.0, [24.0; 4]), u.accent));
+        body.fit(&*card);
+        // A slow shader on a small area budget: renders at lower resolution, in several draws.
+        let slow = View::new(360, 120)
+            .shader(|x: f32, y: f32, u: &gfx::Uniforms| { let mut v = 0.0f32; for i in 0..300 { v += ((x + y + i as f32) * 0.01).sin(); } u.accent.mix(u.background, (v * 0.0).abs()) })
+            .max_area(20_000)
+            .budget_ms(1.0);
+        body.fit(&*slow);
+        win.end();
+        let p = shots.join("gfx-view.png");
+        win.snapshot(&p).map_err(|e| e.to_string())?;
+        let mid = pixel(&p, card.x() + 100, card.y() + 40)?;
+        let corner = pixel(&p, card.x() + 1, card.y() + 1)?;
+        check(mid == [acc.r(), acc.g(), acc.b()], &format!("card center {mid:?}"))?;
+        check(corner == [bg.r(), bg.g(), bg.b()], &format!("rounded corner shows the window behind: {corner:?}"))?;
+        let st = slow.stats();
+        check(st.frames == 1 && st.render_size.0 * st.render_size.1 <= 20_000 && st.render_size.0 < 360, &format!("first frame complete at reduced size: {st:?}"))?;
+        let sp = pixel(&p, slow.x() + 180, slow.y() + 60)?;
+        check(sp == [acc.r(), acc.g(), acc.b()], &format!("scaled shader output {sp:?}"))?;
+        slow.invalidate();
+        let mut draws = 0;
+        while slow.stats().frames < 2 && draws < 200 { win.snapshot(std::env::temp_dir().join("omarchy-fltk-unused.png")).ok(); draws += 1; }
+        let st = slow.stats();
+        check(st.frames == 2 && st.partial_draws > 0, &format!("next frame spread over {draws} draws within a 1 ms budget: {st:?}"))?;
+        check(st.memory > 0 && st.memory < 400_000, &format!("buffers bounded by max_area: {} bytes", st.memory))?;
+
+        // Hit shape: a round button over a rectangular one.
+        let mut win = AppWindow::new("t", 300, 200);
+        win.end();
+        let behind = Rc::new(RefCell::new(0));
+        let b2 = behind.clone();
+        let mut under = fltk::button::Button::new(20, 60, 120, 120, None);
+        under.set_callback(move |_| *b2.borrow_mut() += 1);
+        win.add(&under);
+        let round = Rc::new(RefCell::new(0));
+        let r2 = round.clone();
+        let mut orb = View::new(120, 120)
+            .paint(|c, u| c.fill(&gfx::Path::circle(60.0, 60.0, 60.0), u.accent))
+            .hit_shape(Hit::Fill(gfx::Path::circle(60.0, 60.0, 60.0)))
+            .on_click(move || *r2.borrow_mut() += 1);
+        orb.set_pos(20, 60);
+        win.add(&*orb);
+        focus::click_at(&*win, 80, 120); // center of the circle
+        focus::click_at(&*win, 23, 63);  // bounding-box corner, outside the circle
+        check(*round.borrow() == 1 && *behind.borrow() == 1, &format!("circle got its click, the corner went below: {} / {}", round.borrow(), behind.borrow()))?;
+        let mut u2 = under.clone();
+        let _ = u2.take_focus();
+        press("Tab");
+        check(focus::is_focused(&*orb), "the shaped view is a Tab stop when clickable")?;
+        press("Enter");
+        check(*round.borrow() == 2, "Enter activates it")?;
+        win.snapshot(shots.join("gfx-hit-focus.png")).map_err(|e| e.to_string())?;
+
+        // Animation ticks are skipped while the window is not shown.
+        let anim = View::new(50, 50).shader(gfx::shaders::noise()).animate(60);
+        let mut w3 = AppWindow::new("t", 100, 100);
+        w3.add(&*anim);
+        w3.end();
+        let t0 = Instant::now();
+        while t0.elapsed() < Duration::from_millis(1200) { App::pump(); std::thread::sleep(Duration::from_millis(10)); }
+        let st = anim.stats();
+        check(st.paused_ticks >= 1 && st.frames == 0, &format!("hidden: paused, no frames: {st:?}"))?;
+
+        // Theme change repaints with the new accent.
+        let mut t = theme::current();
+        t.palette.accent = theme::Rgb(0x33ccff);
+        theme::set(t);
+        let p = shots.join("gfx-view-theme.png");
+        let mut w4 = AppWindow::new("t", 300, 140);
+        let mut b4 = w4.body();
+        let v4 = View::new(100, 40).paint(|c, u| c.fill(&gfx::Path::rect(0.0, 0.0, 100.0, 40.0), u.accent));
+        b4.fit(&*v4);
+        w4.end();
+        w4.snapshot(&p).map_err(|e| e.to_string())?;
+        let px = pixel(&p, v4.x() + 50, v4.y() + 20)?;
+        theme::reload();
+        check(px == [0x33, 0xcc, 0xff], &format!("theme color reaches the view: {px:?}"))
+    });
+    run("label bound before fit keeps its text width", &|_| {
+        let mut win = AppWindow::new("t", 300, 100);
+        let mut r = layout::row();
+        let n = State::new(64u32);
+        let l = Label::new("").bind(&n.map(|v| format!("{v}% volume")));
+        r.fit(&*l);
+        r.close_fitted();
+        win.end();
+        win.snapshot(std::env::temp_dir().join("omarchy-fltk-unused.png")).ok();
+        check(l.w() > 40, &format!("width {}", l.w()))
     });
     run("keyboard only: Tab order, arrows, shortcuts, focus comes back", &|shots| {
         let mut win = AppWindow::new("t", 560, 420);

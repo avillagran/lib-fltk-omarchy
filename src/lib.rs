@@ -1,5 +1,6 @@
 pub mod app;
 pub mod focus;
+pub mod gfx;
 pub mod hyprland;
 pub mod keys;
 pub mod layout;

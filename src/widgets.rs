@@ -816,7 +816,11 @@ impl Label {
             let s = if d.uppercase { d.text.to_uppercase() } else { d.text.clone() };
             (measure_offscreen(&s, px) + 2, (px as f64 * 1.5).round() as i32)
         });
-        crate::layout::refit(&self.inner, natural);
+        if !crate::layout::refit(&self.inner, natural) {
+            // Not in a flex yet (bound before `fit`): take the natural size
+            // so the later `fit` keeps it.
+            self.inner.set_size(natural.0, natural.1);
+        }
         self.inner.redraw();
     }
 
