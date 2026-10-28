@@ -98,7 +98,7 @@ fn main() {
     win.shortcut("Ctrl+,", move || p2());
     win.shortcut("F10", move || { a2(); });
     let w3 = win.clone();
-    win.shortcut("F1", move || ShortcutHelp::open(&*w3, "Keyboard shortcuts", help()));
+    win.shortcut("F1", move || { ShortcutHelp::open(&*w3, "Keyboard shortcuts", help()); });
 
     let w4 = win.clone();
     let start_copy = move || {

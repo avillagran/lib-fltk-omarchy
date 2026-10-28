@@ -249,6 +249,9 @@ impl View {
         }));
         let s2 = st.clone();
         group.draw(move |g| draw(g, &s2));
+        // cfltk runs FLTK's own draw before this closure by default: it would
+        // draw damaged children first and this background would then cover them.
+        group.super_draw(false);
         let s3 = st.clone();
         group.handle(move |g, ev| {
             let (lx, ly) = ((app::event_x() - g.x()) as f32 + 0.5, (app::event_y() - g.y()) as f32 + 0.5);

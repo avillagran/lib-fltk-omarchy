@@ -124,6 +124,7 @@ fn finish(state: &Rc<RefCell<HandleState>>, layer: &Widget, reason: Dismiss) -> 
         }
         s.reason = Some(reason);
     }
+    crate::focus::pop_modal(layer);
     close_layer(layer);
     let f = state.borrow_mut().on_dismiss.take();
     if let Some(f) = f {
@@ -585,16 +586,21 @@ fn open_search(trigger: &mut Widget, options: &Rc<Vec<(String, String)>>, value:
 // ============================================================ ShortcutHelp
 
 /// F1-style help card: sections of (keys, description) rows over a scrim.
-/// Keys are drawn as chips. Esc, F1 or a click closes; the wheel scrolls.
+/// Keys are drawn as chips. Esc, F1 or a click closes. Up/Down, PageUp/
+/// PageDown, Home/End and the wheel scroll, bounded to the content.
 pub struct ShortcutHelp;
 
 impl ShortcutHelp {
     /// `sections`: (title, [(keys, description)]).
-    pub fn open<A: WidgetExt>(anchor: &A, title: &str, sections: Vec<(String, Vec<(String, String)>)>) {
-        let Some(mut layer) = open_layer(anchor, None, true) else { return };
+    pub fn open<A: WidgetExt>(anchor: &A, title: &str, sections: Vec<(String, Vec<(String, String)>)>) -> ShortcutHelpHandle {
+        let none = || ShortcutHelpHandle { scroll: Rc::default(), extent: Rc::default() };
+        let Some(mut layer) = open_layer(anchor, None, true) else { return none() };
         let scroll = Rc::new(Cell::new(0i32));
+        // (content height, visible height), measured while drawing.
+        let extent = Rc::new(Cell::new((0i32, 0i32)));
         let title = title.to_string();
-        let sc = scroll.clone();
+        let (sc, ext) = (scroll.clone(), extent.clone());
+        let (scroll_out, extent_out) = (scroll.clone(), extent.clone());
         layer.draw(move |l| {
             if let Some(win) = l.top_window() { if (l.w(), l.h()) != (win.w(), win.h()) { l.resize(0, 0, win.w(), win.h()); } }
             theme::with(|t| {
@@ -609,6 +615,12 @@ impl ShortcutHelp {
                 paint::text_elided(&title, cx + pad, cy + pad, cw - 2 * pad, t.font.heading + 8, t.font.heading, true, fg, Align::Left);
                 let top = cy + pad + t.font.heading + 8 + t.spacing.lg;
                 let bottom = cy + ch - pad;
+                // Content height first, so scrolling stops at the last row.
+                let row = t.font.body + t.spacing.xl;
+                let content: i32 = sections.iter().map(|(_, r)| t.font.caption + 6 + t.spacing.sm + r.len() as i32 * row + t.spacing.lg).sum();
+                let view = bottom - top;
+                ext.set((content, view));
+                sc.set(sc.get().clamp(0, (content - view).max(0)));
                 fltk::draw::push_clip(cx + pad, top, cw - 2 * pad, bottom - top);
                 let mut y = top - sc.get();
                 let row = t.font.body + t.spacing.xl;
@@ -636,25 +648,62 @@ impl ShortcutHelp {
                     y += t.spacing.lg;
                 }
                 fltk::draw::pop_clip();
+                if content > view && view > 0 {
+                    let thumb = ((view as f64 / content as f64) * view as f64).max(16.0) as i32;
+                    let ty = top + ((sc.get() as f64 / (content - view) as f64) * (view - thumb) as f64) as i32;
+                    paint::fill(cx + cw - pad / 2 - 2, ty, 4, thumb, 2, fg.over(fill, 0.3));
+                }
             });
         });
-        layer.handle(move |l, ev| match ev {
+        layer.handle(move |l, ev| {
+            let (content, view) = extent.get();
+            let max = (content - view).max(0);
+            let mut go = |v: i32| { scroll.set(v.clamp(0, max)); l.redraw(); };
+            let line = theme::with(|t| t.font.body + t.spacing.xl);
+            match ev {
             Event::KeyDown => {
-                if matches!(app::event_key(), Key::Escape | Key::F1) { close_layer(l); }
-                else if app::event_key() == Key::Down || app::event_key() == Key::PageDown { scroll.set(scroll.get() + 60); l.redraw(); }
-                else if app::event_key() == Key::Up || app::event_key() == Key::PageUp { scroll.set((scroll.get() - 60).max(0)); l.redraw(); }
+                match app::event_key() {
+                    Key::Escape | Key::F1 => close_layer(l),
+                    Key::Down => go(scroll.get() + line),
+                    Key::Up => go(scroll.get() - line),
+                    Key::PageDown => go(scroll.get() + (view - line).max(line)),
+                    Key::PageUp => go(scroll.get() - (view - line).max(line)),
+                    Key::Home => go(0),
+                    Key::End => go(max),
+                    _ => {}
+                }
                 true
             }
             Event::MouseWheel => {
                 let d = match app::event_dy() { app::MouseWheel::Down => 40, app::MouseWheel::Up => -40, _ => 0 };
-                scroll.set((scroll.get() + d).max(0));
-                l.redraw();
+                go(scroll.get() + d);
                 true
             }
             Event::Push => { close_layer(l); true }
             Event::Focus | Event::Enter | Event::Shortcut => true,
             _ => false,
+            }
         });
+        ShortcutHelpHandle { scroll: scroll_out, extent: extent_out }
+    }
+}
+
+/// State of an open [`ShortcutHelp`] (tests, scripted tours).
+#[derive(Clone)]
+pub struct ShortcutHelpHandle {
+    scroll: Rc<Cell<i32>>,
+    extent: Rc<Cell<(i32, i32)>>,
+}
+
+impl ShortcutHelpHandle {
+    /// Current scroll offset in pixels.
+    pub fn scroll(&self) -> i32 {
+        self.scroll.get()
+    }
+    /// Largest scroll offset (content height − visible height).
+    pub fn max_scroll(&self) -> i32 {
+        let (c, v) = self.extent.get();
+        (c - v).max(0)
     }
 }
 
@@ -682,29 +731,56 @@ struct ToastData {
     kb: i32,
     on_pause: Option<Box<dyn FnMut(bool)>>,
     on_cancel: Option<Box<dyn FnMut()>>,
+    /// Pause, Resume, Cancel button labels and the paused state text.
+    labels: [String; 4],
+    indeterminate: bool,
+    started: std::time::Instant,
+}
+
+/// Toast size for a window width: (w, h, margin).
+fn toast_size(win_w: i32) -> (i32, i32, i32) {
+    theme::with(|t| {
+        let m = t.gaps_out.max(8);
+        let w = s(t, 380.0).min(win_w - 2 * m).max(120);
+        (w, t.spacing.popup_padding * 2 + t.font.title + 6 + t.font.body_small + 6 + t.spacing.lg + 4 + t.spacing.lg + t.spacing.control_height, m)
+    })
 }
 
 impl OperationToast {
     pub fn show<A: WidgetExt>(anchor: &A, title: &str) -> Option<OperationToast> {
         let win = anchor.top_window()?;
-        let (w, h, m) = theme::with(|t| {
-            let w = s(t, 380.0).min(win.w() - 2 * t.gaps_out.max(8));
-            (w, t.spacing.popup_padding * 2 + t.font.title + 6 + t.font.body_small + 6 + t.spacing.lg + 4 + t.spacing.lg + t.spacing.control_height, t.gaps_out.max(8))
-        });
+        let (w, h, m) = toast_size(win.w());
         let rect = (win.w() - w - m, win.h() - h - m, w, h);
         let mut layer = open_layer(anchor, Some(rect), false)?;
-        let data = Rc::new(RefCell::new(ToastData { title: title.into(), detail: String::new(), progress: 0.0, paused: false, hover: -1, kb: 0, on_pause: None, on_cancel: None }));
-        let buttons = move |l: &Widget| -> [(i32, i32, i32, i32); 2] {
+        let data = Rc::new(RefCell::new(ToastData { title: title.into(), detail: String::new(), progress: 0.0, paused: false, hover: -1, kb: 0, on_pause: None, on_cancel: None,
+            labels: ["Pause".into(), "Resume".into(), "Cancel".into(), "Paused".into()], indeterminate: false, started: std::time::Instant::now() }));
+        let lb = data.clone();
+        let buttons = Rc::new(move |l: &Widget| -> [(i32, i32, i32, i32); 2] {
+            let d = lb.borrow();
             theme::with(|t| {
                 let bh = t.spacing.control_height;
-                let bw = s(t, 96.0);
+                // Wide enough for the longest label (localized labels can be longer).
+                let fit = |a: &str| crate::widgets::measure_offscreen(a, t.font.body) + 2 * t.spacing.control_padding_x + 2;
+                let b0 = fit(&d.labels[0]).max(fit(&d.labels[1])).max(s(t, 96.0));
+                let b1 = fit(&d.labels[2]).max(s(t, 96.0));
                 let y = l.y() + l.h() - t.spacing.popup_padding - bh;
-                let x1 = l.x() + l.w() - t.spacing.popup_padding - bw;
-                [(x1 - t.spacing.md - bw, y, bw, bh), (x1, y, bw, bh)]
+                let x1 = l.x() + l.w() - t.spacing.popup_padding - b1;
+                [(x1 - t.spacing.md - b0, y, b0, bh), (x1, y, b1, bh)]
             })
-        };
-        let d = data.clone();
+        });
+        let (d, buttons2) = (data.clone(), buttons.clone());
         layer.draw(move |l| {
+            let buttons = &buttons2;
+            // Stay in the bottom-right corner when the window is resized.
+            if let Some(win) = l.top_window() {
+                let (w, h, m) = toast_size(win.w());
+                let want = (win.w() - w - m, win.h() - h - m, w, h);
+                if (l.x(), l.y(), l.w(), l.h()) != want {
+                    l.resize(want.0, want.1, want.2, want.3);
+                    if let Some(mut p) = l.parent() { p.redraw(); }
+                    return;
+                }
+            }
             let d = d.borrow();
             theme::with(|t| {
                 card(t, l.x(), l.y(), l.w(), l.h(), &t.notifications, 2);
@@ -714,21 +790,32 @@ impl OperationToast {
                 let (x, mut y, w) = (l.x() + p, l.y() + p, l.w() - 2 * p);
                 paint::text_elided(&d.title, x, y, w, t.font.title + 6, t.font.title, true, fg, Align::Left);
                 y += t.font.title + 6;
-                let pct = format!("{}%", (d.progress.clamp(0.0, 1.0) * 100.0).round());
-                let detail = if d.paused { format!("Paused · {}", d.detail) } else { d.detail.clone() };
+                let pct = if d.indeterminate { String::new() } else { format!("{}%", (d.progress.clamp(0.0, 1.0) * 100.0).round()) };
+                let detail = if d.paused { format!("{} · {}", d.labels[3], d.detail) } else { d.detail.clone() };
                 paint::text_elided(&detail, x, y, w - s(t, 48.0), t.font.body_small + 6, t.font.body_small, false, fg.darker(1.4), Align::Left);
                 paint::text(&pct, x, y, w, t.font.body_small + 6, t.font.body_small, true, fg, Align::Right);
                 y += t.font.body_small + 6 + t.spacing.lg;
                 paint::fill(x, y, w, 4, 2, t.fill(&t.controls.selected, fill));
                 let bar = if d.paused { fg.darker(1.6) } else { t.notifications.border };
-                paint::fill(x, y, (w as f64 * d.progress.clamp(0.0, 1.0)).round() as i32, 4, 2, bar);
+                if d.indeterminate {
+                    // A third of the track sliding back and forth (static when transitions are off or paused).
+                    let seg = (w / 3).max(8);
+                    let k = if crate::anim::enabled() && !d.paused {
+                        let ph = (d.started.elapsed().as_secs_f64() / 1.2) % 2.0;
+                        crate::anim::Ease::OutCubic.apply(if ph < 1.0 { ph } else { 2.0 - ph })
+                    } else { 0.5 };
+                    paint::fill(x + ((w - seg) as f64 * k).round() as i32, y, seg, 4, 2, bar);
+                    if crate::anim::enabled() && !d.paused { crate::anim::request_redraw(l); }
+                } else {
+                    paint::fill(x, y, (w as f64 * d.progress.clamp(0.0, 1.0)).round() as i32, 4, 2, bar);
+                }
                 let focused = crate::focus::show_ring(l);
                 for (i, (bx, by, bw, bh)) in buttons(l).iter().copied().enumerate() {
                     let hot = d.hover == i as i32 || (focused && d.kb == i as i32);
                     let (label, color) = if i == 0 {
-                        (if d.paused { "Resume" } else { "Pause" }, fg)
+                        (if d.paused { d.labels[1].as_str() } else { d.labels[0].as_str() }, fg)
                     } else {
-                        ("Cancel", t.palette.urgent)
+                        (d.labels[2].as_str(), t.palette.urgent)
                     };
                     let st = if focused && d.kb == i as i32 { &t.controls.focus } else if hot { &t.controls.hover } else { &t.controls.normal };
                     paint::surface(bx, by, bw, bh, t.radius, Some(t.fill(st, fill)), Some((t.border(st, fill), st.border_width.max(1))));
@@ -790,6 +877,25 @@ impl OperationToast {
     pub fn on_cancel(self, f: impl FnMut() + 'static) -> Self { self.data.borrow_mut().on_cancel = Some(Box::new(f)); self }
 
     pub fn set_progress(&mut self, p: f64) { self.data.borrow_mut().progress = p; self.layer.redraw(); }
+
+    /// Button labels and the paused text, for localization:
+    /// `.labels("Pausar", "Reanudar", "Cancelar", "En pausa")`.
+    pub fn labels(self, pause: &str, resume: &str, cancel: &str, paused: &str) -> Self {
+        self.data.borrow_mut().labels = [pause.into(), resume.into(), cancel.into(), paused.into()];
+        self.layer.clone().redraw();
+        self
+    }
+
+    /// Progress of unknown length: a sliding bar instead of a percentage.
+    pub fn set_indeterminate(&mut self, on: bool) {
+        self.data.borrow_mut().indeterminate = on;
+        self.layer.redraw();
+    }
+
+    /// Card rectangle in window coordinates (tests).
+    pub fn rect(&self) -> (i32, i32, i32, i32) {
+        (self.layer.x(), self.layer.y(), self.layer.w(), self.layer.h())
+    }
     pub fn set_detail(&mut self, s: &str) { self.data.borrow_mut().detail = s.into(); self.layer.redraw(); }
     pub fn set_title(&mut self, s: &str) { self.data.borrow_mut().title = s.into(); self.layer.redraw(); }
     pub fn is_paused(&self) -> bool { self.data.borrow().paused }
@@ -820,4 +926,116 @@ fn press_toast(d: &Rc<RefCell<ToastData>>, l: &Widget, i: i32) {
         if let Some(mut f) = cb { f(); d.borrow_mut().on_cancel = Some(f); }
     }
     l.clone().redraw();
+}
+
+// =============================================================== PopupCard
+
+/// Omarchy `PopupCard`: a card anchored to a widget (or a point) holding
+/// any widgets, clamped to the window. Esc or a click outside closes it;
+/// Tab and Shift+Tab stay inside while it is open; focus goes back to the
+/// control that had it. Returns the same [`PopupHandle`] as menus.
+///
+/// ```no_run
+/// use fltk_omarchy::{layout::FlexExt, popups::PopupCard, widgets::*, State};
+/// # let anchor = Button::new("Volume");
+/// let vol = State::new(0.6);
+/// let card = PopupCard::open(&*anchor, 260, 110, |col| {
+///     col.fit(&*Label::section("Output"));
+///     let _ = Slider::new(&vol, 0.0, 1.0, 0.05);
+/// }).on_dismiss(|why| println!("closed: {why:?}"));
+/// ```
+pub struct PopupCard;
+
+impl PopupCard {
+    /// Opens a `w × h` card below `anchor` (above it when there is more
+    /// room; right-aligned in the right half). `build` adds widgets to the
+    /// card's column, like an `AppWindow` body.
+    pub fn open<A: WidgetExt>(anchor: &A, w: i32, h: i32, build: impl FnOnce(&mut fltk::group::Flex)) -> PopupHandle {
+        let Some(win) = anchor.top_window() else { return PopupHandle::closed_now() };
+        let w = w.min(win.w() - 4).max(1);
+        let right_half = anchor.x() + anchor.w() / 2 > win.w() / 2;
+        let x = if right_half { anchor.x() + anchor.w() - w } else { anchor.x() };
+        Self::open_rect(anchor, x, (anchor.y(), anchor.y() + anchor.h()), w, h, build)
+    }
+
+    /// Opens at window coordinates (e.g. where the user clicked).
+    pub fn open_at<A: WidgetExt>(anchor: &A, x: i32, y: i32, w: i32, h: i32, build: impl FnOnce(&mut fltk::group::Flex)) -> PopupHandle {
+        Self::open_rect(anchor, x, (y, y), w, h, build)
+    }
+
+    fn open_rect<A: WidgetExt>(anchor: &A, x: i32, span: (i32, i32), w: i32, h: i32, build: impl FnOnce(&mut fltk::group::Flex)) -> PopupHandle {
+        let Some(win) = anchor.top_window() else { return PopupHandle::closed_now() };
+        let Some(mut wg) = fltk::group::Group::from_dyn_widget_ptr(win.as_widget_ptr()) else { return PopupHandle::closed_now() };
+        let (ww, wh) = (win.w(), win.h());
+        let h = h.min(wh - 4).max(1);
+        let x = x.clamp(2, (ww - w - 2).max(2));
+        let below = wh - 2 - (span.1 + 2);
+        let y = if h <= below { span.1 + 2 } else if h <= span.0 - 4 { span.0 - 2 - h } else { (wh - h) / 2 };
+        let prev_focus = crate::focus::current();
+        let prev_group = fltk::group::Group::try_current();
+        fltk::group::Group::set_current(None::<&fltk::group::Group>);
+        let mut layer = fltk::group::Group::new(0, 0, ww, wh, None);
+        layer.set_frame(FrameType::NoBox);
+        let mut card = fltk::group::Group::new(x, y, w, h, None);
+        card.set_frame(FrameType::NoBox);
+        let pad = theme::with(|t| t.spacing.popup_padding);
+        let mut col = fltk::group::Flex::new(x + pad, y + pad, w - 2 * pad, h - 2 * pad, None).column();
+        col.set_spacing(theme::with(|t| t.spacing.md));
+        build(&mut col);
+        col.end();
+        card.end();
+        card.draw(|c| {
+            theme::with(|t| card_surface(t, c.x(), c.y(), c.w(), c.h()));
+            c.draw_children();
+        });
+        // cfltk runs FLTK's own draw before this closure by default: it would
+        // draw damaged children first and this background would then cover them.
+        card.super_draw(false);
+        layer.end();
+        wg.add(&layer);
+        if let Some(g) = prev_group {
+            g.begin();
+        }
+        // SAFETY: the layer is a live widget; the copy only tracks it.
+        let lw = unsafe { Widget::from_widget_ptr(layer.as_widget_ptr()) };
+        let state = Rc::new(RefCell::new(HandleState { open: true, rect: Some((x, y, w, h)), reason: None, on_dismiss: None }));
+        let handle = PopupHandle { layer: Some(lw.clone()), state: state.clone() };
+        let (st, rect) = (state.clone(), (x, y, w, h));
+        layer.handle(move |l, ev| {
+            // SAFETY: as above.
+            let me = unsafe { Widget::from_widget_ptr(l.as_widget_ptr()) };
+            match ev {
+                Event::Push => {
+                    let (ex, ey) = app::event_coords();
+                    let inside = ex >= rect.0 && ex < rect.0 + rect.2 && ey >= rect.1 && ey < rect.1 + rect.3;
+                    if !inside {
+                        crate::focus::pop_modal(&me);
+                        finish(&st, &me, Dismiss::ClickOutside);
+                        return true;
+                    }
+                    false // the card's widgets get the click
+                }
+                Event::KeyDown | Event::Shortcut if app::event_key() == Key::Escape => {
+                    crate::focus::pop_modal(&me);
+                    finish(&st, &me, Dismiss::Escape);
+                    true
+                }
+                _ => false,
+            }
+        });
+        crate::focus::push_modal(&layer);
+        // Focus goes into the card; it comes back to `prev_focus` on close.
+        if let Some(p) = prev_focus {
+            crate::focus::remember_for(&lw, p);
+        }
+        if crate::focus::first(&wg).is_none() {
+            app::set_focus(&layer);
+        }
+        wg.redraw();
+        handle
+    }
+}
+
+fn card_surface(t: &theme::Theme, x: i32, y: i32, w: i32, h: i32) {
+    card(t, x, y, w, h, &t.popups, t.controls.normal.border_width.max(1));
 }

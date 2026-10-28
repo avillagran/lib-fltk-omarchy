@@ -170,6 +170,8 @@ pub fn request_redraw<W: WidgetExt>(w: &W) {
     let w = unsafe { <Widget as WidgetBase>::from_widget_ptr(w.as_widget_ptr()) };
     PENDING.with(|p| {
         let mut p = p.borrow_mut();
+        // Widgets deleted mid-transition (a closed window) leave the list first.
+        p.retain(|x| !x.was_deleted());
         if !p.iter().any(|x| x.as_widget_ptr() == w.as_widget_ptr()) {
             p.push(w);
         }

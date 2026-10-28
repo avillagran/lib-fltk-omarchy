@@ -8,7 +8,8 @@ use fltk_omarchy::layout::{self, FlexExt};
 use fltk_omarchy::list::{List, ListRow};
 use fltk_omarchy::panel::{KeyboardPanel, PanelLayout};
 use fltk_omarchy::overlay::{ConfirmDialog, Dropdown, Menu, MenuItem, Notification, Urgency};
-use fltk_omarchy::popups::{Dismiss, OperationToast, PopupItem, PopupMenu, SearchableDropdown};
+use fltk_omarchy::popups::{Dismiss, OperationToast, PopupCard, PopupItem, PopupMenu, SearchableDropdown, ShortcutHelp};
+use fltk_omarchy::table::{Column, Table, Tree, TreeNode};
 use fltk_omarchy::theme::Corners;
 use fltk_omarchy::Mode;
 use fltk_omarchy::task::{Outcome, Task};
@@ -647,6 +648,224 @@ fn main() {
         check(capped == 24.0, &format!("cap applies: {capped}"))?;
         let forced = View::new(10, 10).shader(gfx::shaders::rings()).backend(gfx::Backend::Cpu);
         check(forced.active_backend() == gfx::Backend::Cpu, "forced CPU")
+    });
+    run("file manager pieces: overflowing tabs, bounded help, localized toast, popup card", &|shots| {
+        // Tabs wider than the bar: arrows, scrolling, the selected tab in view.
+        let mut win = AppWindow::new("t", 360, 300);
+        let mut body = win.body();
+        let tab = State::new(0usize);
+        let names: Vec<String> = (1..=8).map(|i| format!("Folder number {i}")).collect();
+        let refs: Vec<&str> = names.iter().map(|s| s.as_str()).collect();
+        let tabs = TabBar::new(&refs, &tab).on_close(|_| {});
+        body.fit(&*tabs);
+        win.end();
+        win.snapshot(shots.join("tabs-0.png")).map_err(|e| e.to_string())?;
+        check(tabs.overflowing() && tabs.tab_rect(7).is_none(), "8 tabs overflow; the last one starts out of view")?;
+        let full = tabs.tab_rect(0).ok_or("first tab")?.1;
+        let mut t2 = tabs.clone();
+        let _ = t2.take_focus();
+        press("End");
+        win.snapshot(shots.join("tabs-1-end.png")).map_err(|e| e.to_string())?;
+        let r = tabs.tab_rect(7).ok_or("last tab visible")?;
+        check(tab.get() == 7 && r.1 >= full && tabs.scroll_offset() > 0, &format!("selected tab fully visible (close glyph included): {r:?}"))?;
+        let s0 = tabs.scroll_offset();
+        focus::click_at(&*win, tabs.x() + 5, tabs.y() + tabs.h() / 2); // left arrow
+        check(tabs.scroll_offset() < s0 && tab.get() == 7, "left arrow scrolls without changing the tab")?;
+
+        // Shortcut help: bounded scrolling, Home/End, large font.
+        let user = PathBuf::from(std::env::var("OMARCHY_FLTK_USER_SHELL").unwrap());
+        std::fs::write(&user, "[font]\nbase-size = 18\n").unwrap();
+        theme::reload();
+        let mut w2 = AppWindow::new("t", 420, 320);
+        w2.end();
+        w2.snapshot(std::env::temp_dir().join("omarchy-fltk-unused.png")).ok();
+        let row = |k: &str, d: &str| (k.to_string(), d.to_string());
+        let sections: Vec<(String, Vec<(String, String)>)> = (0..6).map(|i| (format!("Section {i}"), (0..5).map(|j| row("Ctrl+Shift+F12", &format!("Action {i}.{j}"))).collect())).collect();
+        let help = ShortcutHelp::open(&*w2, "Keyboard shortcuts", sections);
+        w2.snapshot(shots.join("help-0.png")).map_err(|e| e.to_string())?;
+        press("End");
+        w2.snapshot(shots.join("help-1-end.png")).map_err(|e| e.to_string())?;
+        let (end, max) = (help.scroll(), help.max_scroll());
+        for _ in 0..5 { press("Down"); }
+        w2.snapshot(std::env::temp_dir().join("omarchy-fltk-unused.png")).ok();
+        let after = help.scroll();
+        press("Home");
+        w2.snapshot(std::env::temp_dir().join("omarchy-fltk-unused.png")).ok();
+        check(max > 0 && end == max && after == max && help.scroll() == 0, &format!("End → {end} of {max}, stays at {after}, Home → {}", help.scroll()))?;
+        press("Escape");
+        std::fs::remove_file(&user).unwrap();
+        theme::reload();
+
+        // Operation toast: localized labels, indeterminate, follows the window size.
+        let mut w3 = AppWindow::new("t", 520, 360);
+        w3.end();
+        let events = Rc::new(RefCell::new(Vec::new()));
+        let (e1, e2) = (events.clone(), events.clone());
+        let mut op = OperationToast::show(&*w3, "Copiando 3 archivos").ok_or("toast")?
+            .labels("Pausar", "Reanudar", "Cancelar", "En pausa")
+            .on_pause(move |p| e1.borrow_mut().push(format!("pause {p}")))
+            .on_cancel(move || e2.borrow_mut().push("cancel".to_string()));
+        op.set_indeterminate(true);
+        op.set_detail("informe.pdf");
+        w3.snapshot(shots.join("toast-es.png")).map_err(|e| e.to_string())?;
+        op.toggle_pause();
+        op.cancel();
+        let mut w3b = w3.clone();
+        w3b.resize(w3.x(), w3.y(), 400, 260);
+        w3.snapshot(std::env::temp_dir().join("omarchy-fltk-unused.png")).ok();
+        w3.snapshot(shots.join("toast-resized.png")).map_err(|e| e.to_string())?;
+        let (x, y, w, h) = op.rect();
+        check(x + w <= 400 && y + h <= 260 && x > 0 && y > 0, &format!("toast follows the corner: {:?}", op.rect()))?;
+        check(*events.borrow() == vec!["pause true".to_string(), "cancel".to_string()], &format!("{:?}", events.borrow()))?;
+        op.close();
+
+        // Popup card: widgets inside, Tab stays in, Esc closes, focus comes back.
+        let mut w4 = AppWindow::new("t", 420, 300);
+        let mut b4 = w4.body();
+        let anchor = Button::new("Volume");
+        b4.fit(&*anchor);
+        let after = Button::new("After");
+        b4.fit(&*after);
+        w4.end();
+        w4.snapshot(std::env::temp_dir().join("omarchy-fltk-unused.png")).ok();
+        let mut a4 = anchor.clone();
+        let _ = a4.take_focus();
+        let vol = State::new(0.5);
+        let inner_btn: Rc<RefCell<Option<Button>>> = Rc::default();
+        let ib = inner_btn.clone();
+        let v2 = vol.clone();
+        let card = PopupCard::open(&*anchor, 260, 120, move |col| {
+            col.fit(&*Label::section("Output"));
+            let _s = Slider::new(&v2, 0.0, 1.0, 0.1);
+            let b = Button::new("Mute");
+            col.fit(&*b);
+            *ib.borrow_mut() = Some(b);
+        });
+        w4.snapshot(shots.join("card.png")).map_err(|e| e.to_string())?;
+        let rect = card.rect().ok_or("rect")?;
+        check(rect.0 >= 0 && rect.1 + rect.3 <= 300, &format!("card in the window: {rect:?}"))?;
+        press("Right");
+        check((vol.get() - 0.6).abs() < 1e-9, &format!("first control (slider) has focus: {}", vol.get()))?;
+        press("Tab");
+        let mute = inner_btn.borrow().clone().ok_or("mute")?;
+        check(focus::is_focused(&*mute), "Tab to the card's button")?;
+        press("Tab");
+        check(!focus::is_focused(&*after) && !focus::is_focused(&*anchor), "Tab stays inside the card")?;
+        press("Escape");
+        check(card.dismissed() == Some(Dismiss::Escape) && focus::is_focused(&*anchor), "Esc closes, focus back on the anchor")?;
+        let card2 = PopupCard::open(&*anchor, 200, 80, |col| { col.fit(&*Label::new("Hi")); });
+        focus::click_at(&*w4, 410, 290);
+        check(card2.dismissed() == Some(Dismiss::ClickOutside), "click outside closes")
+    });
+    run("virtual table and tree on keyboard panels; native gesture guard", &|shots| {
+        let mut win = AppWindow::new("t", 520, 360);
+        let mut body = win.body();
+        let n = 10_000usize;
+        let panel = KeyboardPanel::new("files");
+        panel.set_items(n, |i| 7_000 + i as u64, move |id| id.checked_sub(7_000).map(|x| x as usize).filter(|x| *x < n));
+        let sorts = Rc::new(RefCell::new(Vec::new()));
+        let s2 = sorts.clone();
+        let table = Table::new(&panel, vec![Column::new("Name", 0).flex(), Column::new("Size", 90).right(), Column::new("Kind", 80)],
+            |row, col| match col { 0 => format!("file-{row}.txt"), 1 => format!("{} KB", row * 3), _ => "Text".into() })
+            .on_sort(move |c, asc| s2.borrow_mut().push((c, asc)));
+        body.fit(&*table);
+        let after = Button::new("After");
+        body.fit(&*after);
+        win.end();
+        win.snapshot(shots.join("table-0.png")).map_err(|e| e.to_string())?;
+        check(table.rows_drawn() <= 20, &format!("virtual: {} rows drawn of {n}", table.rows_drawn()))?;
+        focus::first(&*win);
+        check(panel.has_focus(), "Tab stop: the table's panel")?;
+        press("Down"); press("Down"); press("Down"); press("Shift+Down"); press("Shift+Down");
+        check(panel.selection() == vec![7_002, 7_003, 7_004], &format!("range by ID: {:?}", panel.selection()))?;
+        press("End");
+        win.snapshot(shots.join("table-1-end.png")).map_err(|e| e.to_string())?;
+        check(panel.cursor() == Some(7_000 + n as u64 - 1) && table.scroll_offset() > 0, "End scrolls to the last row")?;
+        let cw = table.column_widths();
+        let size_x = table.x() + cw[0] + cw[1] / 2; // middle of the "Size" header
+        focus::click_at(&*win, size_x, table.y() + 8);
+        focus::click_at(&*win, size_x, table.y() + 8);
+        check(*sorts.borrow() == vec![(1, true), (1, false)] && table.sort() == Some((1, false)), &format!("header sort: {:?}", sorts.borrow()))?;
+        win.snapshot(shots.join("table-2-sorted.png")).map_err(|e| e.to_string())?;
+        press("Tab");
+        check(focus::is_focused(&*after), "Tab leaves the table")?;
+
+        // Tree: lazy children, Right/Left, chevron click.
+        let calls = Rc::new(RefCell::new(Vec::new()));
+        let c2 = calls.clone();
+        let tp = KeyboardPanel::new("tree");
+        let mut w2 = AppWindow::new("t", 360, 320);
+        let mut b2 = w2.body();
+        let tree = Tree::new(&tp, move |parent| {
+            c2.borrow_mut().push(parent);
+            match parent {
+                None => (0..3).map(|i| TreeNode::new(i, &format!("Root {i}")).icon(glyph::FOLDER).branch()).collect(),
+                Some(p) if p < 3 => (0..1000).map(|j| TreeNode::new(100 + p * 1000 + j, &format!("Child {p}.{j}")).icon(glyph::FILE)).collect(),
+                _ => vec![],
+            }
+        });
+        b2.fit(&*tree);
+        w2.end();
+        w2.snapshot(std::env::temp_dir().join("omarchy-fltk-unused.png")).ok();
+        check(tree.visible_len() == 3 && *calls.borrow() == vec![None], "only roots asked for")?;
+        let mut tw = tree.clone();
+        let _ = tw.take_focus();
+        press("Down"); press("Right");
+        check(tree.is_expanded(0) && tree.visible_len() == 1003 && calls.borrow().contains(&Some(0)), "Right expands, children asked lazily")?;
+        press("Right");
+        check(tp.cursor() == Some(100), "Right again: first child")?;
+        press("Left");
+        check(tp.cursor() == Some(0), "Left: back to the parent")?;
+        press("Left");
+        check(!tree.is_expanded(0) && tree.visible_len() == 3, "Left again: collapse")?;
+        let asked = calls.borrow().len();
+        tree.expand(0);
+        tree.expand(1);
+        check(calls.borrow().len() == asked + 1, &format!("children are cached: re-expanding asks only for the new node ({:?})", &calls.borrow()[asked..]))?;
+        tree.collapse(1);
+        tree.collapse(0);
+        press("Down"); press("Right"); press("Right"); press("Shift+Down"); press("Shift+Down");
+        w2.snapshot(shots.join("tree.png")).map_err(|e| e.to_string())?;
+        check(tp.selection() == vec![1_100, 1_101, 1_102] && tree.rows_drawn() < 80, &format!("selection in a 1000-child branch: {:?}, drawn {}", tp.selection(), tree.rows_drawn()))?;
+
+        // Native move/resize: never on a window that is not shown or outside a button press.
+        check(!fltk_omarchy::native::available(&*win) && !fltk_omarchy::native::begin_move(&*win), "native gesture refuses when not possible")
+    });
+    run("real clicks (fltk event path) on every clickable control: no re-entrancy panic", &|_| {
+        let mut win = AppWindow::new("t", 520, 420);
+        let mut body = win.body();
+        let n = State::new(0u32);
+        let c = n.clone();
+        let mut r = layout::row();
+        let b = Button::new("Click").on_click(move || c.update(|v| *v += 1));
+        r.fit(&*b);
+        let sw_on = State::new(false);
+        let sw = ToggleSwitch::new(&sw_on);
+        r.fit(&*sw);
+        r.close_fitted();
+        let t_on = State::new(false);
+        let tg = Toggle::new("Night light", "", &t_on);
+        body.fit(&*tg);
+        let rc = Rc::new(RefCell::new(0));
+        let r2 = rc.clone();
+        let row = Row::new("", "Row").on_click(move || *r2.borrow_mut() += 1);
+        body.fit(&*row);
+        let vol = State::new(0.0);
+        let _sl = Slider::new(&vol, 0.0, 1.0, 0.1);
+        let tab = State::new(0usize);
+        let tabs = TabBar::new(&["A", "B"], &tab);
+        body.fit(&*tabs);
+        win.end();
+        win.snapshot(std::env::temp_dir().join("omarchy-fltk-unused.png")).ok();
+        let mid = |w: &dyn WidgetExt| (w.x() + w.w() / 2, w.y() + w.h() / 2);
+        let (x, y) = mid(&*b); focus::click_at(&*win, x, y); focus::click_at(&*win, x, y);
+        let (x, y) = mid(&*sw); focus::click_at(&*win, x, y);
+        let (x, y) = mid(&*tg); focus::click_at(&*win, x, y);
+        let (x, y) = mid(&*row); focus::click_at(&*win, x, y);
+        focus::click_at(&*win, _sl.x() + _sl.w() - 2, _sl.y() + _sl.h() / 2);
+        focus::click_at(&*win, tabs.x() + 100, tabs.y() + tabs.h() / 2);
+        check(n.get() == 2 && sw_on.get() && t_on.get() && *rc.borrow() == 1 && vol.get() > 0.8 && tab.get() == 1,
+              &format!("clicks {} switch {} toggle {} row {} slider {} tab {}", n.get(), sw_on.get(), t_on.get(), rc.borrow(), vol.get(), tab.get()))
     });
     run("keyboard only: Tab order, arrows, shortcuts, focus comes back", &|shots| {
         let mut win = AppWindow::new("t", 560, 420);

@@ -141,7 +141,11 @@ impl AppWindow {
                 Event::Push if floating && app::event_y() >= w.h() - GRIP => {
                     let corner = if app::event_x() < GRIP { 1 } else if app::event_x() >= w.w() - GRIP { 2 } else { 0 };
                     if corner > 0 {
-                        drag_begin(&ttl, corner);
+                        // Native compositor resize first (any Wayland compositor), Hyprland IPC otherwise.
+                        let edge = if corner == 1 { crate::native::Edge::BottomLeft } else { crate::native::Edge::BottomRight };
+                        if !crate::native::begin_resize(w, edge) {
+                            drag_begin(&ttl, corner);
+                        }
                         return true;
                     }
                     false
@@ -164,7 +168,7 @@ impl AppWindow {
         let m3 = mode.clone();
         win.draw(move |w| {
             theme::with(|t| paint::fill(0, 0, w.w(), w.h(), 0, t.palette.background));
-            w.draw_children();
+            draw_stack(w);
             if m3.get() == Mode::Floating {
                 theme::with(|t| {
                     let c = t.palette.foreground.darker(1.4).fl();
@@ -175,6 +179,9 @@ impl AppWindow {
                 });
             }
         });
+        // cfltk runs FLTK's own draw before this closure by default: it would
+        // draw damaged children first and this background would then cover them.
+        win.super_draw(false);
         // Escape does not close Omarchy app windows by default.
         win.set_callback(|w| {
             if app::event() == Event::Close {
@@ -252,13 +259,24 @@ impl AppWindow {
     /// (smaller first buffers), then the size range is relaxed.
     pub fn show(&mut self) {
         if self.mode.get() == Mode::Floating && hyprland::available() && !self.win.shown() {
-            let (w, h) = (self.win.w(), self.win.h());
-            self.win.size_range(w, h, w, h);
+            // Map normally, then float it as soon as Hyprland lists the window.
+            // (A fixed size range at map time makes Hyprland float it too, but
+            // the window then stays fixed-size for good: it cannot be tiled or
+            // resized afterwards, not even by IPC.)
+            let size = (self.win.w(), self.win.h());
             self.win.show();
-            let (mut win, min) = (self.win.clone(), self.min.clone());
-            app::add_timeout3(0.3, move |_| {
-                let (mw, mh) = min.get();
-                win.size_range(mw, mh, 0, 0);
+            let title = self.win.label();
+            let tries = Cell::new(0u32);
+            app::add_timeout3(0.02, move |h| {
+                if let Some(c) = hyprland::own_clients(Some(&title)).into_iter().next() {
+                    if !c.floating {
+                        hyprland::set_floating(&c.address, true);
+                    }
+                    hyprland::resize_to(&c.address, size.0, size.1);
+                    hyprland::center(&c.address);
+                } else if tries.replace(tries.get() + 1) < 100 {
+                    app::repeat_timeout3(0.02, h);
+                }
             });
             self.header.set_draggable(true);
         } else {
@@ -303,6 +321,31 @@ pub fn snapshot(win: &mut DoubleWindow, path: &Path) -> std::io::Result<()> {
     png::write(path, img.data_w() as u32, img.data_h() as u32, img.depth() as u8, &data)
 }
 
+/// Draws the window's children over a freshly painted background.
+///
+/// Partial redraws (only some children damaged) are clipped by FLTK to the
+/// damaged area, which this window's background has just covered. Every
+/// child that overlaps a damaged one is drawn again, in stacking order: the
+/// content under an open menu, toast or dialog, and the layer above a
+/// control that changed. Otherwise a hovered menu would hide the window
+/// behind it, or a redrawn control would cover a notification.
+fn draw_stack(w: &mut DoubleWindow) {
+    if w.damage_type() != Damage::Child {
+        w.draw_children(); // full redraw: everything is damaged
+        return;
+    }
+    let kids: Vec<fltk::widget::Widget> = (0..w.children()).filter_map(|i| w.child(i)).filter(|c| c.visible()).collect();
+    let rect = |c: &fltk::widget::Widget| (c.x(), c.y(), c.x() + c.w(), c.y() + c.h());
+    let damaged: Vec<(i32, i32, i32, i32)> = kids.iter().filter(|c| c.damage()).map(rect).collect();
+    let overlaps = |r: (i32, i32, i32, i32)| damaged.iter().any(|d| r.0 < d.2 && d.0 < r.2 && r.1 < d.3 && d.1 < r.3);
+    for c in kids {
+        let mut c = c;
+        if overlaps(rect(&c)) {
+            w.draw_child(&mut c);
+        }
+    }
+}
+
 // ================================================================== Header
 
 /// Omarchy window header: bold title on the left, action buttons on the
@@ -334,8 +377,11 @@ impl Header {
         let (dr, tt) = (draggable.clone(), title_rc.clone());
         handle.handle(move |w, ev| match ev {
             Event::Push if dr.get() => {
-                let title = w.window().map(|win| win.label()).unwrap_or_else(|| tt.borrow().clone());
-                drag_begin(&title, 0);
+                // Native compositor move first (any Wayland compositor), Hyprland IPC otherwise.
+                if !crate::native::begin_move(w) {
+                    let title = w.window().map(|win| win.label()).unwrap_or_else(|| tt.borrow().clone());
+                    drag_begin(&title, 0);
+                }
                 true
             }
             Event::Drag if dr.get() => { drag_update(); true }
@@ -354,6 +400,9 @@ impl Header {
             });
             f.draw_children();
         });
+        // cfltk runs FLTK's own draw before this closure by default: it would
+        // draw damaged children first and this background would then cover them.
+        inner.super_draw(false);
         Header { inner, title: title_rc, actions, draggable }
     }
 

@@ -164,8 +164,56 @@ fn is_control_group(w: &Widget) -> bool {
     CONTROL_GROUPS.with(|c| c.borrow().iter().any(|x| !x.was_deleted() && x.as_widget_ptr() == w.as_widget_ptr()))
 }
 
-/// Focusable candidates of `window` in traversal order.
+thread_local! {
+    static MODALS: RefCell<Vec<Widget>> = const { RefCell::new(Vec::new()) };
+}
+
+/// While `group` is open, Tab and Shift+Tab stay inside it (popup cards,
+/// dialogs made of widgets). Undo with [`pop_modal`].
+pub fn push_modal<W: WidgetExt>(group: &W) {
+    // SAFETY: `group` is a live widget; the copy only tracks its deletion.
+    let w = unsafe { Widget::from_widget_ptr(group.as_widget_ptr()) };
+    MODALS.with(|m| m.borrow_mut().push(w));
+}
+
+pub fn pop_modal<W: WidgetExt>(group: &W) {
+    MODALS.with(|m| m.borrow_mut().retain(|x| !x.was_deleted() && x.as_widget_ptr() != group.as_widget_ptr()));
+}
+
+/// The innermost open modal group inside `window`, if any.
+fn modal_in<W: WidgetExt>(window: &W) -> Option<Widget> {
+    MODALS.with(|m| {
+        let mut m = m.borrow_mut();
+        m.retain(|x| !x.was_deleted());
+        m.iter().rev().find(|x| x.top_window().is_some_and(|t| t.as_widget_ptr() == window.as_widget_ptr())).cloned()
+    })
+}
+
+/// True when `w` is `ancestor` or inside it.
+fn inside(w: &Widget, ancestor: usize) -> bool {
+    if ptr(w) == ancestor {
+        return true;
+    }
+    let mut p = w.parent();
+    while let Some(g) = p {
+        if ptr(&g) == ancestor {
+            return true;
+        }
+        p = g.parent();
+    }
+    false
+}
+
+/// Focusable candidates of `window` in traversal order (of the open modal
+/// group when there is one).
 pub fn chain<W: WidgetExt>(window: &W) -> Vec<Widget> {
+    if let Some(m) = modal_in(window) {
+        return chain_of(&m);
+    }
+    chain_of(window)
+}
+
+fn chain_of<W: WidgetExt>(window: &W) -> Vec<Widget> {
     fn walk(g: &fltk::group::Group, out: &mut Vec<Widget>) {
         for i in 0..g.children() {
             let Some(c) = g.child(i) else { continue };
@@ -376,6 +424,15 @@ pub(crate) fn remember(layer: &Widget) {
     }
 }
 
+/// Remembers `prev` as the control to give focus back to when `layer` closes.
+pub(crate) fn remember_for(layer: &Widget, prev: Widget) {
+    RETURNS.with(|r| {
+        let mut r = r.borrow_mut();
+        r.retain(|(l, _)| *l != ptr(layer));
+        r.push((ptr(layer), prev));
+    });
+}
+
 /// Called when a layer closes (or lets go of focus, e.g. Esc on a toast):
 /// if focus is in it, gives focus back to the remembered control (or the
 /// first control of `window`).
@@ -386,7 +443,7 @@ pub(crate) fn give_back(layer: &Widget, window: Option<Widget>) {
         let i = r.iter().position(|(l, _)| *l == id)?;
         Some(r.remove(i).1)
     });
-    let lost = current().map_or(true, |f| ptr(&f) == id);
+    let lost = current().map_or(true, |f| inside(&f, id));
     if !lost {
         return;
     }

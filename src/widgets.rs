@@ -14,6 +14,9 @@ use std::rc::Rc;
 pub mod glyph {
     //! Nerd Font glyphs used by Omarchy.
     pub const CHEVRON_DOWN: &str = "\u{f0140}";
+    pub const CHEVRON_LEFT: &str = "\u{f0141}";
+    pub const CHEVRON_UP: &str = "\u{f0143}";
+    pub const CHEVRON_RIGHT: &str = "\u{f0142}";
     pub const REFRESH: &str = "\u{f0450}";
     pub const LOADING: &str = "\u{f0996}";
     pub const EMPTY: &str = "\u{f0209}";
@@ -83,7 +86,15 @@ fn track_with_shortcut(w: &mut Widget, st: Rc<RefCell<Interaction>>, keyboard: b
         let changed = match ev {
             Event::Enter => { s.hover = true; true }
             Event::Leave => { s.hover = false; s.pressed = false; true }
-            Event::Push if app::event_mouse_button() == app::MouseButton::Left => { s.pressed = true; if keyboard { let _ = w.take_focus(); } true }
+            Event::Push if app::event_mouse_button() == app::MouseButton::Left => {
+                s.pressed = true;
+                // take_focus sends Event::Focus to this same handler right away:
+                // release the state first.
+                drop(s);
+                if keyboard { let _ = w.take_focus(); }
+                w.redraw();
+                return true;
+            }
             Event::Released if s.pressed => {
                 s.pressed = false;
                 let inside = app::event_inside_widget(w);
@@ -983,7 +994,9 @@ impl TextField {
             input.set_type(fltk::input::InputType::Secret);
         }
         input.set_pos(padx + 1, 1);
-        input.set_frame(FrameType::NoBox);
+        // Its own flat background (set to the field fill on every draw): when
+        // only the text changes, fltk redraws the input alone and must clear it.
+        input.set_frame(FrameType::FlatBox);
         inner.end();
         inner.resizable(&input);
         let hover = Rc::new(RefCell::new(false));
@@ -1022,6 +1035,9 @@ impl TextField {
                 });
             }
         });
+        // cfltk runs FLTK's own draw before this closure by default: it would
+        // draw damaged children first and this background would then cover them.
+        inner.super_draw(false);
         let hv = hover.clone();
         inner.handle(move |g, ev| match ev {
             Event::Enter => { *hv.borrow_mut() = true; g.redraw(); false }
@@ -1283,8 +1299,85 @@ pub struct TabBar {
     value: State<usize>,
     close: Cb<usize>,
     closable: Rc<Cell<bool>>,
+    geo: Rc<TabGeo>,
 }
 fltk::widget_extends!(TabBar, Widget, inner);
+
+/// Tab strip geometry with horizontal scrolling.
+struct TabGeo {
+    tabs: Rc<RefCell<Vec<String>>>,
+    scroll: Rc<Cell<i32>>,
+}
+
+enum Hit {
+    Tab(usize, bool),
+    Arrow(u8),
+    None,
+}
+
+impl TabGeo {
+    fn arrow_w(&self) -> i32 {
+        theme::with(|t| t.spacing.control_height)
+    }
+    /// Content-relative (x, width) of each tab.
+    fn layout(&self) -> Vec<(i32, i32)> {
+        theme::with(|t| {
+            let pad = t.spacing.control_padding_x;
+            let mut x = 0;
+            self.tabs.borrow().iter().map(|l| {
+                let tw = (measure_offscreen(l, t.font.body) + 2 * pad + t.font.body + t.spacing.md).clamp(80, 220);
+                let r = (x, tw);
+                x += tw + t.spacing.xxs;
+                r
+            }).collect()
+        })
+    }
+    fn total(&self) -> i32 {
+        self.layout().last().map_or(0, |(x, w)| x + w)
+    }
+    fn overflow(&self, w: &Widget) -> bool {
+        self.total() > w.w()
+    }
+    /// Visible strip (x, width) on screen.
+    fn view(&self, w: &Widget) -> (i32, i32) {
+        if self.overflow(w) { let a = self.arrow_w(); (w.x() + a, (w.w() - 2 * a).max(1)) } else { (w.x(), w.w()) }
+    }
+    fn max_scroll(&self, w: &Widget) -> i32 {
+        if self.overflow(w) { (self.total() - self.view(w).1).max(0) } else { 0 }
+    }
+    fn clamp(&self, w: &Widget) {
+        self.scroll.set(self.scroll.get().clamp(0, self.max_scroll(w)));
+    }
+    /// Screen (x, width) of each tab.
+    fn tabs_at(&self, w: &Widget) -> Vec<(i32, i32)> {
+        let (vx, _) = self.view(w);
+        let sc = if self.overflow(w) { self.scroll.get() } else { 0 };
+        self.layout().into_iter().map(|(x, tw)| (vx + x - sc, tw)).collect()
+    }
+    fn reveal(&self, w: &Widget, i: usize) {
+        if !self.overflow(w) {
+            self.scroll.set(0);
+            return;
+        }
+        let Some(&(x, tw)) = self.layout().get(i) else { return };
+        let vw = self.view(w).1;
+        let sc = self.scroll.get();
+        if x < sc { self.scroll.set(x) } else if x + tw > sc + vw { self.scroll.set(x + tw - vw) }
+        self.clamp(w);
+    }
+    fn hit(&self, w: &Widget, ex: i32) -> Hit {
+        if self.overflow(w) {
+            let a = self.arrow_w();
+            if ex < w.x() + a { return Hit::Arrow(0); }
+            if ex >= w.x() + w.w() - a { return Hit::Arrow(1); }
+        }
+        let pad = theme::with(|t| t.spacing.control_padding_x + t.font.body);
+        match self.tabs_at(w).iter().position(|(x, tw)| ex >= *x && ex < x + tw) {
+            Some(i) => { let (x, tw) = self.tabs_at(w)[i]; Hit::Tab(i, ex >= x + tw - pad) }
+            None => Hit::None,
+        }
+    }
+}
 
 impl TabBar {
     pub fn new(tabs: &[&str], value: &State<usize>) -> TabBar {
@@ -1295,29 +1388,25 @@ impl TabBar {
         let hover = Rc::new(Cell::new(-1i32));
         let closable = Rc::new(Cell::new(false));
         let close: Cb<usize> = cb();
-        let geom = {
-            let tabs = tabs.clone();
-            move |w: &Widget| -> Vec<(i32, i32)> {
-                theme::with(|t| {
-                    let pad = t.spacing.control_padding_x;
-                    let mut x = w.x();
-                    tabs.borrow().iter().map(|l| {
-                        let tw = (measure_offscreen(l, t.font.body) + 2 * pad + t.font.body + t.spacing.md).clamp(80, 220);
-                        let r = (x, tw);
-                        x += tw + t.spacing.xxs;
-                        r
-                    }).collect()
-                })
-            }
-        };
-        let geom = Rc::new(geom);
-        let (tb, v, hv, cl, g) = (tabs.clone(), value.clone(), hover.clone(), closable.clone(), geom.clone());
+        let scroll = Rc::new(Cell::new(0i32));
+        let revealed = Rc::new(Cell::new(usize::MAX));
+        let geo = Rc::new(TabGeo { tabs: tabs.clone(), scroll: scroll.clone() });
+        let (tb, v, hv, cl, g, rv) = (tabs.clone(), value.clone(), hover.clone(), closable.clone(), geo.clone(), revealed.clone());
         inner.draw(move |w| {
+            // Keep the selected tab (and its close glyph) in view when the selection changes.
+            if rv.get() != v.get() {
+                rv.set(v.get());
+                g.reveal(w, v.get());
+            }
+            g.clamp(w);
             theme::with(|t| {
                 let under = under();
                 let fg = t.palette.foreground;
                 paint::hairline(w.x(), w.y() + w.h() - 1, w.w(), fg, under, 0.12);
-                for (i, ((x, tw), label)) in g(w).into_iter().zip(tb.borrow().iter()).enumerate() {
+                let (vx, vw) = g.view(w);
+                draw::push_clip(vx, w.y(), vw, w.h());
+                for (i, ((x, tw), label)) in g.tabs_at(w).into_iter().zip(tb.borrow().iter()).enumerate() {
+                    if x + tw < vx || x > vx + vw { continue; }
                     let sel = v.get() == i;
                     let hot = hv.get() == i as i32;
                     let fill = if sel { Some(t.fill(&t.controls.selected, under)) } else if hot { Some(t.fill(&t.controls.hover, under)) } else { None };
@@ -1335,22 +1424,44 @@ impl TabBar {
                         paint::glyph(glyph::CROSS, x + tw - pad - t.font.body, w.y(), t.font.body, w.h(), t.font.body_small, fg.darker(1.4));
                     }
                 }
+                draw::pop_clip();
+                if g.overflow(w) {
+                    let a = g.arrow_w();
+                    let (sc, max) = (g.scroll.get(), g.max_scroll(w));
+                    for (i, gl) in [glyph::CHEVRON_LEFT, glyph::CHEVRON_RIGHT].iter().enumerate() {
+                        let ax = if i == 0 { w.x() } else { w.x() + w.w() - a };
+                        let live = if i == 0 { sc > 0 } else { sc < max };
+                        let hot = hv.get() == -10 - i as i32;
+                        if hot && live { paint::fill(ax, w.y(), a, w.h() - 1, t.radius, t.fill(&t.controls.hover, under)); }
+                        paint::glyph(gl, ax, w.y(), a, w.h(), t.font.body, if live { fg } else { fg.darker(2.2) });
+                    }
+                }
             });
         });
-        let (v, hv, cl, g, cc) = (value.clone(), hover.clone(), closable.clone(), geom.clone(), close.clone());
+        let (v, hv, cl, g, cc) = (value.clone(), hover.clone(), closable.clone(), geo.clone(), close.clone());
         inner.handle(move |w, ev| {
-            let at = |w: &Widget| -> Option<(usize, bool)> {
-                let ex = app::event_x();
-                let pad = theme::with(|t| t.spacing.control_padding_x + t.font.body);
-                g(w).iter().position(|(x, tw)| ex >= *x && ex < x + tw).map(|i| { let (x, tw) = g(w)[i]; (i, ex >= x + tw - pad) })
-            };
-            let n = g(w).len();
+            let n = g.tabs.borrow().len();
             let pick = |i: usize| if i < n && i != v.get() { v.set(i) };
             match ev {
                 Event::Enter => true,
                 Event::Focus | Event::Unfocus => { w.redraw(); true }
-                Event::Move => { let h = at(w).map(|(i, _)| i as i32).unwrap_or(-1); if hv.get() != h { hv.set(h); w.redraw(); } true }
+                Event::Move => {
+                    let h = match g.hit(w, app::event_x()) { Hit::Tab(i, _) => i as i32, Hit::Arrow(k) => -10 - k as i32, Hit::None => -1 };
+                    if hv.get() != h { hv.set(h); w.redraw(); }
+                    true
+                }
                 Event::Leave => { hv.set(-1); w.redraw(); true }
+                Event::MouseWheel if g.overflow(w) => {
+                    let d = match (app::event_dx(), app::event_dy()) {
+                        (app::MouseWheel::Right, _) | (_, app::MouseWheel::Down) => 1,
+                        (app::MouseWheel::Left, _) | (_, app::MouseWheel::Up) => -1,
+                        _ => 0,
+                    };
+                    g.scroll.set(g.scroll.get() + d * 60);
+                    g.clamp(w);
+                    w.redraw();
+                    true
+                }
                 Event::KeyDown if n > 0 => {
                     let cur = v.get();
                     match app::event_key() {
@@ -1377,9 +1488,18 @@ impl TabBar {
                 }
                 Event::Push => {
                     let _ = w.take_focus();
-                    if let Some((i, on_close)) = at(w) {
-                        if app::event_mouse_button() == app::MouseButton::Middle || (cl.get() && on_close) { fire(&cc, i); }
-                        else { v.set(i); }
+                    match g.hit(w, app::event_x()) {
+                        Hit::Arrow(k) => {
+                            let step = (g.view(w).1 * 3 / 4).max(40);
+                            g.scroll.set(g.scroll.get() + if k == 0 { -step } else { step });
+                            g.clamp(w);
+                            w.redraw();
+                        }
+                        Hit::Tab(i, on_close) => {
+                            if app::event_mouse_button() == app::MouseButton::Middle || (cl.get() && on_close) { fire(&cc, i); }
+                            else { v.set(i); }
+                        }
+                        Hit::None => {}
                     }
                     true
                 }
@@ -1389,7 +1509,26 @@ impl TabBar {
         inner.set_size(400, theme::with(|t| t.spacing.control_height + 2));
         let mut w2 = inner.clone();
         crate::state::bind_widget(&inner, value, false, move |_| w2.redraw());
-        TabBar { inner, tabs, value: value.clone(), close, closable }
+        TabBar { inner, tabs, value: value.clone(), close, closable, geo }
+    }
+
+    /// True when the tabs are wider than the bar (arrows and scrolling on).
+    pub fn overflowing(&self) -> bool {
+        self.geo.overflow(&self.inner)
+    }
+
+    /// Horizontal scroll of the tab strip, in pixels.
+    pub fn scroll_offset(&self) -> i32 {
+        self.geo.scroll.get()
+    }
+
+    /// Screen rectangle `(x, width)` of tab `i`, clipped to the visible
+    /// strip (None when it is scrolled out of view).
+    pub fn tab_rect(&self, i: usize) -> Option<(i32, i32)> {
+        let (vx, vw) = self.geo.view(&self.inner);
+        let (x, w) = *self.geo.tabs_at(&self.inner).get(i)?;
+        let (a, b) = (x.max(vx), (x + w).min(vx + vw));
+        (b > a).then_some((a, b - a))
     }
 
     /// Shows a close glyph and calls `f(index)` (also on middle click).

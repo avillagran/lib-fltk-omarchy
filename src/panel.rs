@@ -173,13 +173,15 @@ impl KeyboardPanel {
         self.len() == 0
     }
 
-    fn id_at(&self, index: usize) -> Option<ItemId> {
+    /// ID at a display index.
+    pub fn id_at(&self, index: usize) -> Option<ItemId> {
         let i = self.inner.borrow();
         let s = i.source.as_ref()?;
         (index < s.len).then(|| (s.id_at)(index))
     }
 
-    fn index_of(&self, id: ItemId) -> Option<usize> {
+    /// Display index of an ID.
+    pub fn index_of(&self, id: ItemId) -> Option<usize> {
         let i = self.inner.borrow();
         let s = i.source.as_ref()?;
         (s.index_of)(id).filter(|x| *x < s.len)
@@ -308,6 +310,24 @@ impl KeyboardPanel {
             _ => self.select_only(id),
         }
         self.focus();
+    }
+
+    /// Runs `on_activate(id)` (double click in a table or tree).
+    pub fn activate(&self, id: ItemId) {
+        let f = self.cbs.borrow_mut().activate.take();
+        if let Some(mut f) = f {
+            f(id);
+            let mut c = self.cbs.borrow_mut();
+            if c.activate.is_none() {
+                c.activate = Some(f);
+            }
+        }
+    }
+
+    /// Takes over Left/Right edges (trees use this to expand and collapse);
+    /// returns the previous handler.
+    pub(crate) fn replace_edge(&self, f: Option<Box<dyn FnMut(Key) -> bool>>) -> Option<Box<dyn FnMut(Key) -> bool>> {
+        std::mem::replace(&mut self.cbs.borrow_mut().edge, f)
     }
 
     // ---- focus

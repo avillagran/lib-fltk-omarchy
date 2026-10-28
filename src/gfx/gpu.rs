@@ -119,6 +119,9 @@ impl GpuView {
         }));
         let s2 = st.clone();
         win.draw(move |w| draw(w, &s2));
+        // cfltk runs FLTK's own draw before this closure by default: it would
+        // draw damaged children first and this background would then cover them.
+        win.super_draw(false);
         let s3 = st.clone();
         win.handle(move |w, ev| match ev {
             Event::Enter | Event::Move => {
@@ -448,6 +451,9 @@ impl GlLayer {
         }));
         let s2 = st.clone();
         win.draw(move |w| layer_draw(w, &s2));
+        // cfltk runs FLTK's own draw before this closure by default: it would
+        // draw damaged children first and this background would then cover them.
+        win.super_draw(false);
         win.handle(move |_, ev| events(ev, app::event_x(), app::event_y()));
         GlLayer { win, st }
     }
