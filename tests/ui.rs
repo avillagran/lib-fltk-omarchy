@@ -293,6 +293,31 @@ fn main() {
         theme::reload();
         Ok(())
     });
+    run("popup menu fits 800x440 at font sizes 12, 18 and 24", &|_| {
+        let user = PathBuf::from(std::env::var("OMARCHY_FLTK_USER_SHELL").unwrap());
+        for size in [12, 18, 24] {
+            std::fs::write(&user, format!("[font]\nbase-size = {size}\n")).unwrap();
+            theme::reload();
+            let mut win = AppWindow::new("t", 800, 440);
+            let mut body = win.body();
+            let anchor = Button::new("Actions");
+            body.fit(&*anchor);
+            win.end();
+            win.snapshot(std::env::temp_dir().join("omarchy-fltk-unused.png")).ok();
+            let items: Vec<PopupItem> = (0..12).map(|i| PopupItem::new("", &format!("Action {i}")).shortcut("Ctrl+Shift+F12")).collect();
+            let got = Rc::new(RefCell::new(None));
+            let g2 = got.clone();
+            let h = PopupMenu::open(&*anchor, items, move |i| *g2.borrow_mut() = Some(i));
+            let (x, y, w, hh) = h.rect().ok_or("rect")?;
+            check(x >= 0 && y >= 0 && x + w <= 800 && y + hh <= 440, &format!("size {size}: card {:?} inside 800x440", h.rect()))?;
+            press("End"); press("Enter");
+            check(*got.borrow() == Some(11), &format!("size {size}: last entry reachable"))?;
+            fltk::window::Window::delete((*win).clone());
+        }
+        std::fs::remove_file(&user).unwrap();
+        theme::reload();
+        check(theme::current().font.base == 12, "font restored")
+    });
     run("popup menu lifecycle: Esc, click outside, close(), deleted window", &|_| {
         let mut win = AppWindow::new("t", 400, 300);
         let mut body = win.body();
