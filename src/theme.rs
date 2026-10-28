@@ -204,6 +204,36 @@ impl Corners {
     }
 }
 
+/// How the keyboard focus is drawn. Omarchy draws focus like the hover
+/// cursor (8 % fill, 25 % border), which is easy to lose while driving an
+/// app from the keyboard.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FocusRing {
+    /// Theme focus fill plus a full-strength accent border (default). A
+    /// theme whose focus differs from its hover cursor is used as is.
+    #[default]
+    Accent,
+    /// Exactly the theme's `[controls] focus` tokens.
+    Theme,
+}
+
+impl FocusRing {
+    pub fn parse(s: &str) -> Option<FocusRing> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "accent" => Some(FocusRing::Accent),
+            "theme" | "omarchy" => Some(FocusRing::Theme),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            FocusRing::Accent => "accent",
+            FocusRing::Theme => "theme",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Theme {
     pub name: String,
@@ -220,6 +250,12 @@ pub struct Theme {
     /// Raw Hyprland `decoration:rounding` (Style.cornerRadius).
     pub hypr_radius: i32,
     pub corners: Corners,
+    pub focus_ring: FocusRing,
+    /// `[controls] focus` exactly as the theme defines it.
+    pub theme_focus: StateStyle,
+    /// True when the theme's focus differs from its hover cursor (Omarchy
+    /// themes mirror hover by default).
+    pub focus_themed: bool,
     /// Half of Hyprland `general:gaps_out` (Style.gapsOut).
     pub gaps_out: i32,
     /// Font family; "monospace" follows `omarchy-font-set` through fontconfig.
@@ -430,6 +466,7 @@ impl Theme {
             popup_padding: sp("popup-padding", 14.0),
         };
 
+        let controls_focus = controls.focus;
         Theme {
             name: name.to_string(),
             controls,
@@ -445,6 +482,9 @@ impl Theme {
             radius,
             hypr_radius: radius,
             corners: Corners::Omarchy,
+            focus_ring: FocusRing::Theme,
+            theme_focus: controls_focus,
+            focus_themed: controls_focus != hover,
             gaps_out,
             font_family: std::env::var("OMARCHY_FLTK_FONT").unwrap_or_else(|_| "monospace".into()),
         }
@@ -460,6 +500,24 @@ impl Theme {
             Corners::Rounded => rounded,
         };
         self
+    }
+
+    /// Same theme with another focus drawing (see [`FocusRing`]).
+    pub fn with_focus_ring(mut self, ring: FocusRing) -> Theme {
+        self.focus_ring = ring;
+        self.controls.focus = self.theme_focus;
+        if ring == FocusRing::Accent && !self.focus_themed {
+            let f = &mut self.controls.focus;
+            f.border = self.palette.accent;
+            f.border_alpha = 1.0;
+            f.border_width = f.border_width.max(1);
+        }
+        self
+    }
+
+    /// Applies the app preferences (corners, focus ring) kept across reloads.
+    fn with_prefs(self) -> Theme {
+        self.with_corners(CORNERS.with(|k| k.get())).with_focus_ring(FOCUS_RING.with(|k| k.get()))
     }
 
     /// Fixed radius for thumbnails, type badges and previews: always
@@ -503,8 +561,10 @@ fn shell_color(shell: &Table, key: &str, p: &Palette) -> Option<Rgb> {
 
 thread_local! {
     static CORNERS: std::cell::Cell<Corners> = const { std::cell::Cell::new(Corners::Omarchy) };
+    static FOCUS_RING: std::cell::Cell<FocusRing> = const { std::cell::Cell::new(FocusRing::Accent) };
     static CURRENT: RefCell<Option<Theme>> = const { RefCell::new(None) };
-    static LISTENERS: RefCell<Vec<Box<dyn FnMut(&Theme)>>> = const { RefCell::new(Vec::new()) };
+    // A listener returns false to unregister itself.
+    static LISTENERS: RefCell<Vec<Box<dyn FnMut(&Theme) -> bool>>> = const { RefCell::new(Vec::new()) };
 }
 
 /// The active theme (loads it on first use).
@@ -516,7 +576,7 @@ pub fn current() -> Theme {
 pub fn with<R>(f: impl FnOnce(&Theme) -> R) -> R {
     CURRENT.with(|c| {
         if c.borrow().is_none() {
-            let t = Theme::load().with_corners(CORNERS.with(|k| k.get()));
+            let t = Theme::load().with_prefs();
             *c.borrow_mut() = Some(t);
         }
         // Shared borrow: nested `with` calls (draw helpers) are fine.
@@ -526,12 +586,12 @@ pub fn with<R>(f: impl FnOnce(&Theme) -> R) -> R {
 
 /// Makes `theme` active: FLTK colormap, default fonts, every window redrawn.
 pub fn set(theme: Theme) {
-    let theme = theme.with_corners(CORNERS.with(|k| k.get()));
+    let theme = theme.with_prefs();
     apply_to_fltk(&theme);
     CURRENT.with(|c| *c.borrow_mut() = Some(theme.clone()));
     // Taken out while running so a listener may register another one.
     let mut list = LISTENERS.with(|l| std::mem::take(&mut *l.borrow_mut()));
-    list.iter_mut().for_each(|f| f(&theme));
+    list.retain_mut(|f| f(&theme));
     LISTENERS.with(|l| {
         let mut l = l.borrow_mut();
         let added = std::mem::take(&mut *l);
@@ -552,14 +612,41 @@ pub fn corners() -> Corners {
     CORNERS.with(|k| k.get())
 }
 
-/// Called after every theme change (on the UI thread).
-pub fn on_change(f: impl FnMut(&Theme) + 'static) {
-    LISTENERS.with(|l| l.borrow_mut().push(Box::new(f)));
+/// Sets how keyboard focus is drawn and restyles every window. It survives
+/// theme reloads.
+pub fn set_focus_ring(ring: FocusRing) {
+    FOCUS_RING.with(|k| k.set(ring));
+    set(current());
+}
+
+pub fn focus_ring() -> FocusRing {
+    FOCUS_RING.with(|k| k.get())
+}
+
+/// Called after every theme change (on the UI thread), for the life of the
+/// program. For something that belongs to a widget use [`on_change_while`].
+pub fn on_change(mut f: impl FnMut(&Theme) + 'static) {
+    LISTENERS.with(|l| l.borrow_mut().push(Box::new(move |t| { f(t); true })));
+}
+
+/// Like [`on_change`] while the fltk widget `w` exists; removed once it is
+/// deleted (a closed and deleted window must not be restyled).
+pub fn on_change_while<W: fltk::prelude::WidgetExt>(w: &W, mut f: impl FnMut(&Theme) + 'static) {
+    use fltk::prelude::{WidgetBase, WidgetExt};
+    // SAFETY: `w` is a live widget; the copy only tracks its deletion.
+    let alive = unsafe { fltk::widget::Widget::from_widget_ptr(w.as_widget_ptr()) };
+    LISTENERS.with(|l| l.borrow_mut().push(Box::new(move |t| {
+        if alive.was_deleted() {
+            return false;
+        }
+        f(t);
+        true
+    })));
 }
 
 /// Re-reads the Omarchy theme; applies it if it changed. Returns true on change.
 pub fn reload() -> bool {
-    let fresh = Theme::load().with_corners(CORNERS.with(|k| k.get()));
+    let fresh = Theme::load().with_prefs();
     if with(|t| *t == fresh) {
         return false;
     }

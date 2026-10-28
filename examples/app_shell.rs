@@ -40,6 +40,7 @@ fn action_items() -> Vec<PopupItem> {
 fn help() -> Vec<(String, Vec<(String, String)>)> {
     let row = |k: &str, d: &str| (k.to_string(), d.to_string());
     vec![
+        ("Move".into(), vec![row("Tab", "Next control"), row("Shift+Tab", "Previous control"), row("Ctrl+Tab", "Next tab"), row("Ctrl+Shift+Tab", "Previous tab")]),
         ("Navigation".into(), vec![row("Ctrl+L", "Edit path"), row("Alt+Left", "Back"), row("Ctrl+T", "New tab")]),
         ("Files".into(), vec![row("F5", "Copy"), row("F6", "Move"), row("Delete", "Move to trash")]),
         ("Window".into(), vec![row("Ctrl+,", "Preferences"), row("F10", "Actions"), row("F1", "This help")]),

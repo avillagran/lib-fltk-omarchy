@@ -100,7 +100,7 @@ impl FlexExt for Flex {
     fn fit<W: WidgetExt>(&mut self, child: &W) {
         // Creation order decides the parent in fltk; fitting a widget created
         // elsewhere moves it here, so the call reads as "put this in the row".
-        if child.parent().is_none_or(|p| p.as_widget_ptr() != self.as_widget_ptr()) {
+        if child.parent().map_or(true, |p| p.as_widget_ptr() != self.as_widget_ptr()) {
             self.add(child);
         }
         let (w, h) = natural_of(child).unwrap_or_else(|| {

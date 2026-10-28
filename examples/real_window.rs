@@ -8,7 +8,7 @@ use fltk_omarchy::layout::{self, FlexExt};
 use fltk_omarchy::list::{List, ListRow};
 use fltk_omarchy::task::{Outcome, Task, TaskHandle};
 use fltk_omarchy::widgets::*;
-use fltk_omarchy::{combine, hyprland, task, theme, App, AppWindow, Mode, State};
+use fltk_omarchy::{combine, focus, hyprland, task, theme, App, AppWindow, Mode, State};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::Instant;
@@ -71,6 +71,12 @@ fn main() {
         field.type_text("Omarchy");
         for _ in 0..3 { add.click(); }
         st(format!("\"step\":\"typed+clicked\",\"greeting\":\"{}\",\"state\":\"{}\",\"clicks\":{}", greeting.text(), nm.get(), cl.get()));
+        // Keyboard path in a mapped window: first control, Tab, Enter.
+        focus::first(&*w);
+        focus::press("Tab");
+        let add_focused = focus::is_focused(&*add);
+        focus::press("Enter");
+        st(format!("\"step\":\"keyboard\",\"add_focused\":{add_focused},\"clicks\":{}", cl.get()));
         w.snapshot(format!("{sh}/1-interaction.png")).unwrap();
         stt.set("Working".into());
         let (pr2, stt2, st2) = (pr.clone(), stt.clone(), st.clone());

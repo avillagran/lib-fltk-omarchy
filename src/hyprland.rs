@@ -74,7 +74,7 @@ pub fn own_clients(title: Option<&str>) -> Vec<Client> {
     let Some(Value::Array(list)) = json("clients") else { return Vec::new() };
     list.iter()
         .filter(|c| c.get("pid").and_then(Value::as_i64) == Some(pid))
-        .filter(|c| title.is_none_or(|t| c.get("title").and_then(Value::as_str) == Some(t)))
+        .filter(|c| title.map_or(true, |t| c.get("title").and_then(Value::as_str) == Some(t)))
         .filter_map(|c| {
             let pair = |k: &str| -> Option<(i32, i32)> {
                 let a = c.get(k)?.as_array()?;

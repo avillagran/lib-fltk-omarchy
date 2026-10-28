@@ -8,6 +8,7 @@
 //! assert_eq!(label.get(), "Clicked 1 times");
 //! ```
 
+use fltk::{prelude::*, widget::Widget};
 use std::cell::RefCell;
 use std::rc::{Rc, Weak};
 
@@ -210,4 +211,38 @@ mod tests {
         }
         assert_eq!(s.listener_count(), 0);
     }
+}
+
+thread_local! {
+    static TIED: RefCell<Vec<(Widget, Subscription)>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Runs `f` on every change of `state` while the fltk widget `w` exists
+/// (and once now when `now`). The binding belongs to the widget, not to the
+/// Rust handle: `flex.fit(&*Toggle::new(..))` keeps following its State
+/// after the temporary handle is dropped, and the listener goes away when
+/// the widget is deleted.
+pub fn bind_widget<W: WidgetExt, T: Clone + PartialEq + 'static>(w: &W, state: &State<T>, now: bool, mut f: impl FnMut(&T) + 'static) {
+    // SAFETY: `w` is a live widget; the copy only tracks its deletion.
+    let guard = unsafe { Widget::from_widget_ptr(w.as_widget_ptr()) };
+    let alive = guard.clone();
+    let mut run = move |v: &T| if !alive.was_deleted() { f(v) };
+    if now {
+        state.with(|v| run(v));
+    }
+    let sub = state.subscribe(run);
+    // Drop dead bindings outside the registry borrow (their cancel touches States).
+    let dead: Vec<(Widget, Subscription)> = TIED.with(|t| {
+        let mut t = t.borrow_mut();
+        let (dead, live): (Vec<_>, Vec<_>) = std::mem::take(&mut *t).into_iter().partition(|(w, _)| w.was_deleted());
+        *t = live;
+        t.push((guard, sub));
+        dead
+    });
+    drop(dead);
+}
+
+/// Number of widget bindings currently registered (tests).
+pub fn widget_binding_count() -> usize {
+    TIED.with(|t| t.borrow().iter().filter(|(w, _)| !w.was_deleted()).count())
 }

@@ -4,7 +4,7 @@
 //! also reports its Omarchy implicit size via `.preferred_size()`.
 
 use crate::paint::{self, Interaction};
-use crate::state::{State, Subscription};
+use crate::state::State;
 use crate::theme::{self, Rgb};
 use fltk::{app, draw, enums::*, prelude::*, widget::Widget};
 use std::cell::{Cell, RefCell};
@@ -120,6 +120,7 @@ fn track_with_shortcut(w: &mut Widget, st: Rc<RefCell<Interaction>>, keyboard: b
 
 fn interaction(w: &Widget, st: &Rc<RefCell<Interaction>>) -> Interaction {
     let mut s = *st.borrow();
+    s.focus &= crate::focus::keyboard_mode();
     s.disabled = !w.active_r();
     s
 }
@@ -147,7 +148,6 @@ pub struct Button {
     inner: Widget,
     data: Rc<RefCell<ButtonData>>,
     click: Cb<()>,
-    _subs: Rc<RefCell<Vec<Subscription>>>,
 }
 fltk::widget_extends!(Button, Widget, inner);
 
@@ -197,7 +197,7 @@ impl Button {
                 }
             });
         });
-        let mut b = Self { inner, data, click, _subs: Rc::default() };
+        let mut b = Self { inner, data, click };
         let (w, h) = b.preferred_size();
         b.inner.set_size(w, h);
         b
@@ -279,16 +279,14 @@ impl Button {
     /// Keeps the label in sync with a State.
     pub fn bind_text(self, s: &State<String>) -> Self {
         let mut me = self.clone();
-        let sub = s.watch(move |v| me.set_text(v));
-        self._subs.borrow_mut().push(sub);
+        crate::state::bind_widget(&self.inner, s, true, move |v| me.set_text(v));
         self
     }
 
     /// Enables the button while the State is true.
     pub fn bind_enabled(self, s: &State<bool>) -> Self {
         let mut me = self.inner.clone();
-        let sub = s.watch(move |on| if *on { me.activate() } else { me.deactivate() });
-        self._subs.borrow_mut().push(sub);
+        crate::state::bind_widget(&self.inner, s, true, move |on| if *on { me.activate() } else { me.deactivate() });
         self
     }
 
@@ -393,7 +391,6 @@ pub struct ButtonGroup {
     inner: fltk::group::Flex,
     buttons: Rc<RefCell<Vec<Button>>>,
     value: State<usize>,
-    _sub: Rc<Subscription>,
 }
 fltk::widget_extends!(ButtonGroup, fltk::group::Flex, inner);
 
@@ -416,13 +413,29 @@ impl ButtonGroup {
         let h = theme::with(|t| t.spacing.control_height);
         let gap = inner.spacing() * (options.len().max(1) as i32 - 1);
         inner.resize(inner.x(), inner.y(), total + gap, h);
+        // One Tab stop (the selected button); Left/Right move the selection.
         let bs = buttons.clone();
-        let sub = value.watch(move |sel| {
+        crate::state::bind_widget(&inner, value, true, move |sel| {
             for (i, b) in bs.borrow_mut().iter_mut().enumerate() {
                 b.set_selected(i == *sel);
+                if i == *sel { b.set_visible_focus() } else { b.clear_visible_focus() }
             }
         });
-        Self { inner, buttons, value: value.clone(), _sub: Rc::new(sub) }
+        let (bs, v, n) = (buttons.clone(), value.clone(), options.len());
+        crate::focus::scope(&inner, move |k| {
+            let cur = v.get();
+            let next = match k {
+                Key::Left if cur > 0 => cur - 1,
+                Key::Right if cur + 1 < n => cur + 1,
+                Key::Left | Key::Right => return true,
+                _ => return false,
+            };
+            v.set(next);
+            let b = bs.borrow().get(next).cloned();
+            if let Some(mut b) = b { let _ = b.take_focus(); }
+            true
+        });
+        Self { inner, buttons, value: value.clone() }
     }
 
     pub fn selected(&self) -> usize {
@@ -441,7 +454,6 @@ impl ButtonGroup {
 pub struct ToggleSwitch {
     inner: Widget,
     value: State<bool>,
-    _sub: Rc<Subscription>,
 }
 fltk::widget_extends!(ToggleSwitch, Widget, inner);
 
@@ -500,8 +512,8 @@ impl ToggleSwitch {
         let pad = theme::with(|t| t.spacing.md);
         inner.set_size(tw + 2 * pad, th + 2 * pad);
         let mut w2 = inner.clone();
-        let sub = value.subscribe(move |_| w2.redraw());
-        Self { inner, value: value.clone(), _sub: Rc::new(sub) }
+        crate::state::bind_widget(&inner, value, false, move |_| w2.redraw());
+        Self { inner, value: value.clone() }
     }
 
     pub fn is_on(&self) -> bool {
@@ -517,7 +529,6 @@ impl ToggleSwitch {
 pub struct Toggle {
     inner: Widget,
     value: State<bool>,
-    _sub: Rc<Subscription>,
 }
 fltk::widget_extends!(Toggle, Widget, inner);
 
@@ -554,8 +565,8 @@ impl Toggle {
         let h = theme::with(|t| 54.max(t.font.subtitle + t.font.caption + 8 + t.spacing.huge));
         inner.set_size(theme::with(|t| (240.0 * t.font.base as f64 / 12.0) as i32), h);
         let mut w2 = inner.clone();
-        let sub = value.subscribe(move |_| w2.redraw());
-        Self { inner, value: value.clone(), _sub: Rc::new(sub) }
+        crate::state::bind_widget(&inner, value, false, move |_| w2.redraw());
+        Self { inner, value: value.clone() }
     }
 
     pub fn is_on(&self) -> bool {
@@ -576,7 +587,6 @@ impl Toggle {
 pub struct Slider {
     inner: Widget,
     value: State<f64>,
-    _sub: Rc<Subscription>,
 }
 fltk::widget_extends!(Slider, Widget, inner);
 
@@ -640,7 +650,7 @@ impl Slider {
                 draw::draw_pie(kx - 2, ky - 2, knob + 4, knob + 4, 0.0, 360.0);
                 draw::set_draw_color(fg.fl());
                 draw::draw_pie(kx, ky, knob, knob, 0.0, 360.0);
-                if app::focus().is_some_and(|f| f.as_widget_ptr() == w.as_widget_ptr()) {
+                if crate::focus::show_ring(w) {
                     paint::stroke(w.x(), w.y(), w.w(), w.h(), t.radius, 1, t.border(&t.controls.focus, under));
                 }
             });
@@ -648,8 +658,8 @@ impl Slider {
         let h = theme::with(|t| 22.max(14 + 6).max(t.spacing.control_height - 6));
         inner.set_size(theme::with(|t| (200.0 * t.font.base as f64 / 12.0) as i32), h);
         let mut w2 = inner.clone();
-        let sub = value.subscribe(move |_| w2.redraw());
-        Self { inner, value: value.clone(), _sub: Rc::new(sub) }
+        crate::state::bind_widget(&inner, value, false, move |_| w2.redraw());
+        Self { inner, value: value.clone() }
     }
 
     pub fn value(&self) -> f64 {
@@ -663,7 +673,6 @@ impl Slider {
 #[derive(Clone)]
 pub struct Progress {
     inner: Widget,
-    _sub: Rc<Subscription>,
 }
 fltk::widget_extends!(Progress, Widget, inner);
 
@@ -684,8 +693,8 @@ impl Progress {
         });
         inner.set_size(200, theme::with(|t| t.spacing.lg * 2));
         let mut w2 = inner.clone();
-        let sub = value.subscribe(move |_| w2.redraw());
-        Self { inner, _sub: Rc::new(sub) }
+        crate::state::bind_widget(&inner, value, false, move |_| w2.redraw());
+        Self { inner }
     }
 }
 
@@ -758,7 +767,6 @@ struct LabelData {
 pub struct Label {
     inner: Widget,
     data: Rc<RefCell<LabelData>>,
-    _subs: Rc<RefCell<Vec<Subscription>>>,
 }
 fltk::widget_extends!(Label, Widget, inner);
 
@@ -781,7 +789,7 @@ impl Label {
                 paint::text_elided(&s, w.x(), w.y(), w.w(), w.h(), d.style.px(t), d.bold, c, d.align);
             });
         });
-        let mut l = Self { inner, data, _subs: Rc::default() };
+        let mut l = Self { inner, data };
         l.fit();
         l
     }
@@ -818,8 +826,7 @@ impl Label {
 
     pub fn bind(self, s: &State<String>) -> Self {
         let mut me = self.clone();
-        let sub = s.watch(move |v| me.set_text(v));
-        self._subs.borrow_mut().push(sub);
+        crate::state::bind_widget(&self.inner, s, true, move |v| me.set_text(v));
         self
     }
 
@@ -926,7 +933,6 @@ pub struct TextField {
     change: Cb<String>,
     submit: Cb<String>,
     placeholder: Rc<RefCell<String>>,
-    _subs: Rc<RefCell<Vec<Subscription>>>,
 }
 fltk::widget_extends!(TextField, fltk::group::Group, inner);
 
@@ -1011,7 +1017,7 @@ impl TextField {
             }
             false
         });
-        Self { inner, input, change, submit, placeholder, _subs: Rc::default() }
+        Self { inner, input, change, submit, placeholder }
     }
 
     pub fn placeholder(self, text: &str) -> Self {
@@ -1034,13 +1040,12 @@ impl TextField {
     pub fn bind(self, s: &State<String>) -> Self {
         let mut input = self.input.clone();
         let mut g = self.inner.clone();
-        let sub = s.watch(move |v| {
+        crate::state::bind_widget(&self.inner, s, true, move |v| {
             if input.value() != *v {
                 input.set_value(v);
                 g.redraw();
             }
         });
-        self._subs.borrow_mut().push(sub);
         let s2 = s.clone();
         let prev = self.change.borrow_mut().take();
         let mut prev = prev;
@@ -1085,7 +1090,6 @@ impl Default for TextField {
 pub struct NumberField {
     field: TextField,
     value: State<i64>,
-    _sub: Rc<Subscription>,
 }
 
 impl std::ops::Deref for NumberField {
@@ -1122,11 +1126,11 @@ impl NumberField {
             true
         });
         let mut inp = input.clone();
-        let sub = value.watch(move |n| {
+        crate::state::bind_widget(&input, value, true, move |n| {
             let s = n.to_string();
             if inp.value() != s { inp.set_value(&s); }
         });
-        Self { field, value: value.clone(), _sub: Rc::new(sub) }
+        Self { field, value: value.clone() }
     }
 
     pub fn value(&self) -> i64 {
@@ -1225,6 +1229,9 @@ impl Row {
 /// Tab strip with the control state tokens: selected tab = selected fill +
 /// bold, hover = hover fill, close glyph on hover/selected (if closable).
 /// Middle click closes. The selected index lives in a `State<usize>`.
+/// Keyboard: anywhere in the window Ctrl+Tab / Ctrl+PageDown go to the next
+/// tab and Ctrl+Shift+Tab / Ctrl+PageUp to the previous one; when the bar
+/// has focus, Left/Right/Home/End pick a tab and Delete closes it.
 #[derive(Clone)]
 pub struct TabBar {
     inner: Widget,
@@ -1232,7 +1239,6 @@ pub struct TabBar {
     value: State<usize>,
     close: Cb<usize>,
     closable: Rc<Cell<bool>>,
-    _sub: Rc<Subscription>,
 }
 fltk::widget_extends!(TabBar, Widget, inner);
 
@@ -1240,6 +1246,7 @@ impl TabBar {
     pub fn new(tabs: &[&str], value: &State<usize>) -> TabBar {
         let mut inner = Widget::default();
         inner.set_frame(FrameType::NoBox);
+        inner.set_visible_focus();
         let tabs: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(tabs.iter().map(|s| s.to_string()).collect()));
         let hover = Rc::new(Cell::new(-1i32));
         let closable = Rc::new(Cell::new(false));
@@ -1273,6 +1280,9 @@ impl TabBar {
                     paint::surface(x, w.y(), tw, w.h() - 1, t.radius, fill, None);
                     if sel {
                         paint::fill(x, w.y() + w.h() - 2, tw, 2, 0, t.palette.accent);
+                        if crate::focus::show_ring(w) {
+                            paint::stroke(x, w.y(), tw, w.h() - 1, t.radius, t.controls.focus.border_width.max(1), t.border(&t.controls.focus, under));
+                        }
                     }
                     let pad = t.spacing.control_padding_x;
                     let close_w = if cl.get() { t.font.body + t.spacing.md } else { 0 };
@@ -1290,11 +1300,39 @@ impl TabBar {
                 let pad = theme::with(|t| t.spacing.control_padding_x + t.font.body);
                 g(w).iter().position(|(x, tw)| ex >= *x && ex < x + tw).map(|i| { let (x, tw) = g(w)[i]; (i, ex >= x + tw - pad) })
             };
+            let n = g(w).len();
+            let pick = |i: usize| if i < n && i != v.get() { v.set(i) };
             match ev {
                 Event::Enter => true,
+                Event::Focus | Event::Unfocus => { w.redraw(); true }
                 Event::Move => { let h = at(w).map(|(i, _)| i as i32).unwrap_or(-1); if hv.get() != h { hv.set(h); w.redraw(); } true }
                 Event::Leave => { hv.set(-1); w.redraw(); true }
+                Event::KeyDown if n > 0 => {
+                    let cur = v.get();
+                    match app::event_key() {
+                        Key::Left => pick(cur.saturating_sub(1)),
+                        Key::Right => pick((cur + 1).min(n - 1)),
+                        Key::Home => pick(0),
+                        Key::End => pick(n - 1),
+                        Key::Delete if cl.get() => fire(&cc, cur),
+                        _ => return false,
+                    }
+                    true
+                }
+                Event::Shortcut if n > 0 && crate::focus::visible_in_window(w) && app::is_event_ctrl() => {
+                    let back = app::is_event_shift();
+                    let cur = v.get();
+                    match app::event_key() {
+                        Key::Tab if back => pick((cur + n - 1) % n),
+                        Key::Tab => pick((cur + 1) % n),
+                        Key::PageUp => pick((cur + n - 1) % n),
+                        Key::PageDown => pick((cur + 1) % n),
+                        _ => return false,
+                    }
+                    true
+                }
                 Event::Push => {
+                    let _ = w.take_focus();
                     if let Some((i, on_close)) = at(w) {
                         if app::event_mouse_button() == app::MouseButton::Middle || (cl.get() && on_close) { fire(&cc, i); }
                         else { v.set(i); }
@@ -1306,8 +1344,8 @@ impl TabBar {
         });
         inner.set_size(400, theme::with(|t| t.spacing.control_height + 2));
         let mut w2 = inner.clone();
-        let sub = value.subscribe(move |_| w2.redraw());
-        TabBar { inner, tabs, value: value.clone(), close, closable, _sub: Rc::new(sub) }
+        crate::state::bind_widget(&inner, value, false, move |_| w2.redraw());
+        TabBar { inner, tabs, value: value.clone(), close, closable }
     }
 
     /// Shows a close glyph and calls `f(index)` (also on middle click).

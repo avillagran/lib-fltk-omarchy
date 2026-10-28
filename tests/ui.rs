@@ -2,9 +2,10 @@
 //! window is shown. Each check renders with `snapshot` and reads pixels.
 //! Uses a fake Omarchy state dir so results do not depend on the desktop.
 use fltk::prelude::*;
-use fltk_omarchy::layout::FlexExt;
+use fltk_omarchy::focus::{self, press};
+use fltk_omarchy::layout::{self, FlexExt};
 use fltk_omarchy::list::{List, ListRow};
-use fltk_omarchy::overlay::{Menu, MenuItem, Notification, Urgency};
+use fltk_omarchy::overlay::{ConfirmDialog, Dropdown, Menu, MenuItem, Notification, Urgency};
 use fltk_omarchy::popups::{OperationToast, PopupItem, PopupMenu, SearchableDropdown};
 use fltk_omarchy::theme::Corners;
 use fltk_omarchy::Mode;
@@ -200,6 +201,142 @@ fn main() {
         t.cancel();
         t.close();
         check(*paused.borrow() == vec![true, false] && *cancelled.borrow(), "callbacks")
+    });
+    run("bindings live as long as the widget, not the Rust handle", &|_| {
+        let sel = State::new(0usize);
+        let mut win = AppWindow::new("t", 300, 140);
+        let mut r = layout::row();
+        r.fit(&*ButtonGroup::new(&["A", "B"], &sel)); // handle dropped here
+        r.fit(&*Label::new("").bind(&sel.map(|v| v.to_string())));
+        r.close_fitted();
+        win.end();
+        check(sel.listener_count() == 2, &format!("group binding (plus the map) kept after the handles were dropped: {}", sel.listener_count()))?;
+        let before = fltk_omarchy::state::widget_binding_count();
+        let w = (*win).clone();
+        fltk::window::Window::delete(w);
+        App::pump();
+        let _probe = Label::new("").bind(&State::new(String::new())); // prunes dead bindings
+        check(fltk_omarchy::state::widget_binding_count() < before, "bindings of deleted widgets are released")?;
+        check(sel.listener_count() == 1, &format!("only the map's own listener is left: {}", sel.listener_count()))
+    });
+    run("opening a layer while a dropdown is open does not crash", &|_| {
+        let mut win = AppWindow::new("t", 400, 300);
+        let mut body = win.body();
+        let v = State::new(0usize);
+        let mut dd = Dropdown::new("Output", &["A", "B"], &v);
+        body.fit(&*dd);
+        win.end();
+        let before = win.children();
+        dd.open();
+        ConfirmDialog::open(&*win, "Sure?", "Yes", false, |_| {});
+        pump_until(|| win.children() == before + 1);
+        check(win.children() == before + 1, "dropdown closed, dialog open")?;
+        press("Escape");
+        check(win.children() == before, "dialog closed")
+    });
+    run("keyboard only: Tab order, arrows, shortcuts, focus comes back", &|shots| {
+        let mut win = AppWindow::new("t", 560, 420);
+        let mut body = win.body();
+        let name = State::new(String::new());
+        let field = TextField::new().placeholder("Name").bind(&name);
+        body.fit(&*field);
+        let clicks = State::new(0u32);
+        let c = clicks.clone();
+        let mut r = layout::row();
+        let save = Button::new("Save").on_click(move || c.update(|v| *v += 1));
+        r.fit(&*save);
+        let view = State::new(0usize);
+        let group = ButtonGroup::new(&["Day", "Week", "Month"], &view);
+        r.fit(&*group);
+        r.close_fitted();
+        let tab = State::new(0usize);
+        let tabs = TabBar::new(&["Home", "Work", "Music"], &tab);
+        body.fit(&*tabs);
+        let sel = State::new(None::<usize>);
+        let opened = Rc::new(RefCell::new(None));
+        let o2 = opened.clone();
+        let list = List::new(&State::new(50usize), |i| ListRow::new(&format!("Item {i}"))).bind_selected(&sel)
+            .on_activate(move |i| *o2.borrow_mut() = Some(i));
+        win.end();
+        let k = |spec: &str| { press(spec); };
+
+        focus::first(&*win).ok_or("nothing focusable")?;
+        k("Shift+o"); k("k");
+        check(name.get() == "Ok", &format!("typing reaches the field: {:?}", name.get()))?;
+        k("Tab");
+        check(focus::is_focused(&*save), "Tab moves to Save")?;
+        win.snapshot(shots.join("kb-1-button.png")).map_err(|e| e.to_string())?;
+        k("Enter"); k("Space");
+        check(clicks.get() == 2, "Enter and Space press the button")?;
+        k("Tab");
+        check(focus::is_focused(&*group.button(0).unwrap()), "Tab enters the button group at the selected button")?;
+        k("Right"); k("Right"); k("Right");
+        check(view.get() == 2 && focus::is_focused(&*group.button(2).unwrap()), "Right moves selection and focus, stops at the end")?;
+        k("Tab");
+        check(focus::is_focused(&*tabs), "button group is one Tab stop")?;
+        k("Right"); k("End");
+        check(tab.get() == 2, "Right/End pick tabs")?;
+        k("Ctrl+Tab");
+        check(tab.get() == 0, "Ctrl+Tab wraps to the first tab")?;
+        k("Ctrl+Shift+Tab");
+        check(tab.get() == 2, "Ctrl+Shift+Tab goes back")?;
+        win.snapshot(shots.join("kb-2-tabs.png")).map_err(|e| e.to_string())?;
+        k("Tab");
+        check(focus::is_focused(&*list), "Tab reaches the list")?;
+        k("Down"); k("Down"); k("j"); k("k");
+        check(sel.get() == Some(1), &format!("arrows and j/k move the cursor row: {:?}", sel.get()))?;
+        k("Enter");
+        check(*opened.borrow() == Some(1), "Enter opens the row")?;
+        win.snapshot(shots.join("kb-3-list.png")).map_err(|e| e.to_string())?;
+        k("Tab");
+        check(focus::current().is_some_and(|f| f.as_widget_ptr() == field.input().as_widget_ptr()), "Tab wraps to the first control")?;
+        k("Shift+Tab");
+        check(focus::is_focused(&*list), "Shift+Tab goes back")?;
+        k("Up");
+        check(focus::is_focused(&*list) && sel.get() == Some(0), "arrows never leave the focused control")?;
+
+        // Menus and dialogs take focus and give it back.
+        let mut s2 = save.clone();
+        let _ = s2.take_focus();
+        let picked = Rc::new(RefCell::new(None));
+        let p2 = picked.clone();
+        PopupMenu::open(&*save, vec![PopupItem::new("", "Copy"), PopupItem::new("", "Cut").disabled(), PopupItem::new("", "Paste")], move |i| *p2.borrow_mut() = Some(i));
+        check(!focus::is_focused(&*save), "the menu has the keyboard")?;
+        k("Tab");
+        check(!focus::is_focused(&*save), "Tab does not leave an open menu")?;
+        win.snapshot(shots.join("kb-4-menu.png")).map_err(|e| e.to_string())?;
+        k("Down"); k("Enter");
+        check(*picked.borrow() == Some(2), &format!("Down skips the disabled entry: {:?}", picked.borrow()))?;
+        check(focus::is_focused(&*save), "focus is back on the menu button")?;
+        let answer = Rc::new(RefCell::new(None));
+        let a2 = answer.clone();
+        ConfirmDialog::open(&*save, "Delete 3 files?", "Delete", true, move |ok| *a2.borrow_mut() = Some(ok));
+        k("Escape");
+        check(*answer.borrow() == Some(false) && focus::is_focused(&*save), "Esc cancels the dialog and focus comes back")?;
+
+        // Notifications and the operation toast are reachable with Tab.
+        let mut l2 = list.clone();
+        let _ = l2.take_focus();
+        let cancelled = Rc::new(RefCell::new(false));
+        let c3 = cancelled.clone();
+        let mut toast = OperationToast::show(&*win, "Copying 3 files").ok_or("toast")?.on_cancel(move || *c3.borrow_mut() = true);
+        toast.set_progress(0.4);
+        k("Tab");
+        check(toast.has_focus(), "Tab reaches the operation toast")?;
+        k("Space");
+        check(toast.is_paused(), "Space pauses")?;
+        k("Right");
+        win.snapshot(shots.join("kb-5-toast.png")).map_err(|e| e.to_string())?;
+        k("Enter");
+        check(*cancelled.borrow(), "Right + Enter cancels")?;
+        k("Escape");
+        check(focus::is_focused(&*list), "Esc gives focus back to the list")?;
+        toast.close();
+        let before = Notification::count();
+        Notification::show(&*win, "", "Saved", "3 files", Urgency::Critical);
+        k("Tab");
+        k("Enter");
+        check(Notification::count() == before && focus::is_focused(&*list), "Enter dismisses a focused notification; focus comes back")
     });
     run("live theme switch: omarchy-theme-set style rename is picked up", &|shots| {
         let state = PathBuf::from(std::env::var("OMARCHY_FLTK_STATE_DIR").unwrap());

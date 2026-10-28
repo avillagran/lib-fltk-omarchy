@@ -181,7 +181,7 @@ impl AppWindow {
                 w.hide();
             }
         });
-        crate::theme::on_change({
+        crate::theme::on_change_while(&win, {
             let mut w = win.clone();
             move |t| { w.set_color(t.palette.background.fl()); w.redraw(); }
         });

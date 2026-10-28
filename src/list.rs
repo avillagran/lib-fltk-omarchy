@@ -11,7 +11,7 @@
 //! ```
 
 use crate::paint;
-use crate::state::{State, Subscription};
+use crate::state::State;
 use crate::theme;
 use crate::widgets::draw_row;
 use fltk::{app, enums::*, prelude::*, widget::Widget};
@@ -51,7 +51,6 @@ pub struct List {
     select_cb: Rc<RefCell<Option<Box<dyn FnMut(usize)>>>>,
     activate_cb: Rc<RefCell<Option<Box<dyn FnMut(usize)>>>>,
     selected_state: Rc<RefCell<Option<State<Option<usize>>>>>,
-    subs: Rc<RefCell<Vec<Subscription>>>,
     activations: Rc<Cell<usize>>,
 }
 fltk::widget_extends!(List, Widget, widget);
@@ -73,18 +72,16 @@ impl List {
             select_cb: Rc::default(),
             activate_cb: Rc::default(),
             selected_state: Rc::default(),
-            subs: Rc::default(),
             activations: Rc::default(),
         };
         let (inn, mut w) = (list.inner.clone(), list.widget.clone());
-        let sub = count.subscribe(move |n| {
+        crate::state::bind_widget(&list.widget, count, false, move |n| {
             let mut i = inn.borrow_mut();
             i.count = *n;
             if i.selected.is_some_and(|s| s >= *n) { i.selected = None; }
             drop(i);
             w.redraw();
         });
-        list.subs.borrow_mut().push(sub);
         list.install();
         list
     }
@@ -117,6 +114,21 @@ impl List {
                     paint::fill(w.x() + w.w() - BAR, ty, BAR, thumb, BAR / 2, t.palette.foreground.over(under, 0.25));
                 }
                 fltk::draw::pop_clip();
+                if crate::focus::show_ring(w) {
+                    // Ring on the cursor row, or around the list when there is none.
+                    let ring = t.border(&t.controls.focus, under);
+                    let bw = t.controls.focus.border_width.max(1);
+                    let row = i.selected.map(|s| w.y() + (s as i64 * i.row_h as i64 - i.top) as i32)
+                        .filter(|ry| *ry + i.row_h > w.y() && *ry < w.y() + w.h());
+                    match row {
+                        Some(ry) => {
+                            fltk::draw::push_clip(w.x(), w.y(), w.w(), w.h());
+                            paint::stroke(w.x(), ry, text_w, i.row_h, t.radius, bw, ring);
+                            fltk::draw::pop_clip();
+                        }
+                        None => paint::stroke(w.x(), w.y(), w.w(), w.h(), t.radius, bw, ring),
+                    }
+                }
             });
         });
 
@@ -144,7 +156,8 @@ impl List {
                 if let Some(f) = act_cb.borrow_mut().as_mut() { f(idx); }
             };
             match ev {
-                Event::Enter | Event::Focus | Event::Unfocus => true,
+                Event::Enter => true,
+                Event::Focus | Event::Unfocus => { w.redraw(); true }
                 Event::Move => {
                     let h = row_at(&inn.borrow(), app::event_y());
                     if inn.borrow().hover != h { inn.borrow_mut().hover = h; w.redraw(); }
@@ -227,11 +240,10 @@ impl List {
     pub fn bind_selected(self, s: &State<Option<usize>>) -> Self {
         *self.selected_state.borrow_mut() = Some(s.clone());
         let (inn, mut w) = (self.inner.clone(), self.widget.clone());
-        let sub = s.watch(move |v| {
+        crate::state::bind_widget(&self.widget, s, true, move |v| {
             inn.borrow_mut().selected = *v;
             w.redraw();
         });
-        self.subs.borrow_mut().push(sub);
         self
     }
 

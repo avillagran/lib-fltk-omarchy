@@ -5,7 +5,7 @@
 //! while hidden.
 
 use crate::paint;
-use crate::state::{State, Subscription};
+use crate::state::State;
 use crate::theme::{self, Rgb, Theme};
 use crate::widgets::glyph;
 use fltk::{app, enums::*, prelude::*, widget::Widget};
@@ -18,7 +18,8 @@ pub(crate) fn bg(t: &Theme) -> Rgb {
 }
 
 /// Adds a widget covering the anchor's window (or `rect`) on top of
-/// everything; returns it. `modal` layers take keyboard focus.
+/// everything; returns it. `modal` layers take keyboard focus (and give it
+/// back on close).
 pub(crate) fn open_layer<A: WidgetExt>(anchor: &A, rect: Option<(i32, i32, i32, i32)>, modal: bool) -> Option<Widget> {
     let win = anchor.top_window()?;
     let mut group = fltk::group::Group::from_dyn_widget_ptr(win.as_widget_ptr())?;
@@ -33,18 +34,25 @@ pub(crate) fn open_layer<A: WidgetExt>(anchor: &A, rect: Option<(i32, i32, i32, 
         g.begin();
     }
     if modal {
+        crate::focus::remember(&layer);
         layer.set_visible_focus();
-        let _ = layer.take_focus();
+        // Set directly: the layer's handler is installed after this returns,
+        // so it could not accept FL_FOCUS yet.
+        app::set_focus(&layer);
     }
     group.redraw();
     Some(layer)
 }
 
+/// Removes and deletes a layer; if it had focus, focus goes back to the
+/// control that had it before (see [`crate::focus`]). Closing twice is a no-op.
 pub(crate) fn close_layer(layer: &Widget) {
-    if let Some(mut g) = layer.top_window().and_then(|w| fltk::group::Group::from_dyn_widget_ptr(w.as_widget_ptr())) {
-        g.remove(layer);
-        g.redraw();
-    }
+    let Some(mut parent) = layer.parent() else { return };
+    // SAFETY: a Fl_Window is a Fl_Widget.
+    let win = layer.top_window().map(|w| unsafe { Widget::from_widget_ptr(w.as_widget_ptr()) });
+    parent.remove(layer);
+    parent.redraw();
+    crate::focus::give_back(layer, win);
     app::delete_widget(layer.clone());
 }
 
@@ -66,7 +74,6 @@ pub struct Dropdown {
     options: Rc<RefCell<Vec<String>>>,
     value: State<usize>,
     label: Rc<RefCell<String>>,
-    _sub: Rc<Subscription>,
 }
 fltk::widget_extends!(Dropdown, Widget, inner);
 
@@ -90,7 +97,7 @@ impl Dropdown {
                     y += lh + t.spacing.label_gap;
                 }
                 let h = t.spacing.control_height;
-                let focused = app::focus().is_some_and(|f| f.as_widget_ptr() == w.as_widget_ptr());
+                let focused = crate::focus::show_ring(w);
                 let st = if focused { &t.controls.focus } else if hv.get() { &t.controls.hover } else { &t.controls.normal };
                 let under = bg(t);
                 paint::surface(w.x(), y, w.w(), h, t.radius, Some(t.fill(st, under)), Some((t.border(st, under), st.border_width)));
@@ -120,8 +127,8 @@ impl Dropdown {
         });
         inner.set_size(w, h);
         let mut w2 = inner.clone();
-        let sub = value.subscribe(move |_| w2.redraw());
-        Dropdown { inner, options, value: value.clone(), label: label_rc, _sub: Rc::new(sub) }
+        crate::state::bind_widget(&inner, value, false, move |_| w2.redraw());
+        Dropdown { inner, options, value: value.clone(), label: label_rc }
     }
 
     pub fn selected(&self) -> usize {
@@ -236,7 +243,14 @@ fn open_popup(trigger: &mut Widget, options: &Rc<RefCell<Vec<String>>>, value: &
                 true
             }
             Event::Focus | Event::Enter => true,
-            Event::Unfocus => { finish(l, None, &mut trig); true }
+            Event::Unfocus => {
+                // Focus went elsewhere (another layer, a click): close on the
+                // next loop turn, never inside fltk's focus change, and leave
+                // focus where it went.
+                let l2 = l.clone();
+                app::add_timeout3(0.0, move |_| if !l2.was_deleted() { close_layer(&l2) });
+                true
+            }
             _ => false,
         }
     });
@@ -366,7 +380,8 @@ pub fn draw_scrim(l: &Widget, color: Rgb, alpha: f64) {
 
 /// Omarchy notification card (toast) at the window's top-right: icon slot,
 /// bold summary, body in `darker(text, 1.15)`, accent border, auto-dismiss
-/// (8 s normal, never for critical). Right click dismisses.
+/// (8 s normal, never for critical). A click dismisses it; from the
+/// keyboard, Tab reaches it and Enter, Space, Delete or Esc dismiss it.
 pub struct Notification;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -414,11 +429,27 @@ impl Notification {
                 if !body.is_empty() {
                     paint::text_elided(&body, x, top + line, w, line, t.font.title, false, n.text.darker(1.15), Align::Left);
                 }
+                if crate::focus::show_ring(l) {
+                    let fill = n.fill(bg(t));
+                    paint::stroke(l.x() + 3, l.y() + 3, l.w() - 6, l.h() - 6, (t.radius - 3).max(0), 1, t.border(&t.controls.focus, fill));
+                }
             });
         });
+        // Keyboard: Tab reaches the toast; Enter, Space, Delete or Esc dismiss it.
+        layer.set_visible_focus();
         layer.handle(|l, ev| match ev {
             Event::Push => { dismiss(l); true }
             Event::Enter => true,
+            Event::Focus => { crate::focus::remember(l); l.redraw(); true }
+            Event::Unfocus => { l.redraw(); true }
+            Event::KeyDown => {
+                let k = app::event_key();
+                if matches!(k, Key::Enter | Key::KPEnter | Key::Escape | Key::Delete | Key::BackSpace) || k == Key::from_char(' ') {
+                    dismiss(l);
+                    return true;
+                }
+                false
+            }
             _ => false,
         });
         let timeout = match urgency { Urgency::Low => Some(5.0), Urgency::Normal => Some(8.0), Urgency::Critical => None };

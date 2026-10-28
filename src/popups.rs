@@ -5,7 +5,7 @@
 
 use crate::overlay::{bg, card, close_layer, open_layer};
 use crate::paint;
-use crate::state::{State, Subscription};
+use crate::state::State;
 use crate::theme;
 use crate::widgets::glyph;
 use fltk::{app, enums::*, prelude::*, widget::Widget};
@@ -207,7 +207,6 @@ pub struct SearchableDropdown {
     inner: Widget,
     options: Rc<Vec<(String, String)>>,
     value: State<Option<usize>>,
-    _sub: Rc<Subscription>,
 }
 fltk::widget_extends!(SearchableDropdown, Widget, inner);
 
@@ -222,7 +221,7 @@ impl SearchableDropdown {
         let (opts, v, hv, ph) = (options.clone(), value.clone(), hover.clone(), placeholder.to_string());
         inner.draw(move |w| {
             theme::with(|t| {
-                let focused = app::focus().is_some_and(|f| f.as_widget_ptr() == w.as_widget_ptr());
+                let focused = crate::focus::show_ring(w);
                 let st = if focused { &t.controls.focus } else if hv.get() { &t.controls.hover } else { &t.controls.normal };
                 let under = bg(t);
                 paint::surface(w.x(), w.y(), w.w(), w.h(), t.radius, Some(t.fill(st, under)), Some((t.border(st, under), st.border_width)));
@@ -249,8 +248,8 @@ impl SearchableDropdown {
         let (w, h) = theme::with(|t| (t.spacing.searchable_dropdown_width, t.spacing.control_height));
         inner.set_size(w, h);
         let mut w2 = inner.clone();
-        let sub = value.subscribe(move |_| w2.redraw());
-        SearchableDropdown { inner, options, value: value.clone(), _sub: Rc::new(sub) }
+        crate::state::bind_widget(&inner, value, false, move |_| w2.redraw());
+        SearchableDropdown { inner, options, value: value.clone() }
     }
 
     pub fn selected(&self) -> Option<usize> {
@@ -465,6 +464,9 @@ impl ShortcutHelp {
 /// Long operation card at the window's bottom-right (copy/move/delete):
 /// title, detail line, accent progress bar and Pause/Resume + Cancel
 /// buttons. Not modal; update it from the UI thread (e.g. task progress).
+/// Keyboard: Tab reaches it (or call [`OperationToast::focus`] from a
+/// shortcut); Left/Right pick Pause or Cancel, Enter/Space press, Esc gives
+/// focus back without cancelling.
 #[derive(Clone)]
 pub struct OperationToast {
     layer: Widget,
@@ -477,6 +479,8 @@ struct ToastData {
     progress: f64,
     paused: bool,
     hover: i32,
+    /// Keyboard cursor: 0 = Pause/Resume, 1 = Cancel.
+    kb: i32,
     on_pause: Option<Box<dyn FnMut(bool)>>,
     on_cancel: Option<Box<dyn FnMut()>>,
 }
@@ -490,7 +494,7 @@ impl OperationToast {
         });
         let rect = (win.w() - w - m, win.h() - h - m, w, h);
         let mut layer = open_layer(anchor, Some(rect), false)?;
-        let data = Rc::new(RefCell::new(ToastData { title: title.into(), detail: String::new(), progress: 0.0, paused: false, hover: -1, on_pause: None, on_cancel: None }));
+        let data = Rc::new(RefCell::new(ToastData { title: title.into(), detail: String::new(), progress: 0.0, paused: false, hover: -1, kb: 0, on_pause: None, on_cancel: None }));
         let buttons = move |l: &Widget| -> [(i32, i32, i32, i32); 2] {
             theme::with(|t| {
                 let bh = t.spacing.control_height;
@@ -519,14 +523,15 @@ impl OperationToast {
                 paint::fill(x, y, w, 4, 2, t.fill(&t.controls.selected, fill));
                 let bar = if d.paused { fg.darker(1.6) } else { t.notifications.border };
                 paint::fill(x, y, (w as f64 * d.progress.clamp(0.0, 1.0)).round() as i32, 4, 2, bar);
+                let focused = crate::focus::show_ring(l);
                 for (i, (bx, by, bw, bh)) in buttons(l).iter().copied().enumerate() {
-                    let hot = d.hover == i as i32;
+                    let hot = d.hover == i as i32 || (focused && d.kb == i as i32);
                     let (label, color) = if i == 0 {
                         (if d.paused { "Resume" } else { "Pause" }, fg)
                     } else {
                         ("Cancel", t.palette.urgent)
                     };
-                    let st = if hot { &t.controls.hover } else { &t.controls.normal };
+                    let st = if focused && d.kb == i as i32 { &t.controls.focus } else if hot { &t.controls.hover } else { &t.controls.normal };
                     paint::surface(bx, by, bw, bh, t.radius, Some(t.fill(st, fill)), Some((t.border(st, fill), st.border_width.max(1))));
                     paint::text(label, bx, by, bw, bh, t.font.body, false, color, Align::Center);
                 }
@@ -545,21 +550,41 @@ impl OperationToast {
                 }
                 Event::Leave => { d.borrow_mut().hover = -1; l.redraw(); true }
                 Event::Push => {
-                    if hit(bs[0]) {
-                        let paused = { let mut dd = d.borrow_mut(); dd.paused = !dd.paused; dd.paused };
-                        let cb = d.borrow_mut().on_pause.take();
-                        if let Some(mut f) = cb { f(paused); d.borrow_mut().on_pause = Some(f); }
-                        l.redraw();
-                    } else if hit(bs[1]) {
-                        let cb = d.borrow_mut().on_cancel.take();
-                        if let Some(mut f) = cb { f(); d.borrow_mut().on_cancel = Some(f); }
-                    }
+                    if hit(bs[0]) { press_toast(&d, l, 0) } else if hit(bs[1]) { press_toast(&d, l, 1) }
                     true
+                }
+                Event::Focus => { crate::focus::remember(l); l.redraw(); true }
+                Event::Unfocus => { l.redraw(); true }
+                Event::KeyDown => {
+                    let k = app::event_key();
+                    match k {
+                        Key::Left | Key::Right => { let kb = d.borrow().kb; d.borrow_mut().kb = 1 - kb; l.redraw(); true }
+                        Key::Enter | Key::KPEnter => { let kb = d.borrow().kb; press_toast(&d, l, kb); true }
+                        Key::Escape => {
+                            // SAFETY: a Fl_Window is a Fl_Widget.
+                            let win = l.top_window().map(|w| unsafe { Widget::from_widget_ptr(w.as_widget_ptr()) });
+                            crate::focus::give_back(l, win);
+                            true
+                        }
+                        _ if k == Key::from_char(' ') => { let kb = d.borrow().kb; press_toast(&d, l, kb); true }
+                        _ => false,
+                    }
                 }
                 _ => false,
             }
         });
+        layer.set_visible_focus();
         Some(OperationToast { layer, data })
+    }
+
+    /// Moves keyboard focus to the toast (bind it to a shortcut so a long
+    /// operation can be paused or cancelled without the mouse).
+    pub fn focus(&mut self) {
+        let _ = self.layer.take_focus();
+    }
+
+    pub fn has_focus(&self) -> bool {
+        crate::focus::is_focused(&self.layer)
     }
 
     pub fn on_pause(self, f: impl FnMut(bool) + 'static) -> Self { self.data.borrow_mut().on_pause = Some(Box::new(f)); self }
@@ -570,21 +595,30 @@ impl OperationToast {
     pub fn set_title(&mut self, s: &str) { self.data.borrow_mut().title = s.into(); self.layer.redraw(); }
     pub fn is_paused(&self) -> bool { self.data.borrow().paused }
 
-    /// Simulates pressing Pause/Resume (tests, keyboard shortcuts).
+    /// Same as pressing Pause/Resume (tests, keyboard shortcuts).
     pub fn toggle_pause(&mut self) {
-        let paused = { let mut d = self.data.borrow_mut(); d.paused = !d.paused; d.paused };
-        let cb = self.data.borrow_mut().on_pause.take();
-        if let Some(mut f) = cb { f(paused); self.data.borrow_mut().on_pause = Some(f); }
-        self.layer.redraw();
+        press_toast(&self.data, &self.layer, 0);
     }
 
-    /// Simulates pressing Cancel.
+    /// Same as pressing Cancel.
     pub fn cancel(&mut self) {
-        let cb = self.data.borrow_mut().on_cancel.take();
-        if let Some(mut f) = cb { f(); self.data.borrow_mut().on_cancel = Some(f); }
+        press_toast(&self.data, &self.layer, 1);
     }
 
     pub fn close(&self) {
         close_layer(&self.layer);
     }
+}
+
+/// Runs the toast button `i` (0 = Pause/Resume, 1 = Cancel).
+fn press_toast(d: &Rc<RefCell<ToastData>>, l: &Widget, i: i32) {
+    if i == 0 {
+        let paused = { let mut dd = d.borrow_mut(); dd.paused = !dd.paused; dd.paused };
+        let cb = d.borrow_mut().on_pause.take();
+        if let Some(mut f) = cb { f(paused); d.borrow_mut().on_pause = Some(f); }
+    } else {
+        let cb = d.borrow_mut().on_cancel.take();
+        if let Some(mut f) = cb { f(); d.borrow_mut().on_cancel = Some(f); }
+    }
+    l.clone().redraw();
 }

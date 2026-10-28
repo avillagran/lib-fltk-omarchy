@@ -24,6 +24,7 @@ impl App {
         let _ = app::lock(); // enables app::awake() from worker threads
         fltk::window::Window::set_default_xclass(id);
         app::set_visible_focus(true);
+        crate::focus::install();
         app::set_option(app::Option::ShowScaling, false);
         theme::set(theme::Theme::load());
         style_tooltips(&theme::current());
