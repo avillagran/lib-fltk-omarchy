@@ -2,7 +2,7 @@
 //!   cargo run --example shaders
 //!   cargo run --example shaders -- --snapshot docs/components   (writes gfx-*.png)
 use fltk::prelude::*;
-use fltk_omarchy::gfx::{self, BlendMode, Cap, Color, Hit, Join, Paint, Path, Stroke, View};
+use fltk_omarchy::gfx::{self, BlendMode, Cap, Color, Hit, Join, Paint, Path, Rate, Stroke, View};
 use fltk_omarchy::layout::{self, FlexExt};
 use fltk_omarchy::widgets::*;
 use fltk_omarchy::{App, AppWindow};
@@ -87,11 +87,11 @@ fn main() {
     body.fit(&*Label::section("Effects"));
     let e = effects();
     body.fit(&*e);
-    body.fit(&*Label::section("CPU shaders (animated)"));
+    body.fit(&*Label::section("Shaders (animated; GPU or CPU)"));
     let mut row = layout::row();
-    let noise = View::new(130, 110).shader(gfx::shaders::noise()).animate(30);
-    let grad = View::new(130, 110).shader(gfx::shaders::gradient()).animate(30);
-    let glow = View::new(130, 110).shader(gfx::shaders::accent_glow()).animate(30);
+    let noise = View::new(130, 110).shader(gfx::shaders::noise()).animate(Rate::Display);
+    let grad = View::new(130, 110).shader(gfx::shaders::gradient()).animate(Rate::Display);
+    let glow = View::new(130, 110).shader(gfx::shaders::accent_glow()).animate(Rate::Display);
     // Background blur: moving blobs, the panel area blurred, a card on top.
     let frosted = View::new(130, 110)
         .shader(gfx::shaders::blobs())
@@ -100,7 +100,7 @@ fn main() {
             c.fill(&Path::rounded_rect(15.0, 25.0, 100.0, 60.0, [10.0; 4]), u.background.with_alpha(0.25));
             c.stroke(&Path::rounded_rect(15.5, 25.5, 99.0, 59.0, [10.0; 4]), &Stroke::new(1.0), u.foreground.with_alpha(0.35));
         })
-        .animate(30);
+        .animate(Rate::Display);
     for v in [&noise, &grad, &glow, &frosted] {
         row.fit(&**v);
     }

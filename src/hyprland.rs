@@ -66,6 +66,8 @@ pub struct Client {
     pub size: (i32, i32),
     pub floating: bool,
     pub workspace: String,
+    /// Monitor id (see [`monitor_refresh_hz`]).
+    pub monitor: i64,
 }
 
 /// Windows of this process, optionally filtered by title.
@@ -86,9 +88,24 @@ pub fn own_clients(title: Option<&str>) -> Vec<Client> {
                 size: pair("size")?,
                 floating: c.get("floating").and_then(Value::as_bool).unwrap_or(false),
                 workspace: c.get("workspace")?.get("name")?.as_str()?.to_string(),
+                monitor: c.get("monitor").and_then(Value::as_i64).unwrap_or(-1),
             })
         })
         .collect()
+}
+
+/// Refresh rate of monitor `id` (or of the focused monitor when `id` < 0).
+pub fn monitor_refresh_hz(id: i64) -> Option<f64> {
+    let Some(Value::Array(list)) = json("monitors") else { return None };
+    let pick = list.iter().find(|m| if id >= 0 { m.get("id").and_then(Value::as_i64) == Some(id) } else { m.get("focused").and_then(Value::as_bool) == Some(true) });
+    pick.or(list.first())?.get("refreshRate")?.as_f64().filter(|r| *r > 1.0)
+}
+
+/// Refresh rate of the monitor showing this process's window `title`
+/// (any own window when None); None without Hyprland.
+pub fn refresh_hz_for(title: Option<&str>) -> Option<f64> {
+    let id = own_clients(title).first().map_or(-1, |c| c.monitor);
+    monitor_refresh_hz(id)
 }
 
 fn quote(s: &str) -> String {

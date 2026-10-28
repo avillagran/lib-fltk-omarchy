@@ -242,6 +242,12 @@ impl Canvas {
         }
     }
 
+    /// Appends the raw premultiplied RGBA8 pixels (GPU overlay upload).
+    #[cfg_attr(not(feature = "gpu"), allow(dead_code))]
+    pub(crate) fn premul_bytes(&self, out: &mut Vec<u8>) {
+        out.extend_from_slice(&self.px);
+    }
+
     /// Opaque RGB8 over `bg` into `out` (resized to w × h × 3): the fast
     /// upload path for views that cover their whole area.
     pub fn to_rgb8_over(&self, bg: Color, out: &mut Vec<u8>) {
@@ -521,6 +527,62 @@ impl Canvas {
                 });
             }
         });
+    }
+}
+
+impl Canvas {
+    /// Runs a portable shader over `rect` (render pixels) on this thread.
+    pub(crate) fn shade_sl(&mut self, rect: (usize, usize, usize, usize), sh: &super::sl::Shader, u: &super::shader::Uniforms, ex: &mut super::sl::Exec, row: &mut Vec<Color>) {
+        let (x0, y0) = (rect.0.min(self.w), rect.1.min(self.h));
+        let (x1, y1) = ((rect.0 + rect.2).min(self.w), (rect.1 + rect.3).min(self.h));
+        if x1 <= x0 {
+            return;
+        }
+        let scale = (u.size.0 / self.w.max(1) as f32, u.size.1 / self.h.max(1) as f32);
+        row.resize(x1 - x0, Color::TRANSPARENT);
+        for y in y0..y1 {
+            ex.row(sh, x0 as f32, y as f32, x1 - x0, scale, u, row);
+            let w = self.w;
+            write_row(&mut self.px[(y * w + x0) * 4..(y * w + x1) * 4], row);
+        }
+    }
+
+    /// Same on up to `threads` threads, bands of full rows.
+    pub(crate) fn shade_sl_rows_parallel(&mut self, y0: usize, y1: usize, sh: &super::sl::Shader, u: &super::shader::Uniforms, threads: usize) {
+        let (w, y1) = (self.w, y1.min(self.h));
+        if y0 >= y1 || w == 0 {
+            return;
+        }
+        let scale = (u.size.0 / w as f32, u.size.1 / self.h.max(1) as f32);
+        let per = (y1 - y0).div_ceil(threads.max(1));
+        let u = *u;
+        let band = &mut self.px[y0 * w * 4..y1 * w * 4];
+        std::thread::scope(|scope| {
+            for (k, chunk) in band.chunks_mut(per * w * 4).enumerate() {
+                scope.spawn(move || {
+                    let mut ex = super::sl::Exec::default();
+                    let mut row = vec![Color::TRANSPARENT; w];
+                    for (j, line) in chunk.chunks_mut(w * 4).enumerate() {
+                        ex.row(sh, 0.0, (y0 + k * per + j) as f32, w, scale, &u, &mut row);
+                        write_row(line, &row);
+                    }
+                });
+            }
+        });
+    }
+}
+
+/// Source-over of straight colors onto premultiplied RGBA8 pixels.
+fn write_row(px: &mut [u8], row: &[Color]) {
+    for (p, c) in px.chunks_exact_mut(4).zip(row) {
+        if c.a >= 1.0 {
+            p.copy_from_slice(&[q8(c.r), q8(c.g), q8(c.b), 255]);
+        } else if c.a > 0.0 {
+            let ia = 1.0 - c.a;
+            let d = |v: u8| v as f32 / 255.0;
+            let out = [q8(c.r * c.a + d(p[0]) * ia), q8(c.g * c.a + d(p[1]) * ia), q8(c.b * c.a + d(p[2]) * ia), q8(c.a + d(p[3]) * ia)];
+            p.copy_from_slice(&out);
+        }
     }
 }
 

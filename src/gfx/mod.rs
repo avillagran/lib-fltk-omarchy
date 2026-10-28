@@ -22,6 +22,7 @@ mod path;
 mod raster;
 mod shader;
 mod view;
+pub mod sl;
 #[cfg(feature = "gpu")]
 pub mod gpu;
 
@@ -29,9 +30,19 @@ pub use canvas::{BlendMode, Canvas, Color, Paint, MAX_BLUR};
 pub use path::{Path, Point};
 pub use raster::{Cap, Join, Stroke};
 pub use shader::{Shader, Uniforms};
-pub use view::{Hit, View, ViewStats};
+pub use view::{Backend, Hit, Rate, View, ViewStats};
+pub use view::{set_backend, set_cpu_fps_cap};
 
-/// Example shaders and noise helpers.
+/// Built-in portable shaders (run on GPU or CPU), and noise helpers for
+/// CPU-only closures (`View::cpu_shader`).
 pub mod shaders {
-    pub use super::shader::{accent_glow, blobs, fbm, gradient, hash2, noise, value_noise};
+    pub use super::shader::{fbm, hash2, value_noise};
+    pub use super::sl::{
+        accent_glow_shader as accent_glow, blobs_shader as blobs, gradient_shader as gradient, noise_shader as noise,
+        rings_shader as rings,
+    };
+    /// The previous CPU-closure versions (for `View::cpu_shader`).
+    pub mod cpu {
+        pub use super::super::shader::{accent_glow, blobs, gradient, noise};
+    }
 }

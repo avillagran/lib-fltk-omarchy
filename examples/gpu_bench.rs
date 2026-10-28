@@ -89,6 +89,69 @@ fn main() {
         app.run();
         return;
     }
+    if mode == "parity" {
+        // Same portable shader on the GPU (read back) and on the CPU (sl eval);
+        // a paint() rectangle on top must show through the overlay.
+        use fltk_omarchy::gfx::{self, Path, View};
+        let out = a.get(2).cloned().unwrap_or_else(|| "build/gpu-parity.json".into());
+        let sh = gfx::shaders::gradient();
+        let view = View::new(400, 300).shader(sh.clone()).paint(|c, u| c.fill(&Path::rect(0.0, 0.0, 30.0, 30.0), u.accent));
+        view.set_time(Some(0.7));
+        fltk_omarchy::layout::FlexExt::fit(&mut body, &*view);
+        win.end();
+        win.set_mode(fltk_omarchy::Mode::Floating);
+        win.show();
+        let res: Rc<RefCell<Vec<String>>> = Rc::default();
+        let (v2, r2, sh2) = (view.clone(), res.clone(), sh.clone());
+        fltk::app::add_timeout3(1.6, move |_| {
+            r2.borrow_mut().push(format!("\"backend\":\"{:?}\",\"reason\":{:?}", v2.active_backend(), v2.backend_reason()));
+            let mut u = gfx::Uniforms::from_theme(&fltk_omarchy::theme::current(), (v2.w() as f32, v2.h() as f32));
+            u.time = 0.7;
+            for (x, y) in [(15, 15), (60, 40), (200, 150), (390, 290)] {
+                let want = sh2.eval(x as f32 + 0.5, y as f32 + 0.5, &u).to_u8();
+                let r3 = r2.clone();
+                let read = v2.read_gpu_pixel(x, y, move |px| r3.borrow_mut().push(format!("\"p{x}_{y}\":{{\"gpu\":[{},{},{}],\"cpu\":[{},{},{}]}}", px[0], px[1], px[2], want[0], want[1], want[2])));
+                if !read { r2.borrow_mut().push(format!("\"p{x}_{y}\":null")); }
+            }
+        });
+        let (r4, mut w) = (res.clone(), win.clone());
+        let acc = fltk_omarchy::theme::current().palette.accent;
+        fltk::app::add_timeout3(2.4, move |_| {
+            r4.borrow_mut().push(format!("\"accent\":[{},{},{}]", acc.r(), acc.g(), acc.b()));
+            std::fs::write(&out, format!("{{{}}}\n", r4.borrow().join(","))).unwrap();
+            w.hide();
+        });
+        app.run();
+        return;
+    }
+    if mode == "display" {
+        // Rate::Display: frames per second actually drawn, by backend.
+        use fltk_omarchy::gfx::{self, Backend, Rate, View};
+        let secs: f64 = a.get(2).and_then(|s| s.parse().ok()).unwrap_or(5.0);
+        let out = a.get(3).cloned().unwrap_or_else(|| "build/gpu-display.json".into());
+        let backend = if a.get(4).map(String::as_str) == Some("cpu") { Backend::Cpu } else { Backend::Auto };
+        let view = View::new(400, 300).shader(gfx::shaders::noise()).animate(Rate::Display).backend(backend);
+        fltk_omarchy::layout::FlexExt::fit(&mut body, &*view);
+        win.end();
+        win.set_mode(fltk_omarchy::Mode::Floating);
+        win.show();
+        let sample: Rc<RefCell<Option<(f64, u64, std::time::Instant)>>> = Rc::default();
+        let (s2, v2) = (sample.clone(), view.clone());
+        fltk::app::add_timeout3(1.5, move |_| { *s2.borrow_mut() = Some((cpu_s(), v2.stats().frames, std::time::Instant::now())); });
+        let (s3, v3, mut w) = (sample.clone(), view.clone(), win.clone());
+        fltk::app::add_timeout3(1.5 + secs, move |_| {
+            let (c0, f0, t0) = s3.borrow().expect("sample");
+            let (cpu, frames, wall) = (cpu_s() - c0, v3.stats().frames - f0, t0.elapsed().as_secs_f64());
+            let st = v3.stats();
+            let line = format!(
+                "{{\"mode\":\"display\",\"backend\":\"{:?}\",\"target_fps\":{:.1},\"fps\":{:.1},\"cpu_pct\":{:.1},\"cpu_ms_per_frame\":{:.2},\"pss_tree_kb\":{},\"reason\":{:?}}}",
+                v3.active_backend(), st.target_fps, frames as f64 / wall, 100.0 * cpu / wall, if frames > 0 { cpu * 1000.0 / frames as f64 } else { 0.0 }, pss_tree_kb(), v3.backend_reason());
+            std::fs::write(&out, format!("{line}\n")).unwrap();
+            w.hide();
+        });
+        app.run();
+        return;
+    }
     let secs: f64 = a.get(2).and_then(|s| s.parse().ok()).unwrap_or(5.0);
     let out = a.get(3).cloned().unwrap_or_else(|| "build/gpu-bench.json".into());
     let mut view = GpuView::new(400, 300, NOISE);

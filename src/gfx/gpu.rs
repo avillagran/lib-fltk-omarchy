@@ -341,3 +341,217 @@ fn draw(w: &mut GlWindow, st: &Rc<RefCell<State>>) {
     s.stats.frames += 1;
     s.stats.last_draw_ms = t0.elapsed().as_secs_f32() * 1000.0;
 }
+
+// ------------------------------------------------------------ View's GL layer
+
+const BLIT_VERTEX: &str = "#version 330 core
+out vec2 v_uv;
+void main() {
+    vec2 v = vec2((gl_VertexID << 1) & 2, gl_VertexID & 2);
+    v_uv = vec2(v.x, 1.0 - v.y);
+    gl_Position = vec4(v * 2.0 - 1.0, 0.0, 1.0);
+}
+";
+
+const BLIT_FRAGMENT: &str = "#version 330 core
+in vec2 v_uv;
+uniform sampler2D u_tex;
+out vec4 o_color;
+void main() { o_color = texture(u_tex, v_uv); }
+";
+
+fn link(ctx: &glow::Context, vs: &str, fs: &str) -> Result<glow::Program, String> {
+    // SAFETY: called inside the window's draw with its context current.
+    unsafe {
+        let program = ctx.create_program()?;
+        let mut shaders = Vec::new();
+        for (kind, src) in [(glow::VERTEX_SHADER, vs), (glow::FRAGMENT_SHADER, fs)] {
+            let s = ctx.create_shader(kind)?;
+            ctx.shader_source(s, src);
+            ctx.compile_shader(s);
+            if !ctx.get_shader_compile_status(s) {
+                let log = ctx.get_shader_info_log(s);
+                ctx.delete_program(program);
+                return Err(log);
+            }
+            ctx.attach_shader(program, s);
+            shaders.push(s);
+        }
+        ctx.link_program(program);
+        for s in shaders {
+            ctx.detach_shader(program, s);
+            ctx.delete_shader(s);
+        }
+        if !ctx.get_program_link_status(program) {
+            return Err(ctx.get_program_info_log(program));
+        }
+        Ok(program)
+    }
+}
+
+struct LayerGl {
+    ctx: glow::Context,
+    shade: glow::Program,
+    blit: glow::Program,
+    vao: glow::VertexArray,
+    tex: glow::Texture,
+}
+
+/// What the View hands to its GL layer every frame.
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct LayerFrame {
+    pub time: f32,
+    pub params: [f32; 4],
+    pub pointer: Option<(f32, f32)>,
+}
+
+pub(crate) struct LayerState {
+    glsl: String,
+    gl: Option<LayerGl>,
+    pub error: Option<String>,
+    pub frame: LayerFrame,
+    /// Premultiplied RGBA overlay (paint + focus ring), widget size.
+    overlay: Vec<u8>,
+    overlay_size: (i32, i32),
+    overlay_dirty: bool,
+    pub frames: u64,
+    pub last_draw_ms: f32,
+    readback: Vec<(i32, i32, Box<dyn FnOnce([u8; 4])>)>,
+}
+
+/// The GL subwindow a [`super::View`] uses when it renders on the GPU.
+#[derive(Clone)]
+pub(crate) struct GlLayer {
+    pub win: GlWindow,
+    pub st: Rc<RefCell<LayerState>>,
+}
+
+impl GlLayer {
+    /// A GL subwindow covering `(x, y, w, h)` of the current group, running
+    /// `glsl` (from `sl::Shader::glsl`). `events(ev, x, y)` gets mouse
+    /// events in local coordinates.
+    pub(crate) fn new(x: i32, y: i32, w: i32, h: i32, glsl: &str, mut events: impl FnMut(Event, i32, i32) -> bool + 'static) -> GlLayer {
+        let mut win = GlWindow::new(x, y, w, h, None);
+        win.set_mode(Mode::Opengl3 | Mode::Double | Mode::Rgb8);
+        win.end();
+        let st = Rc::new(RefCell::new(LayerState {
+            glsl: glsl.to_string(),
+            gl: None,
+            error: None,
+            frame: LayerFrame::default(),
+            overlay: Vec::new(),
+            overlay_size: (0, 0),
+            overlay_dirty: false,
+            frames: 0,
+            last_draw_ms: 0.0,
+            readback: Vec::new(),
+        }));
+        let s2 = st.clone();
+        win.draw(move |w| layer_draw(w, &s2));
+        win.handle(move |_, ev| events(ev, app::event_x(), app::event_y()));
+        GlLayer { win, st }
+    }
+
+    pub(crate) fn set_overlay(&self, rgba_premul: &[u8], w: i32, h: i32) {
+        let mut s = self.st.borrow_mut();
+        s.overlay.clear();
+        s.overlay.extend_from_slice(rgba_premul);
+        s.overlay_size = (w, h);
+        s.overlay_dirty = true;
+    }
+
+    pub(crate) fn read_pixel(&self, x: i32, y: i32, f: Box<dyn FnOnce([u8; 4])>) {
+        let scale = self.win.pixel_w() as f32 / self.win.w().max(1) as f32;
+        let (px, py) = ((x as f32 * scale) as i32, ((self.win.h() - 1 - y) as f32 * scale) as i32);
+        self.st.borrow_mut().readback.push((px, py, f));
+    }
+}
+
+fn layer_draw(w: &mut GlWindow, st: &Rc<RefCell<LayerState>>) {
+    let t0 = Instant::now();
+    let mut s = st.borrow_mut();
+    if s.gl.is_none() && s.error.is_none() {
+        let win = w.clone();
+        // Never block in eglSwapBuffers waiting for a frame callback (hidden
+        // windows get none): pacing comes from the View's timer.
+        w.set_swap_interval(0);
+        // SAFETY: the loader returns function pointers of the current context.
+        let ctx = unsafe { glow::Context::from_loader_function(|name| win.get_proc_address(name) as *const _) };
+        let built = (|| -> Result<LayerGl, String> {
+            let shade = link(&ctx, VERTEX, &format!("{PRELUDE}{}", s.glsl))?;
+            let blit = link(&ctx, BLIT_VERTEX, BLIT_FRAGMENT)?;
+            // SAFETY: context current (inside draw).
+            unsafe {
+                let vao = ctx.create_vertex_array()?;
+                let tex = ctx.create_texture()?;
+                ctx.bind_texture(glow::TEXTURE_2D, Some(tex));
+                ctx.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MIN_FILTER, glow::LINEAR as i32);
+                ctx.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MAG_FILTER, glow::LINEAR as i32);
+                ctx.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_WRAP_S, glow::CLAMP_TO_EDGE as i32);
+                ctx.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_WRAP_T, glow::CLAMP_TO_EDGE as i32);
+                Ok(LayerGl { ctx, shade, blit, vao, tex })
+            }
+        })();
+        match built {
+            Ok(g) => s.gl = Some(g),
+            Err(e) => s.error = Some(e),
+        }
+    }
+    let (pw, ph) = (w.pixel_w(), w.pixel_h());
+    let frame = s.frame;
+    let readback = std::mem::take(&mut s.readback);
+    let overlay = if s.overlay_dirty && s.overlay_size.0 > 0 { Some((std::mem::take(&mut s.overlay), s.overlay_size)) } else { None };
+    s.overlay_dirty = false;
+    let has_overlay = s.overlay_size.0 > 0;
+    let Some(gl) = s.gl.as_ref() else { return };
+    let col = |c: theme::Rgb| [c.r() as f32 / 255.0, c.g() as f32 / 255.0, c.b() as f32 / 255.0, 1.0];
+    let (bg, fg, acc, urg) = theme::with(|t| (t.palette.background, t.palette.foreground, t.palette.accent, t.palette.urgent));
+    let mut out = Vec::new();
+    // SAFETY: inside the draw callback, the window's context is current.
+    unsafe {
+        let ctx = &gl.ctx;
+        ctx.viewport(0, 0, pw, ph);
+        ctx.disable(glow::BLEND);
+        ctx.use_program(Some(gl.shade));
+        let loc = |n: &str| ctx.get_uniform_location(gl.shade, n);
+        ctx.uniform_1_f32(loc("u_time").as_ref(), frame.time);
+        ctx.uniform_2_f32(loc("u_size").as_ref(), w.w() as f32, w.h() as f32);
+        let (px, py) = frame.pointer.unwrap_or((-1.0, -1.0));
+        ctx.uniform_2_f32(loc("u_pointer").as_ref(), px, py);
+        ctx.uniform_1_f32(loc("u_scale").as_ref(), pw as f32 / w.w().max(1) as f32);
+        for (n, c) in [("u_background", col(bg)), ("u_foreground", col(fg)), ("u_accent", col(acc)), ("u_urgent", col(urg))] {
+            ctx.uniform_4_f32(loc(n).as_ref(), c[0], c[1], c[2], c[3]);
+        }
+        let p = frame.params;
+        ctx.uniform_4_f32(loc("u_params").as_ref(), p[0], p[1], p[2], p[3]);
+        ctx.bind_vertex_array(Some(gl.vao));
+        ctx.draw_arrays(glow::TRIANGLES, 0, 3);
+        // Overlay (paint + focus ring), premultiplied alpha.
+        ctx.bind_texture(glow::TEXTURE_2D, Some(gl.tex));
+        if let Some((data, (ow, oh))) = &overlay {
+            ctx.pixel_store_i32(glow::UNPACK_ALIGNMENT, 1);
+            ctx.tex_image_2d(glow::TEXTURE_2D, 0, glow::RGBA8 as i32, *ow, *oh, 0, glow::RGBA, glow::UNSIGNED_BYTE, glow::PixelUnpackData::Slice(Some(data)));
+        }
+        if has_overlay {
+            ctx.enable(glow::BLEND);
+            ctx.blend_func(glow::ONE, glow::ONE_MINUS_SRC_ALPHA);
+            ctx.use_program(Some(gl.blit));
+            ctx.uniform_1_i32(ctx.get_uniform_location(gl.blit, "u_tex").as_ref(), 0);
+            ctx.draw_arrays(glow::TRIANGLES, 0, 3);
+        }
+        for (x, y, f) in readback {
+            let mut px = [0u8; 4];
+            ctx.read_pixels(x, y, 1, 1, glow::RGBA, glow::UNSIGNED_BYTE, glow::PixelPackData::Slice(Some(&mut px)));
+            out.push((f, px));
+        }
+    }
+    if let Some((data, _)) = overlay {
+        s.overlay = data; // keep the allocation
+    }
+    s.frames += 1;
+    s.last_draw_ms = t0.elapsed().as_secs_f32() * 1000.0;
+    drop(s);
+    for (f, px) in out {
+        f(px);
+    }
+}

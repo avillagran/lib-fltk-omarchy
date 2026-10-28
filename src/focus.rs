@@ -144,12 +144,38 @@ fn route_key(win: app::WindowPtr) -> Option<bool> {
     Some(!win.is_null() && unsafe { app::handle_raw(Event::Shortcut, win) })
 }
 
+thread_local! {
+    static CONTROL_GROUPS: RefCell<Vec<Widget>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Marks a group that is one control (its children are an implementation
+/// detail, e.g. `gfx::View` and its GL layer): Tab stops at the group.
+pub fn control_group<W: WidgetExt>(g: &W) {
+    // SAFETY: `g` is a live widget; the copy only tracks its deletion.
+    let w = unsafe { Widget::from_widget_ptr(g.as_widget_ptr()) };
+    CONTROL_GROUPS.with(|c| {
+        let mut c = c.borrow_mut();
+        c.retain(|x| !x.was_deleted());
+        c.push(w);
+    });
+}
+
+fn is_control_group(w: &Widget) -> bool {
+    CONTROL_GROUPS.with(|c| c.borrow().iter().any(|x| !x.was_deleted() && x.as_widget_ptr() == w.as_widget_ptr()))
+}
+
 /// Focusable candidates of `window` in traversal order.
 pub fn chain<W: WidgetExt>(window: &W) -> Vec<Widget> {
     fn walk(g: &fltk::group::Group, out: &mut Vec<Widget>) {
         for i in 0..g.children() {
             let Some(c) = g.child(i) else { continue };
             if !c.visible() || !c.active() {
+                continue;
+            }
+            if is_control_group(&c) {
+                if c.has_visible_focus() {
+                    out.push(c);
+                }
                 continue;
             }
             if let Some(sub) = c.as_group() {

@@ -456,7 +456,7 @@ fn main() {
         body.fit(&*card);
         // A slow shader on a small area budget: renders at lower resolution, in several draws.
         let slow = View::new(360, 120)
-            .shader(|x: f32, y: f32, u: &gfx::Uniforms| { let mut v = 0.0f32; for i in 0..300 { v += ((x + y + i as f32) * 0.01).sin(); } u.accent.mix(u.background, (v * 0.0).abs()) })
+            .cpu_shader(|x: f32, y: f32, u: &gfx::Uniforms| { let mut v = 0.0f32; for i in 0..300 { v += ((x + y + i as f32) * 0.01).sin(); } u.accent.mix(u.background, (v * 0.0).abs()) })
             .max_area(20_000)
             .budget_ms(1.0);
         body.fit(&*slow);
@@ -607,6 +607,46 @@ fn main() {
         let x_now = knob_x(&shot("sw-4-off.png")?)?;
         fltk_omarchy::anim::set_enabled(true);
         check(x_now == x_off && fltk_omarchy::anim::pending() == 0, &format!("disabled: jumps to {x_now}"))
+    });
+    run("portable shaders: same pixels as sl eval, backend choice, display rate on the CPU", &|shots| {
+        let sh = gfx::shaders::gradient();
+        let mut win = AppWindow::new("t", 400, 260);
+        let mut body = win.body();
+        let v = View::new(300, 150).shader(sh.clone());
+        v.set_time(Some(0.7));
+        body.fit(&*v);
+        win.end();
+        let p = shots.join("sl-view.png");
+        win.snapshot(&p).map_err(|e| e.to_string())?;
+        let mut u = gfx::Uniforms::from_theme(&theme::current(), (v.w() as f32, v.h() as f32));
+        u.time = 0.7;
+        for (x, y) in [(10, 10), (150, 75), (290, 140)] {
+            let want = sh.eval(x as f32 + 0.5, y as f32 + 0.5, &u).to_u8();
+            let got = pixel(&p, v.x() + x, v.y() + y)?;
+            check((0..3).all(|i| (want[i] as i32 - got[i] as i32).abs() <= 2), &format!("({x},{y}) view {got:?} vs eval {want:?}"))?;
+        }
+        // Backend: without the gpu feature the View stays on the CPU and says why.
+        let anim = View::new(60, 40).shader(gfx::shaders::rings()).animate(gfx::Rate::Display);
+        let fixed = View::new(60, 40).shader(gfx::shaders::rings()).animate(50);
+        let mut w2 = AppWindow::new("t", 200, 120);
+        w2.add(&*anim);
+        w2.add(&*fixed);
+        w2.end();
+        pump_until(|| anim.stats().target_fps > 0.0 && fixed.stats().target_fps > 0.0);
+        check(anim.active_backend() == gfx::Backend::Cpu, "CPU backend")?;
+        if !cfg!(feature = "gpu") {
+            check(anim.backend_reason().contains("gpu"), &format!("reason: {:?}", anim.backend_reason()))?;
+        }
+        // No Hyprland in tests: display rate falls back to 60 Hz, capped at 30 on the CPU.
+        check(anim.stats().target_fps == 30.0 && fixed.stats().target_fps == 50.0, &format!("fps {} / {}", anim.stats().target_fps, fixed.stats().target_fps))?;
+        gfx::set_cpu_fps_cap(24);
+        let t0 = Instant::now();
+        while t0.elapsed() < Duration::from_millis(700) { App::pump(); std::thread::sleep(Duration::from_millis(10)); }
+        let capped = anim.stats().target_fps;
+        gfx::set_cpu_fps_cap(30);
+        check(capped == 24.0, &format!("cap applies: {capped}"))?;
+        let forced = View::new(10, 10).shader(gfx::shaders::rings()).backend(gfx::Backend::Cpu);
+        check(forced.active_backend() == gfx::Backend::Cpu, "forced CPU")
     });
     run("keyboard only: Tab order, arrows, shortcuts, focus comes back", &|shots| {
         let mut win = AppWindow::new("t", 560, 420);
