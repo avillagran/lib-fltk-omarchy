@@ -1,11 +1,11 @@
-# Capability matrix vs typical QML apps (0.0.1)
+# Capability matrix vs typical QML apps (0.0.2)
 
 **Implemented** = in the code and covered by `tests/ui.rs`, unit tests or the
 real-window scenario. **Partial** = usable with the stated gaps.
 **Planned** = intended, not in the code. **Unsupported** = not available.
 lib-fltk-omarchy does not claim QML equivalence.
 
-| Area | QML typical | lib-fltk-omarchy 0.0.1 | Status |
+| Area | QML typical | lib-fltk-omarchy 0.0.2 | Status |
 |---|---|---|---|
 | Omarchy look | omarchy-shell `Ui/` kit | Button, ActionButton, ButtonGroup, TextField, NumberField, ToggleSwitch, Toggle, Slider, Hero, section header, Separator, Row, Dropdown, Menu, ConfirmDialog, notification cards, tooltips — same tokens as `Style.qml`/`Color.qml` plus SearchableDropdown, PopupMenu (header/context menus), TabBar, ShortcutHelp, OperationToast | Partial: MultiSelect, PopupCard anchored to a bar, KeyboardPanel cursor model are planned |
 | Theme | — | colors.toml + shell.toml (theme + user override), Hyprland rounding/gaps, `monospace` font via fontconfig, live reload via inotify | Implemented (tested with a fake state dir and in a real window) |
@@ -13,7 +13,7 @@ lib-fltk-omarchy does not claim QML equivalence.
 | Reactive state | property bindings | `State<T>`, `map`, `combine`, `watch`/`subscribe`, bound components, two-way inputs | Implemented |
 | Controls | Qt Quick Controls | the Omarchy set above plus every fltk-rs widget | Partial: no date/color pickers, no rich text |
 | Virtualized lists | ListView/TableView | `List` (count + row closure, selection, keyboard, wheel, thumb) | Partial: single column + detail; tables/trees via fltk-rs `Table`/`Tree` without Omarchy styling yet |
-| Keyboard / focus | focus chain, Shortcut | fltk focus navigation, `AppWindow::shortcut("Ctrl+Q")`, `Button::shortcut`, Omarchy keys in Menu/Dropdown/List/Dialog | Partial: native key delivery not exercised with a real input device in tests (programmatic) |
+| Keyboard / focus | focus chain, Shortcut | keyboard-first router: Tab order over the whole window, arrows only inside the focused control (`focus::scope` for groups), focus returns after menus/dialogs, every component keyboard-usable, focus ring only in keyboard mode, `AppWindow::shortcut`, `Button::shortcut`, `focus::press` for tests ([KEYBOARD.md](KEYBOARD.md)) | Implemented (driven key by key in `tests/ui.rs`); key delivery from a physical keyboard through the compositor not validated |
 | Accessibility | AT-SPI | — | Unsupported (FLTK has no AT-SPI bridge) |
 | Menus / dialogs | Menu, Dialog | Omarchy Menu (filter, fold), ConfirmDialog, Dropdown popup; fltk-rs `dialog` and native file chooser | Implemented / Partial (file chooser not themed) |
 | Drawing | Canvas/Shape | fltk-rs `draw` + `paint::{surface, control, alpha_fill, text, glyph}` | Implemented |

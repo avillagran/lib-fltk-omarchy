@@ -1,4 +1,4 @@
-# Performance: lib-fltk-omarchy vs QML (0.0.1)
+# Performance: lib-fltk-omarchy vs QML (0.0.1–0.0.2)
 
 Measured 2026-10-27 on Asahi Linux (Apple M2, aarch64), Hyprland 0.56.2,
 Qt 6 `qml6`, release build of this crate (`opt-level = "s"`, thin LTO,
@@ -60,6 +60,25 @@ first frame 2.4–3.8× sooner.
 Session 1, app workload: 4.5× less memory than QML software, 7.8× less
 than QML GPU; first frame 2–2.7× sooner. Binary size
 of the release `bench_app`: 1.26 MB (FLTK statically linked).
+
+## Session 3 — 2026-10-28, 0.0.2 (keyboard router, widget-owned bindings)
+
+Same script and machine, 5 runs each, under load (load average 4.4).
+
+| Case | Startup (median) | PSS median | PSS max | Idle CPU 3 s |
+|---|---|---|---|---|
+| lib-fltk-omarchy minimal | 69 ms | 14.9 MB | 14.9 MB | 0.00 s |
+| QML software minimal | 104 ms | 46.2 MB | 46.3 MB | 0.00 s |
+| QML GPU minimal | 169 ms | 93.3 MB | 94.0 MB | 0.00 s |
+| lib-fltk-omarchy app | 70 ms | 15.0 MB | 15.0 MB | 0.00 s |
+| QML software app | 127 ms | 59.5 MB | 59.8 MB | 0.00 s |
+| QML GPU app | 175 ms | 106.9 MB | 108.4 MB | 0.00 s |
+
+Two more batches of 5 runs of the lib app, right after: startup medians
+61 ms and 47 ms (single runs 40–78 ms), and PSS 15.0 MB in every run. The
+startup spread follows the machine load. PSS is in the range of the
+earlier sessions, and QML moved by more between sessions. The keyboard
+router adds no measurable cost.
 
 ## Window size matters
 

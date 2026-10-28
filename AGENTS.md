@@ -31,8 +31,18 @@ classic Omarchy look. Import as `fltk_omarchy`.
 9. Preferences and Actions are separate menus: a gear (`Ctrl+,`) and a
    bolt (`F10`) header action, each opening a `PopupMenu`. Offer
    `theme::set_corners(..)` in Preferences; use `badge_radius()` for thumbnails.
-10. Verify visually: `win.snapshot("shot.png")` renders offscreen without
-   showing a window; look at the PNG.
+10. Keyboard first: every component is usable from the keyboard already
+   (Tab/Shift+Tab between controls, arrows inside the focused one, Enter or
+   Space to activate, Esc closes menus and dialogs and focus comes back).
+   Do not write your own Tab handling. For your own group of controls use
+   `focus::scope(&group, |key| ..)`. A custom widget must accept
+   `Event::Focus` and draw its ring when `focus::show_ring(w)`. Give every
+   action a shortcut (`Button::shortcut`, `AppWindow::shortcut`) and list
+   them in the F1 `ShortcutHelp`.
+11. Verify visually: `win.snapshot("shot.png")` renders offscreen without
+   showing a window; look at the PNG. Verify keys with
+   `focus::press("Tab")`, `press("Down")`, `press("Enter")`… (same path as
+   a real key).
 
 ## Minimal app
 
@@ -63,6 +73,9 @@ fn main() {
   (main-thread UI checks with pixel assertions, fake Omarchy state dir).
 - `cargo run --example gallery` / `overlays` show every component;
   `-- --snapshot <path|dir>` writes PNGs instead.
+  `cargo run --example docs_shots -- docs/components` re-renders the
+  pictures of docs/COMPONENTS.md; keep each snippet in that file equal to
+  the code that draws it.
 - `script/real-window` and `script/bench` open real windows on a hidden
   Hyprland special workspace without taking focus. Do not use synthetic
   input tools on the user's focused window.
