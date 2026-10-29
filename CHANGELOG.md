@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.0.10 — 2026-10-28
+
+For Files (issue #8):
+- **Extended theme colors.** `Palette::darker_background`,
+  `lighter_background` and `bright_foreground` come from `colors.toml`,
+  validated with the rest of the theme. Defaults apply when a key is
+  absent: darker is black over the background at 45 % (dark) / 10 %
+  (light); lighter is white at 8 % (dark) / black at 5 % (light); bright
+  is the foreground. A failed reload keeps the whole last valid palette.
+  The three names also work as `shell.toml` roles. Documented in
+  docs/COMPONENTS.md ("Theme colors for custom painting").
+- `Palette` has three new public fields. Code that builds a `Palette`
+  with a struct literal must set them; reading the palette is unchanged.
+
 ## 0.0.9 — 2026-10-28
 
 For Files (issue #7):

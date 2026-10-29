@@ -1,14 +1,14 @@
-# Capability matrix vs typical QML apps (0.0.9)
+# Capability matrix vs typical QML apps (0.0.10)
 
 **Implemented** = in the code and covered by `tests/ui.rs`, unit tests or the
 real-window scenario. **Partial** = usable with the stated gaps.
 **Planned** = intended, not in the code. **Unsupported** = not available.
 lib-fltk-omarchy does not claim QML equivalence.
 
-| Area | QML typical | lib-fltk-omarchy 0.0.9 | Status |
+| Area | QML typical | lib-fltk-omarchy 0.0.10 | Status |
 |---|---|---|---|
 | Omarchy look | omarchy-shell `Ui/` kit | Button, ActionButton, ButtonGroup, TextField, NumberField, ToggleSwitch, Toggle, Slider, Hero, section header, Separator, Row, Dropdown, Menu, ConfirmDialog, notification cards, tooltips — same tokens as `Style.qml`/`Color.qml` plus SearchableDropdown, PopupMenu (header/context menus, clamped and scrolling, dismissal handle), TabBar, ShortcutHelp, OperationToast | Implemented: plus PopupCard, virtual Table and Tree, overflowing TabBar, localized/indeterminate OperationToast |
-| Theme | — | colors.toml + shell.toml (theme + user override), Hyprland rounding/gaps, `monospace` font via fontconfig, live reload via inotify; strict validation on reload keeps the last valid theme (`theme::last_error`) | Implemented (tested with a fake state dir and in a real window) |
+| Theme | — | colors.toml + shell.toml (theme + user override), Hyprland rounding/gaps, `monospace` font via fontconfig, live reload via inotify; strict validation on reload keeps the last valid theme (`theme::last_error`); extended colors `darker_background` / `lighter_background` / `bright_foreground` with defaults | Implemented (tested with a fake state dir and in a real window) |
 | Layouts | Row/Column/Grid/anchors | fltk-rs `Flex`/`Group`/`Grid` + `layout::{column,row,section,fit,close_fitted}` with Omarchy spacing | Implemented (anchors: use fltk positioning) |
 | Reactive state | property bindings | `State<T>`, `map`, `combine`, `watch`/`subscribe`, bound components, two-way inputs | Implemented |
 | Controls | Qt Quick Controls | the Omarchy set above plus every fltk-rs widget | Partial: no date/color pickers, no rich text |

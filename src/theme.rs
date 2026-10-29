@@ -80,6 +80,17 @@ pub struct Palette {
     pub blue: Rgb,
     pub cyan: Rgb,
     pub magenta: Rgb,
+    /// `colors.toml` `darker_background`: a surface below the background
+    /// (sidebars, wells). Default: black over `background` at 45 % (dark
+    /// themes) or 10 % (light themes).
+    pub darker_background: Rgb,
+    /// `colors.toml` `lighter_background`: a raised surface (cards, the
+    /// hovered row). Default: white over `background` at 8 % (dark themes);
+    /// black at 5 % in light themes, as Omarchy's light themes do.
+    pub lighter_background: Rgb,
+    /// `colors.toml` `bright_foreground`: emphasized text. Default:
+    /// `foreground`.
+    pub bright_foreground: Rgb,
     pub light: bool,
 }
 
@@ -423,6 +434,11 @@ impl Theme {
             blue: col("blue").unwrap_or(accent),
             cyan: col("cyan").unwrap_or(foreground),
             magenta: col("magenta").unwrap_or(accent),
+            darker_background: col("darker_background")
+                .unwrap_or_else(|| Rgb(0x000000).over(background, if light { 0.10 } else { 0.45 })),
+            lighter_background: col("lighter_background")
+                .unwrap_or_else(|| if light { Rgb(0x000000).over(background, 0.05) } else { Rgb(0xffffff).over(background, 0.08) }),
+            bright_foreground: col("bright_foreground").unwrap_or(foreground),
             light,
         };
 
@@ -615,6 +631,9 @@ fn role_or_hex(s: &str, p: &Palette) -> Option<Rgb> {
         "accent" => Some(p.accent),
         "urgent" => Some(p.urgent),
         "background" => Some(p.background),
+        "darker_background" => Some(p.darker_background),
+        "lighter_background" => Some(p.lighter_background),
+        "bright_foreground" => Some(p.bright_foreground),
         _ => Rgb::parse(s),
     }
 }
@@ -789,6 +808,24 @@ mod tests {
         assert_eq!(t.controls.selected.border_width, 0);
         assert_eq!((t.font.body, t.font.title, t.font.heading, t.font.display), (12, 14, 16, 24));
         assert_eq!((t.spacing.control_height, t.spacing.panel_padding), (28, 18));
+    }
+
+    #[test]
+    fn extended_background_and_foreground_tokens() {
+        // From colors.toml, exactly (catppuccin values).
+        let file = format!("{COLORS}darker_background = \"#101019\"\nlighter_background = \"#313244\"\nbright_foreground = \"#cdd6f4\"\n");
+        let p = Theme::from_tables("x", &toml::parse(&file), &Table::new(), 0, 5).palette;
+        assert_eq!((p.darker_background, p.lighter_background, p.bright_foreground), (Rgb(0x101019), Rgb(0x313244), Rgb(0xcdd6f4)));
+        // Absent, dark theme (#121212): black 45 %, white 8 %, foreground.
+        let p = Theme::from_tables("x", &toml::parse(COLORS), &Table::new(), 0, 5).palette;
+        assert_eq!((p.darker_background, p.lighter_background, p.bright_foreground), (Rgb(0x0a0a0a), Rgb(0x252525), Rgb(0xbebebe)));
+        // Absent, light theme (#f0f0f0): black 10 % and 5 %.
+        let p = Theme::from_tables("x", &toml::parse("background = \"#f0f0f0\"\nforeground = \"#202020\"\n"), &Table::new(), 0, 5).palette;
+        assert_eq!((p.darker_background, p.lighter_background, p.bright_foreground), (Rgb(0xd8d8d8), Rgb(0xe4e4e4), Rgb(0x202020)));
+        // Usable as roles in shell.toml.
+        let shell = toml::parse("[menu]\nbackground = \"lighter_background\"\nborder = \"bright_foreground\"\n");
+        let t = Theme::from_tables("x", &toml::parse(&file), &shell, 0, 5);
+        assert_eq!((t.menu.background, t.menu.border), (Rgb(0x313244), Rgb(0xcdd6f4)));
     }
 
     #[test]

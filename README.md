@@ -4,7 +4,7 @@ Omarchy toolkit for [fltk-rs](https://github.com/fltk-rs/fltk-rs): the
 classic Omarchy components (the omarchy-shell `Ui/` kit) ready to use, with
 the live Omarchy theme, Hyprland window modes and small app helpers
 (reactive state, cancellable background tasks, virtual lists, offscreen
-snapshots). Import as `fltk_omarchy`. License MIT. Version 0.0.9, not on
+snapshots). Import as `fltk_omarchy`. License MIT. Version 0.0.10, not on
 crates.io (use the git dependency below).
 
 **Keyboard first**: every app built with it can be used without a mouse,
@@ -38,7 +38,9 @@ limit and a time budget per draw. Pictures, API and measured cost:
 - **Theme**: reads `~/.local/state/omarchy/current/theme/{colors,shell}.toml`
   and `~/.config/omarchy/shell.toml` with the same keys and defaults as
   omarchy-shell, Hyprland rounding/gaps, the `monospace` font; follows
-  `omarchy-theme-set` live.
+  `omarchy-theme-set` live. Every `colors.toml` color, including
+  `darker_background`, `lighter_background` and `bright_foreground`, comes
+  from one validated load ([theme colors](docs/COMPONENTS.md#theme-colors-for-custom-painting)).
 - **Components**: [docs/COMPONENTS.md](docs/COMPONENTS.md) (pictures,
   code, keys). **Keyboard**: [docs/KEYBOARD.md](docs/KEYBOARD.md).
 - **Capabilities vs QML**: [docs/CAPABILITIES.md](docs/CAPABILITIES.md).
@@ -64,7 +66,7 @@ Use it from another crate (same fltk pin and features as this crate):
 ```toml
 [dependencies]
 fltk = { version = "=1.5.23", features = ["use-wayland", "no-images"] }
-lib-fltk-omarchy = { git = "https://github.com/avillagran/lib-fltk-omarchy", tag = "v0.0.9" }
+lib-fltk-omarchy = { git = "https://github.com/avillagran/lib-fltk-omarchy", tag = "v0.0.10" }
 ```
 
 Requires the build dependencies of fltk-sys (cmake, a C++ compiler,

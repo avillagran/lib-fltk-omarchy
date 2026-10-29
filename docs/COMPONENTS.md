@@ -1,4 +1,4 @@
-# Components (0.0.9)
+# Components (0.0.10)
 
 Every component is a classic Omarchy control (the omarchy-shell `Ui/`
 kit) drawn with the live theme: colors, fonts, spacing and corner radius
@@ -582,3 +582,34 @@ another preference: `theme::set_focus_ring(FocusRing::Accent | Theme)`.
 
 Glyphs: `widgets::glyph::*` (chevron, refresh, settings, wifi, bluetooth,
 volume, headphones, monitor, plus, play, stop, trash, search, folder, file…).
+
+## Theme colors for custom painting
+
+`theme::current().palette`, or the `&Theme` given to `theme::on_change`,
+holds every `colors.toml` color of one validated load:
+
+| Field | `colors.toml` key | Default when the key is absent |
+|---|---|---|
+| `background`, `foreground` | same | required (a theme without them is rejected) |
+| `accent` | `accent` | `color4` |
+| `darker_background` | `darker_background` | black over `background`: 45 % (dark themes), 10 % (light) |
+| `lighter_background` | `lighter_background` | white over `background` at 8 % (dark); black at 5 % (light), as Omarchy's light themes do |
+| `bright_foreground` | `bright_foreground` | `foreground` |
+| `selection`, `muted`, `red` … `magenta` | same | see `theme.rs` |
+
+Omarchy's stock themes all define the three extended keys. In `shell.toml`,
+they can also be used as role names (`background = "lighter_background"`).
+
+Each palette comes from one theme. A reload that fails validation (a file
+cut mid-write, a value such as `"#2020"`, malformed TOML) keeps the whole
+last valid palette, and `theme::last_error()` says why. Never mix it with
+values read from the file by hand.
+
+```rust
+theme::on_change(|t| {
+    let p = &t.palette;
+    sidebar_fill.set(p.darker_background);   // all from the same theme
+    card_fill.set(p.lighter_background);
+    title_color.set(p.bright_foreground);
+});
+```

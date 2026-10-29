@@ -1,4 +1,4 @@
-# Keyboard first (0.0.9)
+# Keyboard first (0.0.10)
 
 Every lib-fltk-omarchy app can be used without a mouse, without writing any
 keyboard code. `App::new` installs one keyboard router (`focus::install`)

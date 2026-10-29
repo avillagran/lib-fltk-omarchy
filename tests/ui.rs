@@ -1260,6 +1260,35 @@ fn main() {
         check(theme::current().font.base == 12, "override removed")?;
         std::fs::write(&colors_path(&state), COLORS_A).unwrap();
         theme::reload();
+        // Issue #8: extended colors switch with the theme, all from the same
+        // validated load, and a malformed reload keeps the last valid set.
+        let ext = |bg: &str, d: &str, l: &str, b: &str| format!(
+            "accent = \"#e68e0d\"\nbackground = \"{bg}\"\nforeground = \"#bebebe\"\ndarker_background = \"{d}\"\nlighter_background = \"{l}\"\nbright_foreground = \"{b}\"\n");
+        let set = || { let p = theme::current().palette; (p.background, p.darker_background, p.lighter_background, p.bright_foreground) };
+        let seen = Rc::new(RefCell::new(Vec::new()));
+        let s2 = seen.clone();
+        theme::on_change(move |t| { let p = &t.palette; s2.borrow_mut().push((p.background, p.darker_background, p.lighter_background, p.bright_foreground)); });
+        let x = (theme::Rgb(0x101010), theme::Rgb(0x050505), theme::Rgb(0x202020), theme::Rgb(0xf0f0f0));
+        let y = (theme::Rgb(0xfafafa), theme::Rgb(0xdedede), theme::Rgb(0xf5f5f5), theme::Rgb(0x000000));
+        std::fs::write(colors_path(&state), ext("#101010", "#050505", "#202020", "#f0f0f0")).unwrap();
+        check(theme::reload() && set() == x, &format!("theme X: {:?}", set()))?;
+        std::fs::write(colors_path(&state), ext("#fafafa", "#dedede", "#f5f5f5", "#000000")).unwrap();
+        check(theme::reload() && set() == y, &format!("theme Y: {:?}", set()))?;
+        // Malformed: new values for all three, one of them cut mid-write.
+        std::fs::write(colors_path(&state), ext("#101010", "#050505", "#2020", "#f0f0f0")).unwrap();
+        check(!theme::reload() && matches!(theme::last_error(), Some(theme::ThemeError::BadColor { ref key, .. }) if key == "lighter_background"),
+              &format!("cut lighter_background is rejected: {:?}", theme::last_error()))?;
+        check(set() == y, &format!("all three stay on theme Y, with its background: {:?}", set()))?;
+        // Malformed TOML (file cut after darker_background).
+        std::fs::write(colors_path(&state), "background = \"#101010\"\nforeground = \"#bebebe\"\ndarker_background = \"#0505").unwrap();
+        check(!theme::reload() && set() == y, "truncated file: still theme Y")?;
+        // Absent keys: documented defaults, still one coherent theme.
+        std::fs::write(colors_path(&state), "background = \"#121212\"\nforeground = \"#bebebe\"\n").unwrap();
+        check(theme::reload() && set() == (theme::Rgb(0x121212), theme::Rgb(0x0a0a0a), theme::Rgb(0x252525), theme::Rgb(0xbebebe)), &format!("defaults: {:?}", set()))?;
+        check(*seen.borrow() == vec![x, y, (theme::Rgb(0x121212), theme::Rgb(0x0a0a0a), theme::Rgb(0x252525), theme::Rgb(0xbebebe))],
+              &format!("listeners saw exactly the valid themes, whole: {:?}", seen.borrow()))?;
+        std::fs::write(colors_path(&state), COLORS_A).unwrap();
+        theme::reload();
         // No Omarchy at all: the built-in fallback still loads.
         std::env::set_var("OMARCHY_FLTK_STATE_DIR", state.join("does-not-exist"));
         let fallback = theme::Theme::try_load();
