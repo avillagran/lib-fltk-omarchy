@@ -36,6 +36,7 @@ jobs:
           for t in x86_64-pc-windows-msvc aarch64-apple-darwin x86_64-apple-darwin; do
             cargo check --locked --target "$t" --all-targets
             cargo check --locked --target "$t" --all-targets --features gpu
+            cargo check --locked --target "$t" --all-targets --features a11y
             cargo clippy --locked --target "$t" --all-targets -- -D clippy::correctness -D clippy::suspicious
           done
 
@@ -69,6 +70,8 @@ jobs:
         run: |
           cargo build --locked --all-targets --features gpu
           env -u WAYLAND_DISPLAY xvfb-run -a -s "-screen 0 1280x800x24" cargo test --locked --features gpu
+      - name: a11y feature (AccessKit; tree checks without a bus)
+        run: env -u WAYLAND_DISPLAY xvfb-run -a -s "-screen 0 1280x800x24" cargo test --locked --features a11y
 
   linux-wayland:
     name: Linux Wayland (headless Weston)
@@ -112,6 +115,8 @@ jobs:
         run: cargo test --locked
       - name: gpu feature
         run: cargo build --locked --all-targets --features gpu
+      - name: a11y feature
+        run: cargo build --locked --all-targets --features a11y
       - name: platform report
         run: cargo run --locked --release --example platform_check -- build-platform.json 2
 
@@ -132,5 +137,7 @@ jobs:
         run: cargo test --locked
       - name: gpu feature
         run: cargo build --locked --all-targets --features gpu
+      - name: a11y feature
+        run: cargo build --locked --all-targets --features a11y
       - name: platform report
         run: cargo run --locked --release --example platform_check -- build-platform.json 2
