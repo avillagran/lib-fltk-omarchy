@@ -847,6 +847,12 @@ fn apply_to_fltk(t: &Theme) {
     Font::set_font(Font::HelveticaBold, &bold);
     Font::set_font(Font::Courier, &regular);
     Font::set_font(Font::CourierBold, &bold);
+    // Italics for rich text (`text`), same family.
+    let (italic, bold_italic) = crate::platform::fonts::italic_faces(&t.font_family);
+    Font::set_font(Font::HelveticaItalic, &italic);
+    Font::set_font(Font::HelveticaBoldItalic, &bold_italic);
+    Font::set_font(Font::CourierItalic, &italic);
+    Font::set_font(Font::CourierBoldItalic, &bold_italic);
     app::set_font_size(t.font.body);
 }
 

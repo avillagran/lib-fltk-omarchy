@@ -27,6 +27,16 @@ pub fn faces(family: &str) -> (String, String) {
     }
 }
 
+/// FLTK face names (italic, bold italic) for `family`, same backends as
+/// [`faces`] (Windows: FLTK's `I`/`P` style prefixes).
+pub fn italic_faces(family: &str) -> (String, String) {
+    match OS {
+        Os::MacOs if family == "Menlo" => ("Menlo-Italic".into(), "Menlo-BoldItalic".into()),
+        Os::Windows => (format!("I{family}"), format!("P{family}")),
+        _ => (format!("{family} Italic"), format!("{family} Bold Italic")),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

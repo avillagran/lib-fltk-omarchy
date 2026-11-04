@@ -76,6 +76,14 @@ classic Omarchy look. Import as `fltk_omarchy`.
    `CARGO_CHECK=1 cargo check --target x86_64-pc-windows-msvc --all-targets`
    (and `aarch64-apple-darwin`). Guide: docs/PLATFORMS.md. (Exception:
    Linux-only diagnostic examples such as `glass_check` gate their own FFI.)
+15. Chat, Markdown and any long or streamed text → `text::RichText`, never
+   a widget per message or a rebuilt label. `append_markdown(md)` adds a
+   message, `push_markdown(more)` streams into the last one (O(tail)),
+   `.stick_to_bottom(true)` follows the end, `view.sender()` streams from a
+   worker thread (`Send`, at most 60 updates/s). Blocks built in code use
+   `text::Block` + `text::Style` with `ColorRole`s, never hex. One line of
+   inline Markdown (headers, rows, toasts) → `text::RichLabel`. Tests find
+   words with `view.text_rect("word")`.
 
 ## Minimal app
 

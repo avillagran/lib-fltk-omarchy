@@ -218,6 +218,57 @@ Only the visible rows are built: 1 000 000 rows cost the same per frame as
 20. **Keys:** Up/Down or j/k move the cursor row; PageUp/PageDown, Home/End;
 Enter opens (`on_activate`).
 
+## RichText and RichLabel (Markdown, chat streaming)
+
+![rich text](components/rich-text.png)
+
+```rust
+use fltk_omarchy::text::{RichLabel, RichText};
+col.fit(&*RichLabel::new("Agent reply, **streaming** — see [the docs](https://example.com)"));
+let chat = RichText::new().stick_to_bottom(true).on_link(|url| println!("open {url}"));
+col.fit(&*chat);
+col.fixed(&*chat, 330);
+chat.append_markdown("Use `push_markdown` to **stream** tokens into the *last* message:\n\n\
+    - [x] only the open tail is parsed again\n- [ ] the view sticks to the bottom\n\n\
+    ```rust\nchat.push_markdown(\"more tokens…\"); // O(tail)\n```\n\n\
+    | Messages | Blocks laid out |\n|---|--:|\n| 5 000 | ~40 |\n\n> Links: https://example.com");
+chat.push_markdown(" and [docs](https://example.com/docs).");
+```
+
+`RichText` shows Markdown (CommonMark + GFM tables, task lists,
+strikethrough, autolinks, alerts) or blocks built in code
+(`text::Block`, `text::Style` with theme `ColorRole`s, never hex). It is
+made for chat transcripts: `append_markdown(md)` adds a message,
+`push_markdown(more)` streams into the last one (only its open tail is
+parsed again; blocks that did not change keep their layout; the growing
+block keeps its lines before the change), `stick_to_bottom(true)` follows
+the end until the user scrolls up. Only the blocks in view are laid out
+and drawn; 5 000 messages cost the same per frame as 5. From a worker
+thread use `chat.sender()` (`Send`; at most one update per frame). Also:
+`set_markdown`, `bind_markdown(&State<String>)`, `append_block(s)`,
+`set_document`, `clear`, `finish`, `plain_text()` and `block_ranges()`
+(for accessibility and search), `selected_text()`, `select_all()`,
+`text_rect(needle)`, `markdown_options(MarkdownOptions::plain())` to turn
+off code highlighting (diffs, comments, strings, numbers, keywords).
+Code blocks have a copy button. A theme change re-colors without parsing
+or laying out again.
+
+`RichLabel` is one paragraph of inline Markdown at its natural size, for
+headers, rows and toasts; with links it is a Tab stop.
+
+**Keys:** Up/Down, PageUp/PageDown, Home/End scroll (End follows the
+stream again); Tab and Shift+Tab go through the links and code copy
+buttons in view, then on to the next control; Enter or Space opens the
+link (`on_link`) or copies the code; Ctrl+A selects all, Ctrl+C copies
+(Cmd on macOS); Esc clears the selection. Mouse: drag selects across
+blocks, double click a word, triple click a block; the pointer is a hand
+over links.
+
+**Limits:** no bidi reordering (each fragment is shaped by FLTK/Pango, so
+Arabic reads right to left inside it, but lines fill left to right and
+selection measures left to right); long code lines wrap (no horizontal
+scrolling); images show as their alt text with the link.
+
 ## PopupMenu (Preferences / Actions / context menus)
 
 ![popup menu](components/popup-menu.png)
@@ -561,6 +612,7 @@ with an area limit and a time budget, and shape hit-testing: all in
 | tabs | `widgets::TabBar` | `new(&labels, &State<usize>)`, `.on_close()`, `set_tabs`, `request_close` |
 | Dropdown | `overlay::Dropdown` | `new(label, &options, &State<usize>)`, `open()`, `set_options` |
 | SearchableDropdown | `popups::SearchableDropdown` | `new(placeholder, vec![(label, description)], &State<Option<usize>>)`, `open()`, `filter()` |
+| rich text / Markdown | `text::RichText`, `text::RichLabel` | `RichText::new()`, `.stick_to_bottom()`, `.on_link()`, `append_markdown`, `push_markdown`, `sender()`, `bind_markdown`, `append_block`, `plain_text`, `selected_text`; `RichLabel::new(md)`, `.on_link()`, `.bind()`; `Document::from_markdown`, `MarkdownStream::push` |
 | list | `list::List` | `new(&State<usize>, \|i\| ListRow)`, `.bind_selected()`, `.on_select()`, `.on_activate()`, `select(i)` |
 | header / context menus | `popups::PopupMenu` | `open(&anchor, items, f)` / `open_at(&win, x, y, items, f)` → `PopupHandle` (`.on_dismiss()`, `.close()`, `.is_open()`, `.rect()`) |
 | popup card | `popups::PopupCard` | `open(&anchor, w, h, \|col\| ..)` / `open_at(..)` → `PopupHandle` |

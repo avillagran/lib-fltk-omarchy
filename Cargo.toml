@@ -18,6 +18,10 @@ name = "fltk_omarchy"
 [dependencies]
 fltk = { version = "=1.5.23", features = ["no-images"] }
 serde_json = "1"
+# Markdown for `text` (MIT). No default features: no HTML writer, no CLI.
+pulldown-cmark = { version = "=0.13.6", default-features = false }
+# Grapheme clusters for line breaking and selection (MIT OR Apache-2.0).
+unicode-segmentation = "=1.13.3"
 # Only with the `gpu` feature (MIT OR Apache-2.0 OR Zlib).
 glow = { version = "0.16", optional = true }
 

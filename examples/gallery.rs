@@ -5,6 +5,7 @@
 //!   cargo run --example gallery -- --locale ar --snapshot build/shots/gallery-ar.png
 use fltk_omarchy::layout::{self, FlexExt};
 use fltk_omarchy::popups::{PopupItem, PopupMenu};
+use fltk_omarchy::text::RichText;
 use fltk_omarchy::widgets::{glyph, *};
 use fltk_omarchy::{i18n, trn, App, AppWindow, State};
 use std::cell::Cell;
@@ -18,7 +19,7 @@ fn main() {
         i18n::set_locale(l);
     }
 
-    let mut win = AppWindow::new("Omarchy components", 560, 790);
+    let mut win = AppWindow::new("Omarchy components", 560, 820);
     let mut body = win.body();
     // Strings from the toolkit catalog follow the language live; the
     // gallery's own labels have no catalog and stay in English.
@@ -102,6 +103,13 @@ fn main() {
     let l4 = languages.clone();
     r.fit(&*Button::new("").bordered().bind_text(&i18n::text("Preferences")).on_click(move || l4()));
     r.close_fitted();
+
+    let mut sec = layout::section();
+    sec.fit(&*Label::section("Rich text"));
+    let rt = RichText::new().padding(0).on_link(|url| println!("open {url}"));
+    sec.fit(&*rt);
+    sec.fixed(&*rt, 130);
+    rt.set_markdown("**Markdown** with `code`, [links](https://omarchy.org) and *streaming*:\n\n- [x] chat transcripts\n- [ ] tables, quotes, code blocks\n\n> Select with the mouse, copy with Ctrl+C.");
     sec.close_fitted();
     layout::spacer();
     win.end();

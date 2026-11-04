@@ -70,6 +70,45 @@
   `Label::new("").bind(&count.map(..))` used to stop updating once the
   derived State was dropped at the end of the statement.
 - ConfirmDialog buttons widen for long labels (88 px minimum).
+- **Rich text and Markdown** (`text` module), for chat clients (o3-code):
+  - `text::Document` / `Block` / `Inline` / `Style` / `ColorRole`: blocks
+    (paragraph, heading 1–6, list items bullet/ordered/task with nesting,
+    quotes with GFM alert tones, code blocks with a language, rules,
+    tables) of one string each with styled runs (bold, italic, strike,
+    inline code, link, theme color role). Plain data and `Send`.
+  - Markdown with `pulldown-cmark` 0.13.6 (MIT, no default features):
+    CommonMark + GFM tables, task lists, strikethrough, alerts, autolinks
+    (`<url>` and bare `https://`/`www.` URLs). `MarkdownStream::push`
+    re-parses only the open tail (the last top-level block or list item
+    that can still change); the result equals a one-shot parse (tested at
+    every split point and byte by byte), except a reference link whose
+    definition arrives after its block was committed. Code highlighting
+    hook (`MarkdownOptions::highlight`) with a small built-in highlighter
+    for diffs, comments, strings, numbers and keywords.
+  - Layout with FLTK measurement: word wrap, CJK breaks between ideographs
+    (with kinsoku), grapheme-safe breaks inside long words
+    (`unicode-segmentation`, MIT/Apache), tab stops, tables with column
+    alignment. Cached per block; a block that grew keeps its lines before
+    the change. Long code lines wrap. Arabic/RTL runs are shaped by
+    FLTK/Pango per fragment; no bidi reordering (documented).
+  - `text::RichText`: virtualized view (prefix sums of block heights,
+    estimates off screen, anchored scroll when estimates are corrected),
+    shared smooth wheel scrolling, `stick_to_bottom`, `append_markdown` /
+    `push_markdown` / `finish`, `sender()` (`Send`, coalesced to ≤ 60
+    updates/s), `bind_markdown(&State<String>)`, `append_block(s)`,
+    selection across blocks (drag, double/triple click, Shift+click),
+    Ctrl+A / Ctrl+C (Cmd on macOS; primary selection on X11), links with
+    `on_link`, hand cursor and Tab / Enter, code copy buttons, focus ring,
+    `plain_text()` / `block_ranges()` for accessibility, `text_rect(word)`
+    and `paint_stats()` for tests and tuning. Theme changes re-color without
+    re-parsing or laying out.
+  - `text::RichLabel`: one paragraph of inline Markdown at its natural size.
+  - `scroll::Scroll::shift` keeps a running wheel motion when content above
+    the view changes height. The theme maps the italic fonts too.
+  - `examples/richtext.rs`, `examples/richtext_bench.rs` +
+    `script/richtext-bench` (numbers in docs/PERFORMANCE.md: idle 0 %,
+    5 000 messages parsed in ~33 ms, 1 MB/s streamed at 60 updates/s ≈ 18 %
+    of a core, mostly painting), gallery and docs entries.
 
 - Glassy windows: `glass` follows Omarchy's window transparency
   (Appearance > Windows > Window Opacity: opaque, transparent, glassy) from

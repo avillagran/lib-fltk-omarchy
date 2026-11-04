@@ -47,6 +47,11 @@ limit and a time budget per draw. Pictures, API and measured cost:
   `omarchy-theme-set` live. Every `colors.toml` color, including
   `darker_background`, `lighter_background` and `bright_foreground`, comes
   from one validated load ([theme colors](docs/COMPONENTS.md#theme-colors-for-custom-painting)).
+- **Rich text and Markdown** (`text`): a virtualized, selectable
+  `RichText` view for chat transcripts that stream (only the open tail is
+  parsed again, only blocks in view are laid out, idle is 0 % CPU) and a
+  one-line `RichLabel`
+  ([picture and code](docs/COMPONENTS.md#richtext-and-richlabel-markdown-chat-streaming)).
 - **Components**: [docs/COMPONENTS.md](docs/COMPONENTS.md) (pictures,
   code, keys). **Keyboard**: [docs/KEYBOARD.md](docs/KEYBOARD.md).
 - **Platforms**: [docs/PLATFORMS.md](docs/PLATFORMS.md).
@@ -67,6 +72,7 @@ cargo run --example overlays     # dropdown, menu, confirm, notification, list
 cargo run --example app_shell    # Preferences/Actions menus, tabs, search, F1 help, operation toast
 cargo run --example docs_shots -- docs/components   # re-render the pictures of docs/COMPONENTS.md
 cargo run --example shaders      # shapes, gradients, effects, animated CPU shaders
+cargo run --example richtext     # Markdown chat transcript (-- --stream streams a reply)
 cargo run --release --example playground   # every component in one window, actions logged to build/playground.log
 cargo run --release --features gpu --example gpu_bench -- check build/gpu-check.json   # GPU shader pixel check
 cargo test --offline             # unit + doc + main-thread UI tests
