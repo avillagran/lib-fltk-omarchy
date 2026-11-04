@@ -31,6 +31,7 @@ fn main() {
         draw::draw_rectf(w.x(), w.y(), w.w(), w.h());
     });
     win.end();
+    win.resizable(&canvas);
     win.show();
     settle();
     let menu = PopupMenu::open_at(
@@ -53,8 +54,9 @@ fn main() {
     settle();
     win.make_current();
     let after = draw::capture_window(&mut win).unwrap().to_rgb_data();
+    let width = win.w();
     let sample = |data: &[u8]| {
-        let start = (((y + 10) * 480 + x + 10) * 3) as usize;
+        let start = (((y + 10) * width + x + 10) * 3) as usize;
         data[start..start + 3].to_vec()
     };
     let (a, b) = (sample(&before), sample(&after));
