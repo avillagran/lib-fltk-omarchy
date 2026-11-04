@@ -1766,6 +1766,8 @@ fn main() {
         let blocks = [Block::paragraph("x").push("y", &Style::plain().color(ColorRole::Red))];
         check(blocks[0].content.runs().len() == 2, "builder runs")
     });
+    #[cfg(feature = "a11y")]
+    a11y_checks(&mut run);
     drop(app);
     println!("{}", if failed == 0 { "all ui checks passed" } else { "ui checks FAILED" });
     if failed > 0 && !strict {
@@ -1843,4 +1845,291 @@ fn pixel(path: &Path, x: i32, y: i32) -> Result<[u8; 3], String> {
     let stride = w * depth + 1;
     let off = y as usize * stride + 1 + x as usize * depth;
     Ok([raw[off], raw[off + 1], raw[off + 2]])
+}
+
+// ================================================================ a11y
+
+/// Applies every update to AccessKit's own consumer, which panics on an
+/// inconsistent tree exactly like the platform adapters would.
+#[cfg(feature = "a11y")]
+use fltk_omarchy::a11y::testing::{accesskit, accesskit_consumer};
+
+#[cfg(feature = "a11y")]
+struct Consumer(Option<accesskit_consumer::Tree>);
+
+#[cfg(feature = "a11y")]
+impl Consumer {
+    fn feed(&mut self, updates: Vec<accesskit::TreeUpdate>) -> usize {
+        struct Nop;
+        impl accesskit_consumer::TreeChangeHandler for Nop {
+            fn node_added(&mut self, _: &accesskit_consumer::NodeRef) {}
+            fn node_updated(&mut self, _: &accesskit_consumer::NodeRef, _: &accesskit_consumer::NodeRef) {}
+            fn focus_moved(&mut self, _: Option<&accesskit_consumer::NodeRef>, _: Option<&accesskit_consumer::NodeRef>) {}
+            fn node_removed(&mut self, _: &accesskit_consumer::NodeRef) {}
+        }
+        let mut sent = 0;
+        for u in updates {
+            sent += u.nodes.len();
+            match &mut self.0 {
+                None => self.0 = Some(accesskit_consumer::Tree::new(u, true)),
+                Some(t) => t.update_and_process_changes(u, &mut Nop),
+            }
+        }
+        sent
+    }
+
+    fn focus_label(&self) -> Option<String> {
+        self.0.as_ref()?.state().focus()?.label()
+    }
+}
+
+#[cfg(feature = "a11y")]
+type Check<'a> = &'a dyn Fn(&Path) -> Result<(), String>;
+
+#[cfg(feature = "a11y")]
+fn a11y_checks(run: &mut dyn FnMut(&str, Check)) {
+    use accesskit::{Action as A, ActionData, Role as R};
+    use fltk_omarchy::a11y::{self, testing, AccessibleExt, Live};
+
+    run("a11y: sample window tree (roles, names, values, states, focus)", &|shots| {
+        let mut win = AppWindow::new("Settings", 520, 900);
+        win.header().action(glyph::SETTINGS, "Preferences", || {});
+        let mut body = win.body();
+        let name = State::new("Ada".to_string());
+        body.fit(&*TextField::new().placeholder("Name").bind(&name));
+        // Kept alive here: a derived State dropped right away stops updating.
+        let greet = name.map(|n| format!("Hello {n}"));
+        body.fit(&*Label::new("").bind(&greet));
+        let clicks = State::new(0u32);
+        let c = clicks.clone();
+        body.fit(&*Button::new("Add").on_click(move || c.update(|v| *v += 1)));
+        body.fit(&*Button::icon(glyph::TRASH, "").accessible_name("Delete"));
+        let wifi = State::new(true);
+        body.fit(&*ToggleSwitch::new(&wifi).accessible_name("Wi-Fi"));
+        let night = State::new(false);
+        body.fit(&*Toggle::new("Night light", "Warm colors at night", &night));
+        let vol = State::new(0.5);
+        body.fit(&*Slider::new(&vol, 0.0, 1.0, 0.1).accessible_name("Volume"));
+        let copies = State::new(3i64);
+        body.fit(&*NumberField::new(&copies, 0, 10, 1).accessible_name("Copies"));
+        let out = State::new(1usize);
+        body.fit(&*Dropdown::new("Output", &["Speakers", "Headphones"], &out));
+        let tab = State::new(0usize);
+        body.fit(&*TabBar::new(&["General", "Advanced"], &tab));
+        let count = State::new(100_000usize);
+        body.fit(&*List::new(&count, |i| ListRow::new(&format!("Item {i}")).detail("KB")));
+        win.end();
+        win.snapshot(shots.join("a11y.png")).map_err(|e| e.to_string())?;
+        let rec = testing::record(&*win);
+        rec.sync();
+        let mut consumer = Consumer(None);
+        let full = consumer.feed(rec.take());
+        let snap = a11y::snapshot(&*win).unwrap();
+        std::fs::write(shots.join("a11y-tree.txt"), &snap).map_err(|e| e.to_string())?;
+        for want in [
+            "Window \"Settings\"", "Heading \"Settings\" [level 1]", "Toolbar", "Button \"Preferences\"",
+            "TextInput \"Name\" = \"Ada\"", "Label = \"Hello Ada\"", "Button \"Add\"", "Button \"Delete\"",
+            "Switch \"Wi-Fi\" [checked]", "Switch \"Night light\" [unchecked, desc \"Warm colors at night\"]",
+            "Slider \"Volume\" = \"0.50\"", "SpinButton \"Copies\" = \"3\"", "ComboBox \"Output\" = \"Headphones\" [collapsed]",
+            "TabList", "Tab \"General\" [selected, 1 of 2]", "Tab \"Advanced\" [2 of 2]", "ListBox", "ListBoxOption \"Item 0\" [1 of 100000",
+        ] {
+            check(snap.contains(want), &format!("tree has {want:?}:\n{snap}"))?;
+        }
+        let rows = snap.lines().filter(|l| l.contains("ListBoxOption")).count();
+        check(rows > 0 && rows <= 20, &format!("virtual list exposes the rows in view, not 100000 ({rows})"))?;
+        check(rec.find(R::TextRun, "").is_none(), "text runs are not named")?;
+
+        // Focus follows the keyboard router.
+        focus::first(&*win);
+        rec.sync();
+        consumer.feed(rec.take());
+        check(consumer.focus_label().as_deref() == Some("Preferences"), &format!("first focus: {:?}", consumer.focus_label()))?;
+        press("Tab");
+        rec.sync();
+        consumer.feed(rec.take());
+        check(consumer.focus_label().as_deref() == Some("Name"), &format!("Tab focus: {:?}", consumer.focus_label()))?;
+
+        // A State change sends only the nodes that changed.
+        name.set("Grace".into());
+        rec.sync();
+        let ups = rec.take();
+        check(ups.len() == 1 && ups[0].tree.is_none(), "one incremental update")?;
+        let changed: Vec<_> = ups[0].nodes.iter().map(|(_, n)| (n.role(), n.value().map(str::to_string))).collect();
+        check(changed.contains(&(R::TextInput, Some("Grace".into()))) && changed.contains(&(R::Label, Some("Hello Grace".into()))), &format!("changed nodes: {changed:?}"))?;
+        let sent = consumer.feed(ups);
+        check(sent < full / 4, &format!("incremental ({sent} nodes) is much smaller than the full tree ({full})"))?;
+
+        // Actions from the AT run the keyboard code paths.
+        let add = rec.find(R::Button, "Add").ok_or("Add button")?;
+        rec.act(add, A::Click, None);
+        check(clicks.get() == 1, "AT click presses Add")?;
+        rec.act(rec.find(R::Switch, "Wi-Fi").ok_or("wifi")?, A::Click, None);
+        check(!wifi.get(), "AT click toggles the switch")?;
+        rec.act(rec.find(R::Slider, "Volume").ok_or("slider")?, A::Increment, None);
+        check((vol.get() - 0.6).abs() < 1e-9, &format!("increment: {}", vol.get()))?;
+        rec.act(rec.find(R::SpinButton, "Copies").ok_or("spin")?, A::SetValue, Some(ActionData::NumericValue(7.0)));
+        check(copies.get() == 7, "spin button set value")?;
+        rec.act(rec.find(R::TextInput, "Name").ok_or("field")?, A::SetValue, Some(ActionData::Value("Linus".into())));
+        check(name.get() == "Linus", "set value reaches the State")?;
+        rec.act(rec.find(R::Tab, "Advanced").ok_or("tab")?, A::Click, None);
+        check(tab.get() == 1, "AT click selects a tab")?;
+        rec.act(rec.find(R::ComboBox, "Output").ok_or("combo")?, A::Expand, None);
+        consumer.feed(rec.take());
+        let snap = a11y::snapshot(&*win).unwrap();
+        check(snap.contains("ComboBox \"Output\" = \"Headphones\" [expanded]") && snap.contains("ListBoxOption \"Speakers\""), &format!("dropdown popup:\n{snap}"))?;
+        check(consumer.focus_label().as_deref() == Some("Headphones"), &format!("popup focus: {:?}", consumer.focus_label()))?;
+        rec.act(rec.find(R::ListBoxOption, "Speakers").ok_or("option")?, A::Click, None);
+        consumer.feed(rec.take());
+        let snap = a11y::snapshot(&*win).unwrap();
+        check(out.get() == 0 && snap.contains("ComboBox \"Output\" = \"Speakers\" [focused, collapsed]"), &format!("picked from the AT:\n{snap}"))?;
+        fltk::window::DoubleWindow::delete((*win).clone());
+        Ok(())
+    });
+
+    run("a11y: menus, dialogs, toasts and announcements appear in the tree", &|_| {
+        let mut win = AppWindow::new("Overlays", 640, 520);
+        let mut body = win.body();
+        let b = Button::new("Anchor");
+        body.fit(&*b);
+        win.end();
+        let rec = testing::record(&*win);
+        focus::first(&*win);
+        rec.sync();
+        let mut consumer = Consumer(None);
+        consumer.feed(rec.take());
+        let picked = Rc::new(Cell::new(None));
+        let p2 = picked.clone();
+        Menu::open(&*b, "Go", vec![MenuItem::new("", "Screenshot"), MenuItem::new("", "Record").detail("screen")], move |i| p2.set(Some(i)));
+        rec.sync();
+        consumer.feed(rec.take());
+        let snap = a11y::snapshot(&*win).unwrap();
+        check(snap.contains("Menu \"Go\"") && snap.contains("MenuItem \"Screenshot\" [focused, 1 of 2]"), &format!("menu:\n{snap}"))?;
+        rec.act(rec.find(R::MenuItem, "Record").ok_or("Record")?, A::Click, None);
+        consumer.feed(rec.take());
+        check(picked.get() == Some(1) && !a11y::snapshot(&*win).unwrap().contains("Menu "), "AT pick closes the menu")?;
+
+        let answer = Rc::new(Cell::new(None));
+        let a2 = answer.clone();
+        ConfirmDialog::open(&*b, "Delete 3 files?", "Delete", true, move |ok| a2.set(Some(ok)));
+        rec.sync();
+        consumer.feed(rec.take());
+        let snap = a11y::snapshot(&*win).unwrap();
+        check(snap.contains("AlertDialog \"Delete 3 files?\" [modal]") && snap.contains("Button \"Delete\" [focused]"), &format!("dialog:\n{snap}"))?;
+        rec.act(rec.find(R::Button, "Delete").ok_or("Delete")?, A::Click, None);
+        consumer.feed(rec.take());
+        check(answer.get() == Some(true), "AT confirms the dialog")?;
+        check(consumer.focus_label().as_deref() == Some("Anchor"), &format!("focus back: {:?}", consumer.focus_label()))?;
+
+        let picked = Rc::new(Cell::new(None));
+        let p3 = picked.clone();
+        let handle = PopupMenu::open(&*b, vec![PopupItem::new("", "Copy").shortcut("Ctrl+C"), PopupItem::new("", "Paste").disabled(), PopupItem::new("", "Wrap").checked(true)],
+                                     move |i| p3.set(Some(i)));
+        rec.sync();
+        consumer.feed(rec.take());
+        let snap = a11y::snapshot(&*win).unwrap();
+        for want in ["MenuItem \"Copy\" [focused, 1 of 3]", "MenuItem \"Paste\" [disabled, 2 of 3]", "MenuItemCheckBox \"Wrap\" [checked, 3 of 3]"] {
+            check(snap.contains(want), &format!("popup menu has {want:?}:\n{snap}"))?;
+        }
+        rec.act(rec.find(R::MenuItemCheckBox, "Wrap").ok_or("Wrap")?, A::Click, None);
+        consumer.feed(rec.take());
+        check(picked.get() == Some(2) && handle.dismissed() == Some(Dismiss::Picked(2)), "AT pick in a popup menu")?;
+
+        let toasts = Notification::count();
+        Notification::show(&*b, "", "Saved", "3 files", Urgency::Normal);
+        let mut toast = OperationToast::show(&*b, "Copying").ok_or("toast")?;
+        toast.set_progress(0.25);
+        toast.set_detail("2 of 8");
+        a11y::announce("3 results", Live::Polite);
+        rec.sync();
+        consumer.feed(rec.take());
+        let snap = a11y::snapshot(&*win).unwrap();
+        for want in ["Alert \"Saved\" [desc \"3 files\", live]", "Status \"Copying\" [desc \"2 of 8\", live]", "ProgressIndicator \"Copying\" = \"25%\"",
+                     "Button \"Pause\"", "Button \"Cancel\"", "Status \"3 results\" [live]"] {
+            check(snap.contains(want), &format!("toasts have {want:?}:\n{snap}"))?;
+        }
+        rec.act(rec.find(R::Button, "Pause").ok_or("Pause")?, A::Click, None);
+        consumer.feed(rec.take());
+        check(toast.is_paused() && rec.find(R::Button, "Resume").is_some(), "AT pauses the operation")?;
+        rec.act(rec.find(R::Alert, "Saved").ok_or("alert")?, A::Click, None);
+        consumer.feed(rec.take());
+        check(Notification::count() == toasts, "AT click dismisses the notification")?;
+        toast.close();
+        fltk::window::DoubleWindow::delete((*win).clone());
+        Ok(())
+    });
+
+    run("a11y: table, tree, keyboard panels and plain fltk widgets", &|shots| {
+        let mut win = AppWindow::new("Data", 640, 720);
+        let mut body = win.body();
+        let tp = KeyboardPanel::new("files");
+        tp.set_items(5, |i| 100 + i as u64, |id| (100..105).contains(&id).then(|| (id - 100) as usize));
+        let table = Table::new(&tp, vec![Column::new("Name", 0).flex(), Column::new("Size", 90).right()], |r, c| if c == 0 { format!("file{r}") } else { format!("{} KB", r * 2) });
+        body.fit(&*table);
+        let trp = KeyboardPanel::new("tree");
+        let tree = Tree::new(&trp, |p| match p {
+            None => vec![TreeNode::new(1, "Documents").branch(), TreeNode::new(2, "Music")],
+            Some(1) => vec![TreeNode::new(11, "notes.md"), TreeNode::new(12, "todo.md")],
+            _ => vec![],
+        });
+        body.fit(&*tree);
+        let left = KeyboardPanel::new("Places");
+        left.set_items(3, |i| 7 + i as u64, |id| (7..10).contains(&id).then(|| (id - 7) as usize));
+        left.accessible_labels(|id| ["Home", "Downloads", "Trash"][(id - 7) as usize].to_string());
+        let mut canvas = fltk::widget::Widget::default().with_size(200, 80);
+        canvas.handle(|_, ev| matches!(ev, fltk::enums::Event::Focus | fltk::enums::Event::Unfocus));
+        focus::host(&canvas, &[&left]);
+        body.fit(&canvas);
+        let hits = Rc::new(Cell::new(0));
+        let h2 = hits.clone();
+        let mut plain = fltk::button::Button::default().with_size(80, 28).with_label("&Plain");
+        plain.set_callback(move |_| h2.set(h2.get() + 1));
+        body.fit(&plain);
+        let mut check_b = fltk::button::CheckButton::default().with_size(120, 28).with_label("Hidden files");
+        check_b.set_value(true);
+        body.fit(&check_b);
+        let input = fltk::input::Input::default().with_size(160, 28).with_label("Path");
+        body.fit(&input);
+        win.end();
+        win.snapshot(shots.join("a11y-data.png")).map_err(|e| e.to_string())?;
+        let rec = testing::record(&*win);
+        rec.sync();
+        let mut consumer = Consumer(None);
+        consumer.feed(rec.take());
+        let snap = a11y::snapshot(&*win).unwrap();
+        for want in ["Grid [6x2]", "ColumnHeader \"Name\"", "Row \"file0\"", "Cell \"4 KB\"", "Tree", "TreeItem \"Documents\" [collapsed, 1 of 2, level 1]",
+                     "Group", "ListBox \"Places\"", "ListBoxOption \"Home\" [1 of 3]", "Button \"Plain\"", "CheckBox \"Hidden files\" [checked]", "TextInput \"Path\" = \"\""] {
+            check(snap.contains(want), &format!("tree has {want:?}:\n{snap}"))?;
+        }
+        // Keyboard: the table's cursor row is the focused node.
+        tp.focus();
+        press("Down");
+        press("Down");
+        rec.sync();
+        consumer.feed(rec.take());
+        check(consumer.focus_label().as_deref() == Some("file1"), &format!("table cursor focus: {:?}", consumer.focus_label()))?;
+        rec.act(rec.find(R::Row, "file3").ok_or("row")?, A::Click, None);
+        check(tp.selection() == vec![103], &format!("AT click selects by ID: {:?}", tp.selection()))?;
+        rec.act(rec.find(R::ColumnHeader, "Size").ok_or("header")?, A::Click, None);
+        check(table.sort() == Some((1, true)), "AT click on a header sorts")?;
+        rec.act(rec.find(R::TreeItem, "Documents").ok_or("tree item")?, A::Expand, None);
+        consumer.feed(rec.take());
+        check(tree.is_expanded(1) && a11y::snapshot(&*win).unwrap().contains("TreeItem \"notes.md\" [1 of 2, level 2]"), "AT expands a tree item")?;
+        // A canvas with keyboard panels: the cursor item is focused.
+        left.focus();
+        press("Down");
+        press("Down");
+        rec.sync();
+        consumer.feed(rec.take());
+        check(consumer.focus_label().as_deref() == Some("Downloads"), &format!("panel cursor focus: {:?}", consumer.focus_label()))?;
+        rec.act(rec.find(R::ListBoxOption, "Trash").ok_or("Trash")?, A::Click, None);
+        check(left.selection() == vec![9], "AT click on a panel item")?;
+        rec.act(rec.find(R::Button, "Plain").ok_or("plain")?, A::Click, None);
+        check(hits.get() == 1, "AT click runs a plain fltk button's callback")?;
+        rec.act(rec.find(R::CheckBox, "Hidden files").ok_or("check")?, A::Click, None);
+        check(!check_b.value(), "AT click toggles a plain check button")?;
+        rec.act(rec.find(R::TextInput, "Path").ok_or("input")?, A::SetValue, Some(ActionData::Value("/tmp".into())));
+        check(input.value() == "/tmp", "AT sets a plain input")?;
+        fltk::window::DoubleWindow::delete((*win).clone());
+        Ok(())
+    });
 }

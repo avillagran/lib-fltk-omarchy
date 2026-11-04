@@ -3,6 +3,7 @@
 //! placed in any `Flex`/`Group` and sized with fltk-rs as usual; each one
 //! also reports its Omarchy implicit size via `.preferred_size()`.
 
+use crate::a11y::{self, Action, Role};
 use crate::anim::{Anim, Ease, Lerp};
 use crate::paint::{self, Interaction};
 use crate::state::State;
@@ -81,6 +82,7 @@ fn track_with_shortcut(w: &mut Widget, st: Rc<RefCell<Interaction>>, keyboard: b
     } else {
         w.clear_visible_focus();
     }
+    a11y::default_click(w, on_activate.clone());
     w.handle(move |w, ev| {
         let mut s = st.borrow_mut();
         let changed = match ev {
@@ -151,6 +153,9 @@ struct ButtonData {
     danger: bool,
     font_size: Option<i32>,
     shortcut: Option<crate::keys::Keys>,
+    shortcut_text: String,
+    /// `set_selected` was used: the button is a toggle for screen readers.
+    toggle: bool,
 }
 
 /// Omarchy `Button`: optional Nerd glyph + text, transparent at rest,
@@ -210,6 +215,14 @@ impl Button {
                     paint::text_elided(&d.text, x, w.y(), avail.max(tw.min(avail)), w.h(), fs, s.selected, fg, Align::Left);
                 }
             });
+        });
+        let d = data.clone();
+        a11y::describe(&inner, move |n| {
+            let d = d.borrow();
+            n.role(Role::Button).name(&d.text).focusable().action(Action::Click).shortcut(&d.shortcut_text);
+            if d.toggle || d.active {
+                n.toggled(d.selected || d.active);
+            }
         });
         let mut b = Self { inner, data, click };
         let (w, h) = b.preferred_size();
@@ -273,11 +286,27 @@ impl Button {
     pub fn shortcut(self, spec: &str) -> Self {
         let keys = crate::keys::parse(spec).unwrap_or_else(|e| panic!("{e}"));
         self.data.borrow_mut().shortcut = Some(keys);
+        self.data.borrow_mut().shortcut_text = spec.to_string();
+        self
+    }
+
+    /// The name screen readers read (icon-only buttons); see [`crate::a11y`].
+    pub fn accessible_name(self, name: &str) -> Self {
+        a11y::set_name(&self.inner, name);
+        self
+    }
+
+    /// Extra help screen readers read after the name.
+    pub fn accessible_description(self, text: &str) -> Self {
+        a11y::set_description(&self.inner, text);
         self
     }
 
     pub fn set_selected(&mut self, on: bool) {
-        self.data.borrow_mut().selected = on;
+        let mut d = self.data.borrow_mut();
+        d.selected = on;
+        d.toggle = true;
+        drop(d);
         self.inner.redraw();
     }
 
@@ -402,7 +431,22 @@ impl ActionButton {
         });
         let size = theme::with(|t| (22.0 * t.font.base as f64 / 12.0).round() as i32).max(22);
         inner.set_size(size, size);
+        // Named by its tooltip (the glyph is not text); see `accessible_name`.
+        a11y::describe(&inner, |n| {
+            n.role(Role::Button).focusable().action(Action::Click);
+        });
         Self { inner, click }
+    }
+
+    /// The name screen readers read when the tooltip is not enough.
+    pub fn accessible_name(self, name: &str) -> Self {
+        a11y::set_name(&self.inner, name);
+        self
+    }
+
+    pub fn accessible_description(self, text: &str) -> Self {
+        a11y::set_description(&self.inner, text);
+        self
     }
 
     pub fn on_click(self, f: impl FnMut() + 'static) -> Self {
@@ -446,6 +490,10 @@ impl ButtonGroup {
         for (i, label) in options.iter().enumerate() {
             let v = value.clone();
             let b = Button::new(label).bordered().on_click(move || v.set(i));
+            let (v, text) = (value.clone(), label.to_string());
+            a11y::describe(&*b, move |n| {
+                n.role(Role::RadioButton).name(&text).toggled(v.get() == i).focusable().action(Action::Click);
+            });
             let (w, _) = b.preferred_size();
             inner.fixed(&*b, w);
             total += w;
@@ -476,6 +524,9 @@ impl ButtonGroup {
             let b = bs.borrow().get(next).cloned();
             if let Some(mut b) = b { let _ = b.take_focus(); }
             true
+        });
+        a11y::describe(&inner, |n| {
+            n.role(Role::RadioGroup);
         });
         Self { inner, buttons, value: value.clone() }
     }
@@ -564,6 +615,10 @@ impl ToggleSwitch {
         inner.set_size(tw + 2 * pad, th + 2 * pad);
         let mut w2 = inner.clone();
         crate::state::bind_widget(&inner, value, false, move |_| w2.redraw());
+        let v = value.clone();
+        a11y::describe(&inner, move |n| {
+            n.role(Role::Switch).toggled(v.get()).focusable().action(Action::Click);
+        });
         Self { inner, value: value.clone() }
     }
 
@@ -592,6 +647,7 @@ impl Toggle {
         let v = value.clone();
         track(&mut inner, st.clone(), true, Rc::new(move || v.update(|b| *b = !*b)));
         let text = Rc::new(RefCell::new((title.to_string(), description.to_string())));
+        let tx2 = text.clone();
         let v = value.clone();
         let tx = text.clone();
         let (mut fade, mut knob) = (Anim::new(), Anim::new());
@@ -618,6 +674,11 @@ impl Toggle {
                 }
                 draw_switch(t, w.x() + w.w() - pad - sw, w.y() + (w.h() - sh) / 2, k, false, under);
             });
+        });
+        let v = value.clone();
+        a11y::describe(&inner, move |n| {
+            let (title, desc) = &*tx2.borrow();
+            n.role(Role::Switch).name(title).description(desc).toggled(v.get()).focusable().action(Action::Click);
         });
         let h = theme::with(|t| 54.max(t.font.subtitle + t.font.caption + 8 + t.spacing.huge));
         inner.set_size(theme::with(|t| (240.0 * t.font.base as f64 / 12.0) as i32), h);
@@ -747,6 +808,27 @@ impl Slider {
         inner.set_size(theme::with(|t| (200.0 * t.font.base as f64 / 12.0) as i32), h);
         let mut w2 = inner.clone();
         crate::state::bind_widget(&inner, value, false, move |_| w2.redraw());
+        let v = value.clone();
+        a11y::describe(&inner, move |n| {
+            let x = v.get();
+            n.role(Role::Slider).numeric(x, min, max, step).value(&crate::a11y::number_text(x)).focusable()
+                .action(Action::Increment).action(Action::Decrement).action(Action::SetValue);
+        });
+        let v = value.clone();
+        a11y::on_action(&inner, move |r| {
+            let d = step.max(range / 100.0);
+            match (r.action, &r.value) {
+                (Action::Increment, _) => v.update(|x| *x = (*x + d).clamp(min, max)),
+                (Action::Decrement, _) => v.update(|x| *x = (*x - d).clamp(min, max)),
+                (Action::SetValue, Some(a11y::Value::Number(x))) => v.set(x.clamp(min, max)),
+                (Action::SetValue, Some(a11y::Value::Text(t))) => match t.trim().parse::<f64>() {
+                    Ok(x) => v.set(x.clamp(min, max)),
+                    Err(_) => return false,
+                },
+                _ => return false,
+            }
+            true
+        });
         Self { inner, value: value.clone() }
     }
 
@@ -782,6 +864,11 @@ impl Progress {
         inner.set_size(200, theme::with(|t| t.spacing.lg * 2));
         let mut w2 = inner.clone();
         crate::state::bind_widget(&inner, value, false, move |_| w2.redraw());
+        let v = value.clone();
+        a11y::describe(&inner, move |n| {
+            let p = v.get().clamp(0.0, 1.0);
+            n.role(Role::ProgressIndicator).numeric(p, 0.0, 1.0, 0.0).value(&format!("{}%", (p * 100.0).round()));
+        });
         Self { inner }
     }
 }
@@ -879,6 +966,16 @@ impl Label {
                 let align = if d.start && crate::i18n::is_rtl() { Align::Right } else { d.align };
                 paint::text_elided(&s, w.x(), w.y(), w.w(), w.h(), d.style.px(t), d.bold, c, align);
             });
+        });
+        let d = data.clone();
+        a11y::describe(&inner, move |n| {
+            let d = d.borrow();
+            // Section headers (uppercase) are headings; the text is read as written.
+            if d.uppercase {
+                n.role(Role::Heading).level(2).name(&d.text);
+            } else {
+                n.role(Role::Label).name(&d.text);
+            }
         });
         let mut l = Self { inner, data };
         l.fit();
@@ -1006,6 +1103,12 @@ impl Hero {
             });
         });
         inner.set_size(300, theme::with(|t| t.font.display + t.spacing.huge * 2));
+        let d = data.clone();
+        a11y::describe(&inner, move |n| {
+            let (_, title, meta, detail) = &*d.borrow();
+            let desc = [detail.as_str(), meta.as_str()].iter().filter(|s| !s.is_empty()).copied().collect::<Vec<_>>().join(" · ");
+            n.role(Role::Heading).level(1).name(title).description(&desc);
+        });
         Self { inner, data }
     }
 
@@ -1119,6 +1222,39 @@ impl TextField {
                 parent.redraw();
             }
             false
+        });
+        let (inp, ph) = (input.clone(), placeholder.clone());
+        a11y::describe(&inner, move |n| {
+            let v = inp.value();
+            let ph = ph.borrow();
+            n.role(if secret { Role::PasswordInput } else { Role::TextInput }).name(&ph).placeholder(&ph).value(&v).leaf().focusable()
+                .action(Action::SetValue).action(Action::SetTextSelection).action(Action::ReplaceSelectedText)
+                .text_selection(a11y::char_at(&v, inp.mark()), a11y::char_at(&v, inp.position()));
+            if inp.readonly() {
+                n.read_only(true);
+            }
+        });
+        let (mut inp, c3, mut g3) = (input.clone(), change.clone(), inner.clone());
+        a11y::on_action(&inner, move |r| {
+            let text = inp.value();
+            match (r.action, &r.value) {
+                (Action::Focus, _) => return inp.take_focus().is_ok(),
+                (Action::SetValue, Some(a11y::Value::Text(t))) => {
+                    inp.set_value(t);
+                    fire(&c3, t.clone());
+                }
+                (Action::ReplaceSelectedText, Some(a11y::Value::Text(t))) => {
+                    let _ = inp.replace(inp.position(), inp.mark(), t);
+                    fire(&c3, inp.value());
+                }
+                (Action::SetTextSelection, Some(a11y::Value::Selection { anchor, focus })) => {
+                    let _ = inp.set_position(a11y::byte_at(&text, *focus));
+                    let _ = inp.set_mark(a11y::byte_at(&text, *anchor));
+                }
+                _ => return false,
+            }
+            g3.redraw();
+            true
         });
         Self { inner, input, change, submit, placeholder }
     }
@@ -1243,6 +1379,27 @@ impl NumberField {
             let s = n.to_string();
             if inp.value() != s { inp.set_value(&s); }
         });
+        let v = value.clone();
+        a11y::describe(&field.inner, move |n| {
+            let x = v.get();
+            n.role(Role::SpinButton).numeric(x as f64, from as f64, to as f64, step as f64).value(&x.to_string()).leaf().focusable()
+                .action(Action::Increment).action(Action::Decrement).action(Action::SetValue);
+        });
+        let (v, mut inp) = (value.clone(), input.clone());
+        a11y::on_action(&field.inner, move |r| {
+            match (r.action, &r.value) {
+                (Action::Focus, _) => return inp.take_focus().is_ok(),
+                (Action::Increment, _) => v.update(|n| *n = (*n + step).clamp(from, to)),
+                (Action::Decrement, _) => v.update(|n| *n = (*n - step).clamp(from, to)),
+                (Action::SetValue, Some(a11y::Value::Number(x))) => v.set((x.round() as i64).clamp(from, to)),
+                (Action::SetValue, Some(a11y::Value::Text(t))) => match t.trim().parse::<i64>() {
+                    Ok(x) => v.set(x.clamp(from, to)),
+                    Err(_) => return false,
+                },
+                _ => return false,
+            }
+            true
+        });
         Self { field, value: value.clone() }
     }
 
@@ -1323,6 +1480,11 @@ impl Row {
             });
         });
         inner.set_size(240, theme::with(|t| t.font.body + 4 + t.spacing.xl * 2));
+        let d = data.clone();
+        a11y::describe(&inner, move |n| {
+            let (_, label, detail, current) = &*d.borrow();
+            n.role(Role::Button).name(label).description(detail).current(*current).focusable().action(Action::Click);
+        });
         Self { inner, data, click }
     }
 
@@ -1577,6 +1739,39 @@ impl TabBar {
         inner.set_size(400, theme::with(|t| t.spacing.control_height + 2));
         let mut w2 = inner.clone();
         crate::state::bind_widget(&inner, value, false, move |_| w2.redraw());
+        let (tb, v, g, me) = (tabs.clone(), value.clone(), geo.clone(), inner.clone());
+        a11y::describe(&inner, move |n| {
+            n.role(Role::TabList).focusable();
+            let tabs = tb.borrow();
+            let (vx, vw) = g.view(&me);
+            for (i, (label, (x, tw))) in tabs.iter().zip(g.tabs_at(&me)).enumerate() {
+                // Scrolled-out tabs keep their place, clipped to the strip.
+                let (x, tw) = if x + tw > vx && x < vx + vw { (x.max(vx), (x + tw).min(vx + vw) - x.max(vx)) } else { (x, 0) };
+                n.child(i as u64, |t| {
+                    t.role(Role::Tab).name(label).selected(v.get() == i).position(i + 1, tabs.len())
+                        .bounds(x, me.y(), tw, me.h()).action(Action::Click).action(Action::ScrollIntoView).focusable();
+                    if v.get() == i {
+                        t.focused();
+                    }
+                });
+            }
+        });
+        let (v, g, mut me, n) = (value.clone(), geo.clone(), inner.clone(), tabs.clone());
+        a11y::on_action(&inner, move |r| {
+            let Some(i) = r.key().map(|k| k as usize).filter(|i| *i < n.borrow().len()) else { return false };
+            match r.action {
+                Action::Click | Action::Focus => {
+                    v.set(i);
+                    if r.action == Action::Focus {
+                        let _ = me.take_focus();
+                    }
+                }
+                Action::ScrollIntoView => g.reveal(&me, i),
+                _ => return false,
+            }
+            me.redraw();
+            true
+        });
         TabBar { inner, tabs, value: value.clone(), close, closable, geo }
     }
 

@@ -93,6 +93,15 @@ classic Omarchy look. Import as `fltk_omarchy`.
    `state.feed()`, `text.text_feed()` (never touch State from a thread).
    Streaming text: `push_str` and `subscribe_edit` (`Edit::Appended`).
    Guide: docs/MODELS.md.
+17. Screen readers (feature `a11y`, docs/ACCESSIBILITY.md): **icon-only
+   actions need accessible names**. Header actions and `ActionButton` use
+   their tooltip; anything else without visible text gets
+   `.accessible_name("..")` (`Button::icon`, `ToggleSwitch`, `Slider`,
+   `NumberField`; `use fltk_omarchy::a11y::AccessibleExt`). Give
+   `KeyboardPanel`s `accessible_labels(|id| ..)`. A custom widget
+   implements `a11y::Accessible` and exposes rows near the viewport as
+   virtual children, never one node per item. Check names with
+   `a11y::snapshot(&*win)`.
 
 ## Minimal app
 

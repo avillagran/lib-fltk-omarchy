@@ -147,6 +147,35 @@
   (2 000 threads, ~1 MB/s of text) naive snapshots vs `sync_from` vs
   `Feed`; results in docs/PERFORMANCE.md (1200×800, 100 events/s: UI
   thread 18.4 % → 11.1 % with `sync_from`, 6.7 % with feeds at 60 Hz).
+- **Accessibility (`a11y` feature, off by default, needs Rust 1.85).**
+  Screen readers can read and drive apps through AccessKit 0.25: AT-SPI
+  on Linux/BSD (Orca), UI Automation on Windows (NVDA, Narrator),
+  NSAccessibility on macOS (VoiceOver).
+  - Every Omarchy component describes itself: role, name from its visible
+    text or tooltip, value, states and actions.
+  - List, Table, Tree and keyboard panels expose the rows in view (plus
+    the cursor row) with their position in the whole set.
+  - Menus, popups, dialogs and toasts appear in the tree while open.
+  - Focus follows the keyboard router.
+  - AT actions (click, focus, set value, increment/decrement, expand,
+    collapse, scroll into view, text selection) run the keyboard code
+    paths.
+  - Plain fltk widgets get a generic node by type.
+  - Costs nothing until an AT activates. Then the tree is built in the
+    existing pre-flush check, and later updates send only changed nodes.
+  - New API: `a11y::{Accessible, register, describe, on_action, set_name,
+    set_description, changed, announce, is_active, snapshot, install}`,
+    `AccessibleExt::accessible_name/description` (also inherent on
+    `Button` and `ActionButton`), and `KeyboardPanel::accessible_labels`,
+    `item_label` and `current_layout`.
+  - `OMARCHY_FLTK_A11Y=off` keeps the adapters off;
+    `OMARCHY_FLTK_A11Y_DEBUG=1` prints update sizes and build times.
+  - Measured on `bench_minimal`: +2.0 MB binary, +1.8 MB PSS and 3
+    threads while no AT is active, startup unchanged, 0 idle CPU.
+  - Verified on Linux by unit tests, `tests/ui.rs` (trees fed to
+    AccessKit's consumer) and `script/a11y-check` (real AT-SPI, 20/20).
+    Windows and macOS type-checked only.
+  - Guide: docs/ACCESSIBILITY.md.
 
 - Glassy windows: `glass` follows Omarchy's window transparency
   (Appearance > Windows > Window Opacity: opaque, transparent, glassy) from

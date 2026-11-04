@@ -16,6 +16,9 @@
 //!
 //! Details and how each one was verified: docs/PLATFORMS.md.
 
+/// Accessibility adapters per OS for `crate::a11y` (feature `a11y`).
+#[cfg(feature = "a11y")]
+pub(crate) mod a11y;
 pub mod dirs;
 pub mod fonts;
 pub mod languages;

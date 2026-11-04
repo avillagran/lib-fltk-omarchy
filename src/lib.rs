@@ -1,3 +1,4 @@
+pub mod a11y;
 pub mod anim;
 pub mod app;
 pub mod focus;

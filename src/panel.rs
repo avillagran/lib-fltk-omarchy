@@ -76,6 +76,7 @@ struct Callbacks {
     edge: Option<Box<dyn FnMut(Key) -> bool>>,
     key: Option<Box<dyn FnMut(Key, Shortcut) -> bool>>,
     focus: Option<Box<dyn FnMut(bool)>>,
+    label: Option<Box<dyn Fn(ItemId) -> String>>,
 }
 
 struct Inner {
@@ -430,6 +431,25 @@ impl KeyboardPanel {
                 c.focus = Some(f);
             }
         }
+    }
+
+    /// The text a screen reader reads for an item (its visible label):
+    /// `panel.accessible_labels(move |id| names[&id].clone())`. Without
+    /// it items are read as "Item 3". Only called while an assistive
+    /// technology is active (feature `a11y`), for the items near the cursor.
+    pub fn accessible_labels(&self, f: impl Fn(ItemId) -> String + 'static) -> &Self {
+        self.cbs.borrow_mut().label = Some(Box::new(f));
+        self
+    }
+
+    /// The accessible label of an item, when [`KeyboardPanel::accessible_labels`] was set.
+    pub fn item_label(&self, id: ItemId) -> Option<String> {
+        self.cbs.borrow().label.as_ref().map(|f| f(id))
+    }
+
+    /// List or Grid.
+    pub fn current_layout(&self) -> PanelLayout {
+        self.inner.borrow().layout
     }
 
     /// Enter on the cursor item.

@@ -4,6 +4,7 @@
 //! on top of the window and deleted when closed, so they cost nothing
 //! while hidden.
 
+use crate::a11y::{self, Action, Live, Role};
 use crate::paint;
 use crate::state::State;
 use crate::theme::{self, Rgb, Theme};
@@ -186,6 +187,20 @@ impl Dropdown {
         inner.set_size(w, h);
         let mut w2 = inner.clone();
         crate::state::bind_widget(&inner, value, false, move |_| w2.redraw());
+        let (opts, v, lbl, me) = (options.clone(), value.clone(), label_rc.clone(), inner.clone());
+        a11y::describe(&inner, move |n| {
+            let text = opts.borrow().get(v.get()).cloned().unwrap_or_default();
+            n.role(Role::ComboBox).name(&lbl.borrow()).value(&text).expanded(a11y::has_popup(&me)).focusable()
+                .action(Action::Click).action(Action::Expand);
+        });
+        let (opts, v, mut me) = (options.clone(), value.clone(), inner.clone());
+        a11y::on_action(&inner, move |r| {
+            if !matches!(r.action, Action::Click | Action::Expand) || a11y::has_popup(&me) {
+                return false;
+            }
+            open_popup(&mut me, &opts, &v);
+            true
+        });
         Dropdown { inner, options, value: value.clone(), label: label_rc }
     }
 
@@ -323,6 +338,33 @@ fn open_popup(trigger: &mut Widget, options: &Rc<RefCell<Vec<String>>>, value: &
     if c >= shown {
         top.set(c - shown + 1);
     }
+    a11y::popup_of(&layer, trigger);
+    let (opts, cur, tp) = (options.clone(), current.clone(), top.clone());
+    a11y::describe(&layer, move |nd| {
+        let (x, y, w, _) = rect;
+        nd.role(Role::ListBox).bounds(rect.0, rect.1, rect.2, rect.3);
+        for (i, text) in opts.borrow().iter().enumerate() {
+            let slot = i as i32 - tp.get();
+            nd.child(i as u64, |o| {
+                o.role(Role::ListBoxOption).name(text).selected(i as i32 == cur.get()).position(i + 1, n as usize).action(Action::Click);
+                if (0..shown).contains(&slot) {
+                    o.bounds(x + 2, y + 2 + slot * (row_h + gap), w - 4, row_h);
+                }
+                if i as i32 == cur.get() {
+                    o.focused();
+                }
+            });
+        }
+    });
+    let (v, mut trig, l2) = (value.clone(), trigger.clone(), layer.clone());
+    a11y::on_action(&layer, move |r| {
+        let (Some(i), Action::Click) = (r.key(), r.action) else { return false };
+        v.set(i as usize);
+        close_layer(&l2);
+        let _ = trig.take_focus();
+        trig.redraw();
+        true
+    });
 }
 
 // =========================================================== ConfirmDialog
@@ -399,6 +441,29 @@ impl ConfirmDialog {
             });
         });
         let on_close = Rc::new(RefCell::new(Some(Box::new(on_close) as Box<dyn FnOnce(bool)>)));
+        let (sel, g3, msg3, labels3, lw) = (selected.clone(), geom.clone(), message.to_string(), labels.clone(), layer.clone());
+        a11y::describe(&layer, move |n| {
+            let ((cx, cy, cw, ch), buttons) = g3(&lw);
+            n.role(Role::AlertDialog).name(&msg3).modal(true).bounds(cx, cy, cw, ch);
+            for (i, label) in labels3().iter().enumerate() {
+                let (bx, by, bw, bh) = buttons[i];
+                n.child(i as u64, |b| {
+                    b.role(Role::Button).name(label).bounds(bx, by, bw, bh).action(Action::Click).focusable();
+                    if sel.get() == i as i32 {
+                        b.focused();
+                    }
+                });
+            }
+        });
+        let (oc, l2) = (on_close.clone(), layer.clone());
+        a11y::on_action(&layer, move |r| {
+            let (Some(k), Action::Click) = (r.key(), r.action) else { return false };
+            close_layer(&l2);
+            if let Some(f) = oc.borrow_mut().take() {
+                f(k == 1);
+            }
+            true
+        });
         let sel = selected.clone();
         layer.handle(move |l, ev| {
             let ((cx, cy, cw, ch), buttons) = geom(l);
@@ -483,6 +548,7 @@ impl Notification {
         let Some(mut layer) = open_layer(anchor, Some(rect), false) else { return };
         TOASTS.with(|v| v.borrow_mut().push(layer.clone()));
         let (icon, summary, body) = (icon.to_string(), summary.to_string(), body.to_string());
+        let (summary2, body2) = (summary.clone(), body.clone());
         layer.draw(move |l| {
             theme::with(|t| {
                 let n = &t.notifications;
@@ -524,6 +590,13 @@ impl Notification {
             }
             _ => false,
         });
+        let (sm, bd) = (summary2, body2);
+        a11y::describe(&layer, move |n| {
+            n.role(Role::Alert).name(&sm).description(&bd).live(if urgency == Urgency::Critical { Live::Assertive } else { Live::Polite })
+                .focusable().action(Action::Click);
+        });
+        let l3 = layer.clone();
+        a11y::default_click(&layer, Rc::new(move || dismiss(&l3)));
         let timeout = match urgency { Urgency::Low => Some(5.0), Urgency::Normal => Some(8.0), Urgency::Critical => None };
         if let Some(secs) = timeout {
             let l2 = layer.clone();
@@ -610,6 +683,7 @@ impl Menu {
         let top = Rc::new(Cell::new(0usize));
         let visible = Rc::new(RefCell::new(menu_filter(&items, "")));
         let title = title.to_string();
+        let title2 = title.clone();
 
         struct Geo { cx: i32, cy: i32, cw: i32, ch: i32, pad: i32, header: i32, gap: i32, row: i32, spacing: i32, rows: usize }
         let geo = {
@@ -703,6 +777,47 @@ impl Menu {
         });
 
         let on_pick = Rc::new(RefCell::new(Some(Box::new(on_pick) as Box<dyn FnOnce(usize)>)));
+        let (it, fl, cu, tp, vis, g4, lw, ttl) = (items.clone(), filter.clone(), cursor.clone(), top.clone(), visible.clone(), geo.clone(), layer.clone(), title2);
+        a11y::describe(&layer, move |n| {
+            let g = g4(&lw);
+            let q = fl.borrow();
+            n.role(Role::Menu).name(&ttl).bounds(g.cx, g.cy, g.cw, g.ch);
+            if !q.is_empty() {
+                n.description(&q);
+            }
+            let vis = vis.borrow();
+            let ly = g.cy + g.pad + g.header + g.gap;
+            let c = cu.get();
+            // Long command lists: the entries around the cursor, with their position.
+            for vi in c.saturating_sub(50)..(c + 51).min(vis.len()) {
+                let item = &it[vis[vi]];
+                let slot = vi as i32 - tp.get() as i32;
+                n.child(vis[vi] as u64, |m| {
+                    m.role(Role::MenuItem).name(&item.label).description(&item.detail).position(vi + 1, vis.len()).disabled(!item.enabled)
+                        .action(Action::Click).action(Action::Focus);
+                    if (0..g.rows as i32).contains(&slot) {
+                        m.bounds(g.cx + g.pad, ly + slot * (g.row + g.spacing), g.cw - 2 * g.pad, g.row);
+                    }
+                    if vi == c {
+                        m.focused();
+                    }
+                });
+            }
+        });
+        let (it, vis, cu, op, l5) = (items.clone(), visible.clone(), cursor.clone(), on_pick.clone(), layer.clone());
+        a11y::on_action(&layer, move |r| {
+            let Some(idx) = r.key().map(|k| k as usize) else { return false };
+            let Some(vi) = vis.borrow().iter().position(|&i| i == idx) else { return false };
+            match r.action {
+                Action::Click if it[idx].enabled => {
+                    close_layer(&l5);
+                    if let Some(f) = op.borrow_mut().take() { f(idx); }
+                }
+                Action::Focus | Action::ScrollIntoView => { cu.set(vi); l5.clone().redraw(); }
+                _ => return false,
+            }
+            true
+        });
         let (it, fl, cu, tp, vis) = (items.clone(), filter.clone(), cursor.clone(), top.clone(), visible.clone());
         layer.handle(move |l, ev| {
             let g = geo(l);

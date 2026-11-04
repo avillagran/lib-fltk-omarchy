@@ -32,6 +32,7 @@ impl App {
         fltk::window::Window::set_default_xclass(id);
         app::set_visible_focus(true);
         crate::focus::install();
+        crate::a11y::install();
         app::set_option(app::Option::ShowScaling, false);
         theme::set(theme::Theme::load());
         style_tooltips(&theme::current());

@@ -1,0 +1,64 @@
+private session bus: unix:path=/tmp/dbus-Zqjng63qJ6,guid=18b1a464e785dde61f4403f86aeb8b64
+PASS the app is on the AT-SPI desktop (activated lazily when AT-SPI IsEnabled turns on)
+--- tree (AT-SPI roles and names)
+application 'a11y_check' []
+  frame 'a11y check' ['focusable']
+    heading 'a11y check' []
+    tool bar '' []
+      button 'Preferences' actions=click ['focusable']
+    label 'Pressed 0 times' []
+    button 'Press me' actions=click ['focusable']
+    button 'Delete' actions=click ['focusable']
+    entry 'Name' text='Ada' ['focusable', 'editable']
+    toggle button 'Wi-Fi' actions=click ['pressed', 'focusable']
+    slider 'Volume' value=0.5 [0..1] ['focusable']
+    combo box 'Output' actions=click ['focusable']
+    list box '' ['focusable']
+      list item 'Song 0' actions=click ['focusable']
+      list item 'Song 1' actions=click ['focusable']
+      list item 'Song 2' actions=click ['focusable']
+      list item 'Song 3' actions=click ['focusable']
+      list item 'Song 4' actions=click ['focusable']
+      list item 'Song 5' actions=click ['focusable']
+      list item 'Song 6' actions=click ['focusable']
+---
+PASS frame 'a11y check' exposed
+PASS push button 'Press me' exposed
+PASS push button 'Delete' exposed
+PASS push button 'Preferences' exposed
+PASS entry 'Name' exposed
+PASS toggle button 'Wi-Fi' exposed
+PASS slider 'Volume' exposed
+PASS combo box 'Output' exposed
+PASS label 'Pressed 0 times' exposed
+PASS heading 'a11y check' exposed
+PASS virtual list exposes 7 rows of 10000
+PASS AT-SPI DoAction('click') on 'Press me'
+PASS the AT click ran the button's on_click (app log: 'event pressed 1')
+PASS the label update reached the AT-SPI tree incrementally
+PASS AT-SPI DoAction on the switch toggled its State
+PASS AT-SPI Value.SetCurrentValue(0.8) on the slider
+PASS AT-SPI Text on the field reads 'Ada'
+PASS AT-SPI EditableText.SetTextContents reached the field (SetValue)
+PASS AT-SPI GrabFocus on a list row: focused and selected (Focus action -> list selection)
+RESULT PASS (20/20)
+--- app log
+event shown
+a11y: full tree 20 nodes in 59 us
+event pressed 1
+a11y: update 18 of 20 nodes in 74 us
+event wifi false
+a11y: update 1 of 20 nodes in 65 us
+event volume 0.80
+a11y: update 1 of 20 nodes in 36 us
+a11y: update 2 of 20 nodes in 40 us
+a11y: update 0 of 20 nodes in 41 us
+a11y: update 0 of 20 nodes in 49 us
+a11y: update 0 of 20 nodes in 45 us
+a11y: update 0 of 20 nodes in 45 us
+a11y: update 0 of 20 nodes in 45 us
+a11y: update 0 of 20 nodes in 45 us
+a11y: update 0 of 20 nodes in 45 us
+a11y: update 0 of 20 nodes in 45 us
+a11y: update 0 of 20 nodes in 45 us
+a11y: update 1 of 20 nodes in 49 us

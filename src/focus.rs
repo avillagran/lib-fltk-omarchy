@@ -353,6 +353,13 @@ pub fn active_panel_of<W: WidgetExt>(widget: &W) -> Option<KeyboardPanel> {
     active_panel(&unsafe { Widget::from_widget_ptr(widget.as_widget_ptr()) })
 }
 
+/// The panels of a panel host and the active index (accessibility tree).
+#[cfg(feature = "a11y")]
+pub(crate) fn hosted_panels(w: &Widget) -> Option<(Vec<KeyboardPanel>, usize)> {
+    let id = ptr(w);
+    HOSTS.with(|h| h.borrow().iter().find(|e| !e.widget.was_deleted() && ptr(&e.widget) == id).map(|e| (e.panels.clone(), e.active)))
+}
+
 /// (panel count, active index) when `w` hosts panels.
 fn host_panels(w: &Widget) -> Option<(usize, usize)> {
     let id = ptr(w);
