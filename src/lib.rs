@@ -12,6 +12,7 @@ pub mod paint;
 pub mod panel;
 pub mod png;
 pub mod popups;
+pub mod scroll;
 pub mod state;
 pub mod table;
 pub mod task;

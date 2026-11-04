@@ -37,6 +37,7 @@ struct Inner {
     row: Box<dyn Fn(usize) -> ListRow>,
     count: usize,
     top: i64, // scroll offset in px
+    motion: crate::scroll::Scroll,
     row_h: i32,
     hover: Option<usize>,
     selected: Option<usize>,
@@ -64,7 +65,7 @@ impl List {
         widget.set_visible_focus();
         let row_h = theme::with(|t| t.font.body + 4 + 2 * t.spacing.xl);
         let inner = Rc::new(RefCell::new(Inner {
-            row: Box::new(row), count: count.get(), top: 0, row_h, hover: None, selected: None, fetched: 0, dragging_thumb: None,
+            row: Box::new(row), count: count.get(), top: 0, motion: crate::scroll::Scroll::new(), row_h, hover: None, selected: None, fetched: 0, dragging_thumb: None,
         }));
         let list = List {
             widget,
@@ -95,7 +96,9 @@ impl List {
                 let under = t.palette.background;
                 fltk::draw::push_clip(w.x(), w.y(), w.w(), w.h());
                 let max_top = (i.count as i64 * i.row_h as i64 - w.h() as i64).max(0);
-                i.top = i.top.clamp(0, max_top);
+                let top = i.top;
+                i.top = i.motion.position(top, max_top);
+                if i.motion.running() { crate::anim::request_redraw(w); }
                 let first = (i.top / i.row_h as i64) as usize;
                 let visible = (w.h() / i.row_h + 2) as usize;
                 let text_w = w.w() - BAR - 4;
@@ -166,6 +169,7 @@ impl List {
                 Event::Leave => { inn.borrow_mut().hover = None; w.redraw(); true }
                 Event::Push => {
                     let _ = w.take_focus();
+                    { let mut i = inn.borrow_mut(); let top = i.top; i.motion.jump(top); }
                     if app::event_x() >= w.x() + w.w() - BAR - 4 {
                         let top = inn.borrow().top;
                         inn.borrow_mut().dragging_thumb = Some((app::event_y(), top));
@@ -191,12 +195,16 @@ impl List {
                 }
                 Event::Released => { inn.borrow_mut().dragging_thumb = None; true }
                 Event::MouseWheel => {
-                    let d = match app::event_dy() { app::MouseWheel::Down => 1, app::MouseWheel::Up => -1, _ => 0 };
-                    { let mut i = inn.borrow_mut(); i.top += d * 3 * i.row_h as i64; }
+                    let mut i = inn.borrow_mut();
+                    let max = (i.count as i64 * i.row_h as i64 - w.h() as i64).max(0);
+                    let (top, delta) = (i.top, app::event_dy_value() as f64 * 3.0 * i.row_h as f64);
+                    i.top = i.motion.wheel(top, delta, max);
+                    drop(i);
                     w.redraw();
                     true
                 }
                 Event::KeyDown => {
+                    { let mut i = inn.borrow_mut(); let top = i.top; i.motion.jump(top); }
                     let (count, cur, page) = { let i = inn.borrow(); (i.count, i.selected, (w.h() / i.row_h).max(1) as usize) };
                     if count == 0 { return false; }
                     let k = app::event_key();

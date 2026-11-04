@@ -109,6 +109,7 @@ struct TState {
     icon: Option<Box<dyn Fn(usize) -> String>>,
     panel: KeyboardPanel,
     top: i64,
+    motion: crate::scroll::Scroll,
     hover: Option<usize>,
     sort: Option<(usize, bool)>,
     on_sort: Option<Box<dyn FnMut(usize, bool)>>,
@@ -139,6 +140,7 @@ impl Table {
             icon: None,
             panel: panel.clone(),
             top: 0,
+            motion: crate::scroll::Scroll::new(),
             hover: None,
             sort: None,
             on_sort: None,
@@ -221,7 +223,8 @@ fn table_draw(w: &mut Widget, st: &Rc<RefCell<TState>>) {
     follow_cursor(&s.panel, &mut s.last_cursor, &mut s.top, rh, body_h);
     let n = s.panel.len();
     let content = n as i64 * rh as i64;
-    s.top = s.top.clamp(0, (content - body_h as i64).max(0));
+    s.top = s.motion.position(s.top, (content - body_h as i64).max(0));
+    if s.motion.running() { crate::anim::request_redraw(w); }
     let ring = s.panel.show_ring();
     let cols = col_layout(&s.cols, w.w() - BAR - 4);
     theme::with(|t| {
@@ -295,6 +298,9 @@ fn table_handle(w: &mut Widget, ev: Event, st: &Rc<RefCell<TState>>) -> bool {
         let i = ((ey - hh) as i64 + s.top) / rh as i64;
         (i >= 0 && (i as usize) < s.panel.len()).then_some(i as usize)
     };
+    if matches!(ev, Event::Push | Event::KeyDown) {
+        let mut s = st.borrow_mut(); let top = s.top; s.motion.jump(top);
+    }
     match ev {
         Event::Focus | Event::Unfocus => { w.redraw(); true }
         Event::Enter => true,
@@ -305,8 +311,11 @@ fn table_handle(w: &mut Widget, ev: Event, st: &Rc<RefCell<TState>>) -> bool {
         }
         Event::Leave => { st.borrow_mut().hover = None; w.redraw(); true }
         Event::MouseWheel => {
-            let d = match app::event_dy() { app::MouseWheel::Down => 3, app::MouseWheel::Up => -3, _ => 0 };
-            st.borrow_mut().top += d as i64 * rh as i64;
+            let mut s = st.borrow_mut();
+            let max = (s.panel.len() as i64 * rh as i64 - (w.h() - header_h()) as i64).max(0);
+            let top = s.top;
+            s.top = s.motion.wheel(top, app::event_dy_value() as f64 * 3.0 * rh as f64, max);
+            drop(s);
             w.redraw();
             true
         }
@@ -396,6 +405,7 @@ struct TrState {
     /// Children already asked for (None = roots); see `refresh_node`.
     cache: HashMap<Option<ItemId>, Vec<TreeNode>>,
     top: i64,
+    motion: crate::scroll::Scroll,
     hover: Option<usize>,
     last_cursor: Option<ItemId>,
     drawn: usize,
@@ -425,6 +435,7 @@ impl Tree {
             expanded: HashSet::new(),
             cache: HashMap::new(),
             top: 0,
+            motion: crate::scroll::Scroll::new(),
             hover: None,
             last_cursor: None,
             drawn: 0,
@@ -584,7 +595,8 @@ fn tree_draw(w: &mut Widget, st: &Rc<RefCell<TrState>>) {
     let rows = s.rows.clone();
     let rows = rows.borrow();
     let content = rows.len() as i64 * rh as i64;
-    s.top = s.top.clamp(0, (content - w.h() as i64).max(0));
+    s.top = s.motion.position(s.top, (content - w.h() as i64).max(0));
+    if s.motion.running() { crate::anim::request_redraw(w); }
     let ring = s.panel.show_ring();
     let cursor = s.panel.cursor();
     theme::with(|t| {
@@ -633,6 +645,9 @@ fn tree_handle(w: &mut Widget, ev: Event, st: &Rc<RefCell<TrState>>) -> bool {
         let i = (ey as i64 + s.top) / rh as i64;
         (i >= 0 && (i as usize) < s.rows.borrow().len()).then_some(i as usize)
     };
+    if matches!(ev, Event::Push | Event::KeyDown) {
+        let mut s = st.borrow_mut(); let top = s.top; s.motion.jump(top);
+    }
     match ev {
         Event::Focus | Event::Unfocus => { w.redraw(); true }
         Event::Enter => true,
@@ -643,8 +658,11 @@ fn tree_handle(w: &mut Widget, ev: Event, st: &Rc<RefCell<TrState>>) -> bool {
         }
         Event::Leave => { st.borrow_mut().hover = None; w.redraw(); true }
         Event::MouseWheel => {
-            let d = match app::event_dy() { app::MouseWheel::Down => 3, app::MouseWheel::Up => -3, _ => 0 };
-            st.borrow_mut().top += d as i64 * rh as i64;
+            let mut s = st.borrow_mut();
+            let max = (s.rows.borrow().len() as i64 * rh as i64 - w.h() as i64).max(0);
+            let top = s.top;
+            s.top = s.motion.wheel(top, app::event_dy_value() as f64 * 3.0 * rh as f64, max);
+            drop(s);
             w.redraw();
             true
         }

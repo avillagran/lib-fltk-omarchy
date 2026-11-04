@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+- Overlays remain visible on plain FLTK windows when a custom canvas or
+  another child repaints. The existing pre-flush check redraws the window
+  stack only while it is dirty and has an open overlay; no idle timer.
+  `examples/popup_damage.rs` checks the mapped framebuffer, release,
+  repeated canvas updates, idle paint count and closing cleanup.
+- Shared `scroll::Scroll` pixel motion: full signed wheel magnitude,
+  120 ms easing, immediate reversal, bounds and cancellation on external
+  navigation. List, Table, Tree and PopupMenu use the same implementation;
+  other row-based popup wheel handlers also preserve delta magnitude.
+  Animations-disabled mode remains immediate. This does not manufacture
+  touchpad momentum from FLTK's integer events without gesture phases.
+
 ## 0.0.10 — 2026-10-28
 
 For Files (issue #8):

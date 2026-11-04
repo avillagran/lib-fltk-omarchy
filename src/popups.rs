@@ -230,9 +230,14 @@ impl PopupMenu {
         let items = Rc::new(items);
         let current = Rc::new(Cell::new(items.iter().position(|i| i.enabled).map(|i| i as i32).unwrap_or(-1)));
         let scroll = Rc::new(Cell::new(0i32));
+        let motion = Rc::new(RefCell::new(crate::scroll::Scroll::new()));
 
-        let (it, cur, sc, gd) = (items.clone(), current.clone(), scroll.clone(), g.clone());
+        let (it, cur, sc, gd, mo) = (items.clone(), current.clone(), scroll.clone(), g.clone(), motion.clone());
         layer.draw(move |l| {
+            let mut motion = mo.borrow_mut();
+            sc.set(motion.position(sc.get() as i64, (gd.content_h - gd.view_h).max(0) as i64) as i32);
+            if motion.running() { crate::anim::request_redraw(l); }
+            drop(motion);
             if let Some(win) = l.top_window() {
                 if (l.w(), l.h()) != (win.w(), win.h()) { l.resize(0, 0, win.w(), win.h()); }
             }
@@ -288,6 +293,7 @@ impl PopupMenu {
         let on_pick = Rc::new(RefCell::new(Some(Box::new(on_pick) as Box<dyn FnOnce(usize)>)));
         let (it, cur, sc, gd, st) = (items.clone(), current.clone(), scroll.clone(), g.clone(), state.clone());
         layer.handle(move |l, ev| {
+            if matches!(ev, Event::Push | Event::KeyDown) { motion.borrow_mut().jump(sc.get() as i64); }
             let (x, y, w, h) = gd.rect;
             let max_scroll = (gd.content_h - gd.view_h).max(0);
             let at = |ey: i32| -> Option<usize> {
@@ -354,9 +360,8 @@ impl PopupMenu {
                     true
                 }
                 Event::MouseWheel => {
-                    let d = match app::event_dy() { app::MouseWheel::Down => 1, app::MouseWheel::Up => -1, _ => 0 };
                     let row = theme::with(|t| t.spacing.popup_row_height);
-                    sc.set((sc.get() + d * row).clamp(0, max_scroll));
+                    sc.set(motion.borrow_mut().wheel(sc.get() as i64, app::event_dy_value() as f64 * row as f64, max_scroll as i64) as i32);
                     l.redraw();
                     true
                 }
@@ -697,7 +702,7 @@ impl ShortcutHelp {
                 true
             }
             Event::MouseWheel => {
-                let d = match app::event_dy() { app::MouseWheel::Down => 40, app::MouseWheel::Up => -40, _ => 0 };
+                let d = app::event_dy_value().saturating_mul(40);
                 go(scroll.get() + d);
                 true
             }

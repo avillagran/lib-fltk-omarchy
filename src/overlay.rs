@@ -12,6 +12,30 @@ use fltk::{app, enums::*, prelude::*, widget::Widget};
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
+thread_local! {
+    // Deletion-tracked handles only; a layer does not own its window.
+    static LAYERS: RefCell<Vec<Widget>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Called by the toolkit's existing pre-flush check. Plain FLTK windows
+/// redraw damaged children independently: a canvas can therefore paint over
+/// an undamaged overlay, and a translucent layer can accumulate on itself.
+/// Redraw the stack together, only when an open overlay's window is dirty.
+/// No timer, callback per popup, or redraw while the window is idle.
+pub(crate) fn prepare_redraw() {
+    LAYERS.with(|layers| {
+        let mut layers = layers.borrow_mut();
+        layers.retain(|l| !l.was_deleted() && l.parent().is_some());
+        for layer in layers.iter().filter(|l| l.visible()) {
+            if let Some(mut win) = layer.top_window() {
+                if win.damage() && win.damage_type() != Damage::All {
+                    win.redraw();
+                }
+            }
+        }
+    });
+}
+
 /// Keyboard policy of popups (menus, dropdowns, help): see docs/KEYBOARD.md.
 /// True when Ctrl, Alt or Super is held: the key is an app shortcut, not
 /// popup input (navigation, typing).
@@ -42,6 +66,7 @@ pub(crate) fn open_layer<A: WidgetExt>(anchor: &A, rect: Option<(i32, i32, i32, 
     layer.resize(x, y, w, h);
     layer.set_frame(FrameType::NoBox);
     group.add(&layer);
+    LAYERS.with(|layers| layers.borrow_mut().push(layer.clone()));
     if let Some(g) = prev {
         g.begin();
     }
@@ -64,6 +89,7 @@ pub(crate) fn close_layer(layer: &Widget) {
     // SAFETY: a Fl_Window is a Fl_Widget.
     let win = layer.top_window().map(|w| unsafe { Widget::from_widget_ptr(w.as_widget_ptr()) });
     parent.remove(layer);
+    LAYERS.with(|layers| layers.borrow_mut().retain(|l| !l.was_deleted() && l.as_widget_ptr() != layer.as_widget_ptr()));
     parent.redraw();
     crate::focus::give_back(layer, win);
     // Deferred: layers close from inside their own handler, and fltk keeps
@@ -245,7 +271,7 @@ fn open_popup(trigger: &mut Widget, options: &Rc<RefCell<Vec<String>>>, value: &
                 true
             }
             Event::MouseWheel => {
-                let d = match app::event_dy() { app::MouseWheel::Down => 1, app::MouseWheel::Up => -1, _ => 0 };
+                let d = app::event_dy_value().saturating_mul(1);
                 tp.set((tp.get() + d).clamp(0, (n - shown).max(0)));
                 l.redraw();
                 true
@@ -749,7 +775,7 @@ impl Menu {
                     true
                 }
                 Event::MouseWheel => {
-                    let d = match app::event_dy() { app::MouseWheel::Down => 1, app::MouseWheel::Up => -1, _ => 0 };
+                    let d = app::event_dy_value().saturating_mul(1);
                     let n = vis.borrow().len();
                     let max_top = n.saturating_sub(g.rows.saturating_sub(1));
                     tp.set((tp.get() as i32 + d).clamp(0, max_top as i32) as usize);

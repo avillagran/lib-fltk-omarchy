@@ -49,7 +49,10 @@ pub fn install() {
     unsafe { app::event_dispatch(dispatch) };
     // Catch-all for focus changes made outside any event (app code calling
     // `take_focus` from a timer): reported before the loop waits again.
-    app::add_check(|_| sync_panels(PanelFocusCause::Other));
+    app::add_check(|_| {
+        sync_panels(PanelFocusCause::Other);
+        crate::overlay::prepare_redraw();
+    });
 }
 
 fn dispatch(ev: Event, win: app::WindowPtr) -> bool {
