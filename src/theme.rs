@@ -788,6 +788,11 @@ fn apply_to_fltk(t: &Theme) {
     Font::set_font(Font::HelveticaBold, &format!("{} Bold", t.font_family));
     Font::set_font(Font::Courier, &t.font_family);
     Font::set_font(Font::CourierBold, &format!("{} Bold", t.font_family));
+    // Italics for rich text (`text`), same family.
+    Font::set_font(Font::HelveticaItalic, &format!("{} Italic", t.font_family));
+    Font::set_font(Font::HelveticaBoldItalic, &format!("{} Bold Italic", t.font_family));
+    Font::set_font(Font::CourierItalic, &format!("{} Italic", t.font_family));
+    Font::set_font(Font::CourierBoldItalic, &format!("{} Bold Italic", t.font_family));
     app::set_font_size(t.font.body);
 }
 

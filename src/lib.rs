@@ -17,6 +17,7 @@ pub mod scroll;
 pub mod state;
 pub mod table;
 pub mod task;
+pub mod text;
 pub mod theme;
 pub mod toml;
 pub mod widgets;

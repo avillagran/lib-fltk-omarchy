@@ -10,6 +10,7 @@ use fltk_omarchy::panel::{KeyboardPanel, PanelLayout};
 use fltk_omarchy::overlay::{ConfirmDialog, Dropdown, Menu, MenuItem, Notification, Urgency};
 use fltk_omarchy::popups::{Dismiss, OperationToast, PopupCard, PopupItem, PopupMenu, SearchableDropdown, ShortcutHelp};
 use fltk_omarchy::table::{Column, Table, Tree, TreeNode};
+use fltk_omarchy::text::{Block, ColorRole, RichLabel, RichText, Style, TextPos};
 use fltk_omarchy::theme::Corners;
 use fltk_omarchy::Mode;
 use fltk_omarchy::task::{Outcome, Task};
@@ -1294,6 +1295,196 @@ fn main() {
         let fallback = theme::Theme::try_load();
         std::env::set_var("OMARCHY_FLTK_STATE_DIR", &state);
         check(fallback.is_ok_and(|t| t.palette.accent == theme::Rgb(0x7aa2f7)), "fallback without Omarchy")
+    });
+    run("rich text: bold ink, code chip, link underline, code surface, selection color", &|shots| {
+        let mut win = AppWindow::new("t", 520, 300);
+        let rt = RichText::new();
+        win.end();
+        rt.set_markdown("same **same** `chip` [link](https://example.com) plain words\n\n```\nlet x = 1;\n```\n");
+        let p = shots.join("richtext.png");
+        win.snapshot(&p).map_err(|e| e.to_string())?;
+        let t = theme::current();
+        let bg = t.palette.background;
+        let ink = |p: &Path, (x, y, w, h): (i32, i32, i32, i32)| -> Result<usize, String> {
+            let mut n = 0;
+            for yy in y..y + h {
+                for xx in x..x + w {
+                    let px = pixel(p, xx, yy)?;
+                    let d = (px[0] as i32 - bg.r() as i32).abs() + (px[1] as i32 - bg.g() as i32).abs() + (px[2] as i32 - bg.b() as i32).abs();
+                    if d > 60 { n += 1; }
+                }
+            }
+            Ok(n)
+        };
+        let plain = rt.text_rect("same").ok_or("plain rect")?;
+        let b0 = rt.text_rect("same chip").ok_or("bold rect")?;
+        let b1 = rt.text_rect(" chip").ok_or("chip rect")?;
+        let bold = (b0.0, b0.1, b1.0 - b0.0, b0.3);
+        let (ip, ib) = (ink(&p, plain)?, ink(&p, bold)?);
+        check(ib * 100 > ip * 115, &format!("bold ink {ib} vs regular {ip}"))?;
+        let chip = rt.text_rect("chip").ok_or("chip")?;
+        let px = pixel(&p, chip.0 - 1, chip.1 + chip.3 / 2)?;
+        let lb = t.palette.lighter_background;
+        check(px == [lb.r(), lb.g(), lb.b()], &format!("chip {px:?} vs lighter_background {:?}", lb.hex()))?;
+        let link = rt.text_rect("link").ok_or("link")?;
+        let a = t.palette.accent;
+        let underline = (link.1..link.1 + link.3).any(|y| pixel(&p, link.0 + link.2 / 2, y).is_ok_and(|px| px == [a.r(), a.g(), a.b()]));
+        check(underline, "link underline in the accent color")?;
+        let code = rt.text_rect("let x").ok_or("code")?;
+        let px = pixel(&p, code.0 - 3, code.1 + code.3 / 2)?;
+        check(px == [lb.r(), lb.g(), lb.b()], &format!("code surface {px:?}"))?;
+        // Selection "same " paints the space between the two words.
+        rt.set_selection(TextPos { block: 0, offset: 0 }, TextPos { block: 0, offset: 5 });
+        let p2 = shots.join("richtext-selection.png");
+        win.snapshot(&p2).map_err(|e| e.to_string())?;
+        let gap_x = (plain.0 + plain.2 + bold.0) / 2;
+        let sc = t.palette.foreground.over(bg, t.controls.selection_fill_alpha);
+        let px = pixel(&p2, gap_x, plain.1 + plain.3 / 2)?;
+        check(px == [sc.r(), sc.g(), sc.b()], &format!("selection {px:?} vs {:?}", sc.hex()))?;
+        check(rt.selected_text() == "same ", "selected text")
+    });
+    run("rich text: 5 000 messages are virtual; sticks to the bottom while streaming; keys scroll", &|shots| {
+        let mut win = AppWindow::new("t", 480, 360);
+        let rt = RichText::new().stick_to_bottom(true);
+        win.end();
+        for k in 0..5000 {
+            rt.append_markdown(&format!("**Message {k}**\n\nSome text with `code` and a [link](https://x.dev/{k})."));
+        }
+        let p = shots.join("richtext-chat.png");
+        win.snapshot(&p).map_err(|e| e.to_string())?;
+        let laid = rt.blocks_laid_out();
+        check(rt.block_count() == 10_000, "blocks")?;
+        check(laid < 80, &format!("laid out {laid} of 10 000 blocks"))?;
+        check(rt.is_at_bottom() && rt.text_rect("Message 4999").is_some(), "starts at the bottom")?;
+        rt.append_markdown("");
+        let mut md = String::new();
+        for k in 0..120 {
+            let piece = if k % 15 == 14 { "\n\n".to_string() } else { format!("token{k} ") };
+            md.push_str(&piece);
+            rt.push_markdown(&piece);
+            if k % 4 == 0 { win.snapshot(&p).map_err(|e| e.to_string())?; }
+        }
+        win.snapshot(&p).map_err(|e| e.to_string())?;
+        check(rt.is_at_bottom() && rt.text_rect("token118").is_some(), "follows the stream")?;
+        check(rt.blocks_laid_out() - laid < 200, &format!("relaid {} blocks for 120 pushes", rt.blocks_laid_out() - laid))?;
+        // The streamed message equals a one-shot parse of the same text.
+        let one = fltk_omarchy::text::Document::from_markdown(&md).blocks;
+        let base = rt.block_count() - one.len();
+        check((0..one.len()).all(|i| rt.block(base + i).as_ref() == Some(&one[i])), "stream == one-shot")?;
+        let mut w = (*rt).clone();
+        let _ = w.take_focus();
+        press("Home");
+        win.snapshot(&p).map_err(|e| e.to_string())?;
+        check(rt.scroll_offset() == 0 && rt.text_rect("Message 0").is_some(), "Home")?;
+        press("PageDown");
+        check(rt.scroll_offset() > 200, "PageDown")?;
+        rt.push_markdown("more ");
+        win.snapshot(&p).map_err(|e| e.to_string())?;
+        check(!rt.is_at_bottom(), "scrolled up: no longer follows")?;
+        press("End");
+        rt.push_markdown("\n\nend of stream");
+        win.snapshot(&p).map_err(|e| e.to_string())?;
+        check(rt.is_at_bottom() && rt.text_rect("end of stream").is_some(), "End follows again")
+    });
+    run("rich text: links by click and by Tab / Enter, copy button stop, Ctrl+A, Esc", &|shots| {
+        let opened = Rc::new(RefCell::new(Vec::<String>::new()));
+        let mut win = AppWindow::new("t", 480, 320);
+        let mut body = win.body();
+        let before = Button::new("Before");
+        body.fit(&*before);
+        let o = opened.clone();
+        let rt = RichText::new().on_link(move |u| o.borrow_mut().push(u.to_string()));
+        let after = Button::new("After");
+        body.fit(&*after);
+        win.end();
+        rt.set_markdown("Read [one](https://one.dev) and [two](https://two.dev).\n\n```\ncode\n```\n");
+        win.snapshot(shots.join("richtext-links.png")).map_err(|e| e.to_string())?;
+        let (x, y, w, h) = rt.text_rect("one").ok_or("link rect")?;
+        focus::click_at(&*win, x + w / 2, y + h / 2);
+        check(*opened.borrow() == ["https://one.dev"], &format!("click opened {:?}", opened.borrow()))?;
+        let _ = before.clone().take_focus();
+        press("Tab");
+        check(focus::is_focused(&*rt) && rt.focused_link().is_none(), "Tab enters the view")?;
+        press("Tab");
+        check(rt.focused_link().as_deref() == Some("https://one.dev"), "Tab: first link")?;
+        press("Tab");
+        check(rt.focused_link().as_deref() == Some("https://two.dev"), "Tab: second link")?;
+        win.snapshot(shots.join("richtext-link-focus.png")).map_err(|e| e.to_string())?;
+        press("Enter");
+        check(opened.borrow().last().map(String::as_str) == Some("https://two.dev"), "Enter opens it")?;
+        press("Tab");
+        check(focus::is_focused(&*rt) && rt.focused_link().is_none(), "Tab: code copy button")?;
+        press("Tab");
+        check(focus::is_focused(&*after), "Tab leaves the view")?;
+        press("Shift+Tab");
+        check(focus::is_focused(&*rt), "Shift+Tab comes back")?;
+        check(press("Ctrl+a") && rt.selected_text() == rt.plain_text(), "Ctrl+A selects all")?;
+        check(rt.plain_text() == "Read one and two.\ncode", "plain text")?;
+        check(press("Ctrl+c"), "Ctrl+C copies")?;
+        check(press("Escape") && rt.selection().is_none(), "Esc clears")
+    });
+    run("rich text: a theme change re-colors without parsing or laying out again", &|shots| {
+        let mut win = AppWindow::new("t", 400, 200);
+        let rt = RichText::new();
+        win.end();
+        rt.set_markdown("A [link](https://x.dev) here.");
+        let p = shots.join("richtext-theme.png");
+        win.snapshot(&p).map_err(|e| e.to_string())?;
+        let laid = rt.blocks_laid_out();
+        let old = theme::current();
+        let mut t = old.clone();
+        t.palette.accent = theme::Rgb(0x33ccff);
+        theme::set(t);
+        win.snapshot(&p).map_err(|e| e.to_string())?;
+        let link = rt.text_rect("link").ok_or("link")?;
+        let under = (link.1..link.1 + link.3).any(|y| pixel(&p, link.0 + 2, y).is_ok_and(|px| px == [0x33, 0xcc, 0xff]));
+        theme::set(old);
+        check(under, "underline in the new accent")?;
+        check(rt.blocks_laid_out() == laid, "no relayout for a color change")
+    });
+    run("rich text: bind_markdown follows appends and replacements; sender() from a thread", &|shots| {
+        let md = State::new("# Title\n\nfirst".to_string());
+        let mut win = AppWindow::new("t", 400, 240);
+        let rt = RichText::new().bind_markdown(&md);
+        win.end();
+        win.snapshot(shots.join("richtext-bind.png")).map_err(|e| e.to_string())?;
+        check(rt.plain_text() == "Title\nfirst", &format!("bound {:?}", rt.plain_text()))?;
+        let laid = rt.blocks_laid_out();
+        md.update(|s| s.push_str(" more\n\n- item"));
+        win.snapshot(shots.join("richtext-bind.png")).map_err(|e| e.to_string())?;
+        check(rt.plain_text() == "Title\nfirst more\nitem", &format!("appended {:?}", rt.plain_text()))?;
+        // The heading did not change: only the paragraph and the item were laid out.
+        check(rt.blocks_laid_out() - laid == 2, &format!("relaid {}", rt.blocks_laid_out() - laid))?;
+        md.set("Other *text*".into());
+        check(rt.plain_text() == "Other text" && rt.block_count() == 1, "replaced")?;
+        let tx = rt.sender();
+        let worker = std::thread::spawn(move || {
+            for w in ["\n\nfrom ", "a **worker** ", "thread"] {
+                tx.push(w);
+            }
+            tx.finish();
+        });
+        worker.join().map_err(|_| "worker panicked".to_string())?;
+        pump_until(|| rt.plain_text().ends_with("thread"));
+        check(rt.plain_text() == "Other text\nfrom a worker thread", &format!("sender {:?}", rt.plain_text()))
+    });
+    run("rich label: inline markdown, natural size, link click", &|shots| {
+        let opened = Rc::new(RefCell::new(String::new()));
+        let mut win = AppWindow::new("t", 420, 120);
+        let o = opened.clone();
+        let mut r = layout::row();
+        let l = RichLabel::new("Saved **3 files** to `~/x` — [undo](app://undo)").on_link(move |u| *o.borrow_mut() = u.into());
+        r.fit(&*l);
+        r.close_fitted();
+        win.end();
+        win.snapshot(shots.join("rich-label.png")).map_err(|e| e.to_string())?;
+        check(l.text() == "Saved 3 files to ~/x — undo", "text")?;
+        check(l.w() > 150 && l.h() >= 16, &format!("natural size {}x{}", l.w(), l.h()))?;
+        // "undo" is the last word: click near the right end of the label.
+        focus::click_at(&*win, l.x() + l.w() - 12, l.y() + l.h() / 2);
+        check(*opened.borrow() == "app://undo", &format!("clicked {:?}", opened.borrow()))?;
+        let blocks = [Block::paragraph("x").push("y", &Style::plain().color(ColorRole::Red))];
+        check(blocks[0].content.runs().len() == 2, "builder runs")
     });
     drop(app);
     println!("{}", if failed == 0 { "all ui checks passed" } else { "ui checks FAILED" });
