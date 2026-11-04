@@ -60,6 +60,17 @@ fn dispatch(ev: Event, win: app::WindowPtr) -> bool {
         Event::Push => set_keyboard_mode(false),
         _ => {}
     }
+    if ev == Event::Shortcut && app::first_window().is_none() && app::grab().is_none() {
+        // FLTK 1.5.23 (Fl.cxx, FL_SHORTCUT) sends the shortcut to
+        // `first_window()` without a null check when the widget under the
+        // pointer is in another window: with no window shown (offscreen
+        // snapshots, every window hidden) that is a null dereference.
+        // Nothing is under a pointer then; forget the stale widget.
+        if app::belowmouse::<fltk::widget::Widget>().is_some() {
+            // SAFETY: plain FLTK setter on the UI thread; null is valid.
+            unsafe { crate::platform::fl_abi::Fl_set_belowmouse(std::ptr::null_mut()) };
+        }
+    }
     let used = if ev == Event::KeyDown { route_key(win) } else { None };
     // SAFETY: `win` comes from fltk for this very event.
     let used = used.unwrap_or_else(|| unsafe { app::handle_raw(ev, win) });

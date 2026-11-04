@@ -245,7 +245,7 @@ impl PopupMenu {
         let rtl = crate::layout::is_rtl(anchor);
 
         let (it, cur, sc, gd, mo) = (items.clone(), current.clone(), scroll.clone(), g.clone(), motion.clone());
-        layer.draw(move |l| {
+        crate::overlay::draw_layer(&mut layer, move |l| {
             let mut motion = mo.borrow_mut();
             sc.set(motion.position(sc.get() as i64, (gd.content_h - gd.view_h).max(0) as i64) as i32);
             if motion.running() { crate::anim::request_redraw(l); }
@@ -577,7 +577,7 @@ fn open_search(trigger: &mut Widget, options: &Rc<Vec<(String, String)>>, value:
         (row, header, rows, h)
     });
     let (opts, q, vis, cu, tp) = (options.clone(), query.clone(), visible.clone(), cur.clone(), top.clone());
-    layer.draw(move |l| {
+    crate::overlay::draw_layer(&mut layer, move |l| {
         if let Some(win) = l.top_window() { if (l.w(), l.h()) != (win.w(), win.h()) { l.resize(0, 0, win.w(), win.h()); } }
         let (row, header, rows, h) = geo();
         theme::with(|t| {
@@ -753,7 +753,7 @@ impl ShortcutHelp {
         let (scroll_out, extent_out) = (scroll.clone(), extent.clone());
         // Right to left: key chips on the right, descriptions on their left.
         let rtl = crate::layout::is_rtl(anchor);
-        layer.draw(move |l| {
+        crate::overlay::draw_layer(&mut layer, move |l| {
             if let Some(win) = l.top_window() { if (l.w(), l.h()) != (win.w(), win.h()) { l.resize(0, 0, win.w(), win.h()); } }
             theme::with(|t| {
                 crate::overlay::draw_scrim(l, t.menu.background, 0.5);
@@ -958,7 +958,7 @@ impl OperationToast {
             })
         });
         let (d, buttons2, buttons3) = (data.clone(), buttons.clone(), buttons.clone());
-        layer.draw(move |l| {
+        crate::overlay::draw_layer(&mut layer, move |l| {
             let buttons = &buttons2;
             // Stay in the bottom-right corner when the window is resized.
             if let Some(win) = l.top_window() {

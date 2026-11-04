@@ -52,8 +52,15 @@ classic Omarchy look. Import as `fltk_omarchy`.
     the `gpu` feature (monitor fps, ~2 % CPU, +40 MB PSS for the GL driver)
     and on the CPU otherwise (30 fps cap). Do not pick a backend unless
     there is a reason (`.backend(..)`). Guide: docs/SHADERS.md.
-    Control transitions follow Omarchy durations automatically; tests and
-    screenshots that need final states call `anim::set_enabled(false)`.
+    Motion is automatic and follows the system's Animations setting
+    (Hyprland `animations:enabled`, GNOME, macOS Reduce motion, Windows):
+    controls, layout changes of toolkit rows/columns (`fixed`, show/hide;
+    `layout::set_visible(&w, false)` collapses and fades), `Sidebar`
+    (hover-expanding rail), popups, tabs, list/tree rows. Do not animate
+    by hand; opt a container out with `FlexExt::animated(false)`. Tests and
+    screenshots that need final states call `anim::set_enabled(false)`;
+    intermediate frames: `anim::clock::freeze()` / `advance(..)`.
+    Guide: docs/ANIMATION.md.
 12. Every user-visible string goes through `i18n`: `tr!("Open")`,
    `tr!("Delete {name}?", name = f)`, `trn!("{count} files", n)` for
    counts. Bind live text so a language switch re-labels without a rebuild:

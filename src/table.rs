@@ -633,6 +633,8 @@ struct TrState {
     drawn: usize,
     slots: RowSlots,
     inval: Invalidations,
+    // Branches opening and closing: rows below slide, new rows arrive.
+    rm: crate::rowmotion::RowMotion<Visible>,
 }
 
 /// Virtual tree: `children(None)` gives the roots, `children(Some(id))`
@@ -665,6 +667,7 @@ impl Tree {
             drawn: 0,
             slots: RowSlots::default(),
             inval: Invalidations::default(),
+            rm: Default::default(),
         }));
         let tree = Tree { widget, st };
         tree.refresh();
@@ -810,13 +813,18 @@ impl Tree {
 
     pub fn expand(&self, id: ItemId) {
         if self.st.borrow_mut().expanded.insert(id) {
+            // Omarchy KeyboardPanel growing toward new rows: 200 ms.
+            self.st.borrow_mut().rm.reflowed(crate::anim::ms::REVEAL);
             self.rebuild();
+            self.widget.clone().redraw();
         }
     }
 
     pub fn collapse(&self, id: ItemId) {
         if self.st.borrow_mut().expanded.remove(&id) {
+            self.st.borrow_mut().rm.reflowed(crate::anim::ms::REVEAL);
             self.rebuild();
+            self.widget.clone().redraw();
         }
     }
 
@@ -1063,15 +1071,10 @@ fn tree_draw(w: &mut Widget, st: &Rc<RefCell<TrState>>) {
         let ind = indent();
         let pad = t.spacing.md;
         s.slots.begin(s.top, visible);
-        for k in 0..visible {
-            let idx = first + k;
-            let Some(v) = rows.get(idx) else { s.slots.drawn(k, None); continue };
-            let ry = w.y() + (idx as i64 * rh as i64 - s.top) as i32;
-            // Partial redraws (one changed row) draw only the rows in the damaged area.
-            if !draw::not_clipped(w.x(), ry, w.w(), rh) { continue; }
-            s.slots.drawn(k, Some(v.node.id));
-            let rw = w.w() - BAR - 4;
-            draw_row_bg(t, m.x(w.x(), rw), ry, rw, rh, s.panel.is_selected(v.node.id), cursor == Some(v.node.id), s.hover == Some(idx), ring);
+        let rw = w.w() - BAR - 4;
+        // One row: background, expander, icon, label and detail.
+        let paint_row = |s: &TrState, v: &Visible, ry: i32, idx: Option<usize>| {
+            draw_row_bg(t, m.x(w.x(), rw), ry, rw, rh, s.panel.is_selected(v.node.id), cursor == Some(v.node.id), idx.is_some() && s.hover == idx, ring);
             let mut x = w.x() + pad + v.depth as i32 * ind;
             if v.node.has_children {
                 let open = s.expanded.contains(&v.node.id);
@@ -1092,7 +1095,45 @@ fn tree_draw(w: &mut Widget, st: &Rc<RefCell<TrState>>) {
                 lw -= dw + t.spacing.lg;
             }
             paint::text_elided(&v.node.label, m.x(x, lw.max(0)), ry, lw.max(0), rh, t.font.body, false, fg, m.align(Align::Left));
+        };
+        // Branches opening or closing (full redraws): where each row in view is now.
+        let moving = w.damage_type().contains(Damage::All);
+        if moving {
+            let inview: Vec<(ItemId, i32)> = (0..visible)
+                .filter_map(|k| rows.get(first + k).map(|v| (v.node.id, ((first + k) as i64 * rh as i64 - s.top) as i32)))
+                .collect();
+            let index = s.index.clone();
+            s.rm.begin(&inview, |id| index.borrow().contains_key(&id));
+        }
+        let under = t.palette.background;
+        let drift = (22.0 * t.font.base as f64 / 12.0).round();
+        let mut drawn = Vec::new();
+        for k in 0..visible {
+            let idx = first + k;
+            let Some(v) = rows.get(idx) else { s.slots.drawn(k, None); continue };
+            let (dy, opacity, _) = if moving { s.rm.at(v.node.id, drift) } else { (0, 1.0, 0.0) };
+            let ry = w.y() + (idx as i64 * rh as i64 - s.top) as i32 + dy;
+            // Partial redraws (one changed row) draw only the rows in the damaged area.
+            if !draw::not_clipped(w.x(), ry, w.w(), rh) { continue; }
+            s.slots.drawn(k, Some(v.node.id));
+            paint_row(s, v, ry, Some(idx));
+            if opacity < 1.0 {
+                paint::alpha_fill(m.x(w.x(), rw), ry, rw, rh, under, 1.0 - opacity);
+            }
+            if moving && crate::anim::enabled() {
+                drawn.push((v.node.id, ry - w.y(), v.clone()));
+            }
             s.drawn += 1;
+        }
+        if moving {
+            for g in &s.rm.ghosts {
+                let (dy, o) = g.sample(drift);
+                let ry = w.y() + g.y + dy;
+                paint_row(s, &g.row, ry, None);
+                paint::alpha_fill(m.x(w.x(), rw), ry, rw, rh, under, 1.0 - o);
+            }
+            s.rm.end(drawn);
+            if s.rm.running() { crate::anim::request_redraw(w); }
         }
         draw::pop_clip();
         scrollbar(t, m.x(w.x() + w.w() - BAR, BAR), w.y(), w.h(), s.top, content);

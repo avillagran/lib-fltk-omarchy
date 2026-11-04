@@ -746,6 +746,9 @@ pub fn with<R>(f: impl FnOnce(&Theme) -> R) -> R {
 pub fn set(theme: Theme) {
     // Apps that start FLTK themselves get Omarchy tooltips with the theme.
     crate::tooltip::auto_install();
+    // Apps that start FLTK themselves (no App::new) follow the system's
+    // Animations setting from their first frame too.
+    crate::anim::init();
     GENERATION.with(|g| g.set(g.get() + 1));
     let theme = theme.with_prefs();
     apply_to_fltk(&theme);

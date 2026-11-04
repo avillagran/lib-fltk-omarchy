@@ -40,6 +40,8 @@ impl App {
         style_tooltips(&theme::current());
         theme::on_change(style_tooltips);
         crate::tooltip::install();
+        // Follow the system's Animations setting (Hyprland, GNOME, macOS, Windows).
+        crate::anim::init();
         App { id: id.to_string(), _fltk: fltk, watcher: Some(ThemeWatcher::start()) }
     }
 

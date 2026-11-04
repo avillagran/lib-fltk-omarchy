@@ -13,6 +13,7 @@
 //! | Live reload | inotify (blocking) | mtime polling, 1 s | mtime polling, 1 s |
 //! | Default font | fontconfig `monospace` | Menlo | Consolas |
 //! | Primary modifier | Ctrl | Cmd | Ctrl |
+//! | Motion setting ([`animations`]) | Hyprland `animations:enabled` (live), GNOME `enable-animations` | Reduce motion | Client area animation |
 //!
 //! Details and how each one was verified: docs/PLATFORMS.md.
 
@@ -90,6 +91,26 @@ pub fn wayland() -> bool {
 /// `AppsUseLightTheme`.
 pub fn prefers_dark() -> Option<bool> {
     imp::prefers_dark()
+}
+
+/// The OS motion setting: `Some(true)` animations on, `Some(false)` off
+/// (reduce motion), `None` when the OS has no such setting or it cannot
+/// be read. May block briefly (a Hyprland socket request, `gsettings`):
+/// [`crate::anim`] calls it from its watcher thread.
+///
+/// Linux: Hyprland's `animations:enabled` (Omarchy's Animations switch),
+/// else GNOME's `enable-animations` on GNOME-family desktops. macOS:
+/// `NSWorkspace.accessibilityDisplayShouldReduceMotion`. Windows:
+/// `SPI_GETCLIENTAREAANIMATION`.
+pub fn animations() -> Option<bool> {
+    imp::animations()
+}
+
+/// Starts following changes of [`animations`] where the OS announces them
+/// (Hyprland's event socket: `configreloaded` and focus changes), sending
+/// on `kick` for each. Returns at once; elsewhere it does nothing.
+pub(crate) fn watch_animations(kick: std::sync::mpsc::Sender<()>) {
+    imp::watch_animations(kick)
 }
 
 /// CPU time used by this process so far (user + system), for benchmarks

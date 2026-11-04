@@ -29,6 +29,7 @@ use std::time::{Duration, Instant};
 
 mod edit_ui;
 mod tooltip_ui;
+mod motion_ui;
 
 const COLORS_A: &str = "accent = \"#e68e0d\"\nbackground = \"#121212\"\nforeground = \"#bebebe\"\nred = \"#d35f5f\"\n";
 const COLORS_B: &str = "accent = \"#33ccff\"\nbackground = \"#1a1b26\"\nforeground = \"#c0caf5\"\nred = \"#f7768e\"\n";
@@ -54,11 +55,18 @@ fn main() {
     std::env::remove_var("HYPRLAND_INSTANCE_SIGNATURE");
 
     let app = App::new("dev.omarchy.fltk.tests");
+    // Final states unless a check turns animations on (AGENTS.md rule 11).
+    fltk_omarchy::anim::set_enabled(false);
     // Toolkit strings follow the system language: pin English.
     i18n::set_locale("en");
     let shots = root.join("shots");
     let mut failed = 0;
+    // OMARCHY_FLTK_UI_ONLY=<a|b>: run only the checks whose name contains one of them.
+    let only = std::env::var("OMARCHY_FLTK_UI_ONLY").ok();
     let mut run = |name: &str, f: &dyn Fn(&Path) -> Result<(), String>| {
+        if only.as_deref().is_some_and(|o| !o.split('|').any(|p| name.contains(p))) {
+            return;
+        }
         let r = f(&shots);
         match &r {
             Ok(()) => println!("ok   {name}"),
@@ -628,7 +636,6 @@ fn main() {
         fltk_omarchy::anim::set_enabled(false);
         on.set(false);
         let x_now = knob_x(&shot("sw-4-off.png")?)?;
-        fltk_omarchy::anim::set_enabled(true);
         check(x_now == x_off && fltk_omarchy::anim::pending() == 0, &format!("disabled: jumps to {x_now}"))
     });
     run("portable shaders: same pixels as sl eval, backend choice, display rate on the CPU", &|shots| {
@@ -1983,10 +1990,13 @@ fn main() {
     });
     tooltip_ui::checks(&mut run, COLORS_A, COLORS_B);
     edit_ui::checks(&mut run);
+    motion_ui::checks(&mut run);
     #[cfg(feature = "a11y")]
     a11y_checks(&mut run);
     #[cfg(feature = "a11y")]
     edit_ui::a11y_checks(&mut run);
+    #[cfg(feature = "a11y")]
+    motion_ui::a11y_checks(&mut run);
     drop(app);
     println!("{}", if failed == 0 { "all ui checks passed" } else { "ui checks FAILED" });
     if failed > 0 && !strict {

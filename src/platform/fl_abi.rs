@@ -54,3 +54,9 @@ extern "C" {
     #[link_name = "?e_clicks@Fl@@2HA"]
     pub(crate) static mut FL_E_CLICKS: i32;
 }
+
+// Plain C functions of cfltk (no C++ mangling): the same name on every OS.
+extern "C" {
+    /// `Fl::belowmouse(w)`; null clears it (fltk-rs only sets a widget).
+    pub(crate) fn Fl_set_belowmouse(w: *mut std::ffi::c_void);
+}

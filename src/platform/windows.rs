@@ -81,3 +81,26 @@ pub(super) fn process_cpu_time() -> Option<Duration> {
     let ticks = |t: &FileTime| (u64::from(t.high) << 32) | u64::from(t.low);
     (ok != 0).then(|| Duration::from_nanos((ticks(&k) + ticks(&u)) * 100))
 }
+
+const SPI_GETCLIENTAREAANIMATION: u32 = 0x1042;
+
+#[link(name = "user32")]
+extern "system" {
+    fn SystemParametersInfoW(action: u32, param: u32, pv: *mut c_void, win_ini: u32) -> i32;
+}
+
+/// Settings > Accessibility > Visual effects > Animation effects
+/// (`SPI_GETCLIENTAREAANIMATION`, Windows 7+).
+pub(super) fn animations() -> Option<bool> {
+    let mut on: i32 = 1;
+    // SAFETY: the action takes a BOOL out pointer.
+    let ok = unsafe {
+        SystemParametersInfoW(
+            SPI_GETCLIENTAREAANIMATION,
+            0,
+            (&mut on as *mut i32).cast(),
+            0,
+        )
+    };
+    (ok != 0).then_some(on != 0)
+}

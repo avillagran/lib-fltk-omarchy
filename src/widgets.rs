@@ -48,6 +48,8 @@ pub mod glyph {
     pub const SUBMENU_RTL: &str = "\u{2039}";
 }
 
+pub use crate::sidebar::{Sidebar, SidebarItem, SidebarMode};
+
 type Cb<T> = Rc<RefCell<Option<Box<dyn FnMut(T)>>>>;
 
 fn cb<T>() -> Cb<T> {
@@ -1660,6 +1662,8 @@ impl TabBar {
         let scroll = Rc::new(Cell::new(0i32));
         let revealed = Rc::new(Cell::new(usize::MAX));
         let geo = Rc::new(TabGeo { tabs: tabs.clone(), scroll: scroll.clone() });
+        // The selection (fill and accent line) slides to the new tab.
+        let slide: Rc<RefCell<(Anim<f64>, Anim<f64>)>> = Rc::default();
         let (tb, v, hv, cl, g, rv) = (tabs.clone(), value.clone(), hover.clone(), closable.clone(), geo.clone(), revealed.clone());
         inner.draw(move |w| {
             // Keep the selected tab (and its close glyph) in view when the selection changes.
@@ -1677,18 +1681,26 @@ impl TabBar {
                 paint::hairline(w.x(), w.y() + w.h() - 1, w.w(), fg, under, 0.12);
                 let (vx, vw) = g.view(w);
                 draw::push_clip(m.x(vx, vw), w.y(), vw, w.h());
-                for (i, ((x, tw), label)) in g.tabs_at(w).into_iter().zip(tb.borrow().iter()).enumerate() {
+                let at = g.tabs_at(w);
+                if let Some(&(sx, sw)) = at.get(v.get()) {
+                    // Content coordinates: scrolling moves it with the strip, at once.
+                    let shift = sx - g.layout().get(v.get()).map_or(sx, |l| l.0);
+                    let mut sl = slide.borrow_mut();
+                    let ax = sl.0.get((sx - shift) as f64, crate::anim::ms::INDICATOR, Ease::OutCubic, w).round() as i32 + shift;
+                    let aw = sl.1.get(sw as f64, crate::anim::ms::INDICATOR, Ease::OutCubic, w).round() as i32;
+                    let mx = m.x(ax, aw);
+                    paint::surface(mx, w.y(), aw, w.h() - 1, t.radius, Some(t.fill(&t.controls.selected, under)), None);
+                    paint::fill(mx, w.y() + w.h() - 2, aw, 2, 0, t.palette.accent);
+                }
+                for (i, ((x, tw), label)) in at.into_iter().zip(tb.borrow().iter()).enumerate() {
                     if x + tw < vx || x > vx + vw { continue; }
                     let sel = v.get() == i;
                     let hot = hv.get() == i as i32;
-                    let fill = if sel { Some(t.fill(&t.controls.selected, under)) } else if hot { Some(t.fill(&t.controls.hover, under)) } else { None };
+                    let fill = if !sel && hot { Some(t.fill(&t.controls.hover, under)) } else { None };
                     let mx = m.x(x, tw);
                     paint::surface(mx, w.y(), tw, w.h() - 1, t.radius, fill, None);
-                    if sel {
-                        paint::fill(mx, w.y() + w.h() - 2, tw, 2, 0, t.palette.accent);
-                        if crate::focus::show_ring(w) {
-                            paint::stroke(mx, w.y(), tw, w.h() - 1, t.radius, t.controls.focus.border_width.max(1), t.border(&t.controls.focus, under));
-                        }
+                    if sel && crate::focus::show_ring(w) {
+                        paint::stroke(mx, w.y(), tw, w.h() - 1, t.radius, t.controls.focus.border_width.max(1), t.border(&t.controls.focus, under));
                     }
                     let pad = t.spacing.control_padding_x;
                     let close_w = if cl.get() { t.font.body + t.spacing.md } else { 0 };

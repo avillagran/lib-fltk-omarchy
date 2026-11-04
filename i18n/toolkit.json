@@ -62,7 +62,8 @@
     "Remove {name}": "Remove {name}",
     "Suggestions": "Suggestions",
     "Searching…": "Searching…",
-    "No results": "No results"
+    "No results": "No results",
+    "Sidebar": "Sidebar"
   },
   "es": {
     "Cancel": "Cancelar",
@@ -127,7 +128,8 @@
     "Remove {name}": "Quitar {name}",
     "Suggestions": "Sugerencias",
     "Searching…": "Buscando…",
-    "No results": "Sin resultados"
+    "No results": "Sin resultados",
+    "Sidebar": "Barra lateral"
   },
   "pt": {
     "Cancel": "Cancelar",
@@ -192,7 +194,8 @@
     "Remove {name}": "Remover {name}",
     "Suggestions": "Sugestões",
     "Searching…": "Pesquisando…",
-    "No results": "Nenhum resultado"
+    "No results": "Nenhum resultado",
+    "Sidebar": "Barra lateral"
   },
   "fr": {
     "Cancel": "Annuler",
@@ -257,7 +260,8 @@
     "Remove {name}": "Retirer {name}",
     "Suggestions": "Suggestions",
     "Searching…": "Recherche…",
-    "No results": "Aucun résultat"
+    "No results": "Aucun résultat",
+    "Sidebar": "Barre latérale"
   },
   "de": {
     "Cancel": "Abbrechen",
@@ -322,7 +326,8 @@
     "Remove {name}": "{name} entfernen",
     "Suggestions": "Vorschläge",
     "Searching…": "Suche…",
-    "No results": "Keine Ergebnisse"
+    "No results": "Keine Ergebnisse",
+    "Sidebar": "Seitenleiste"
   },
   "it": {
     "Cancel": "Annulla",
@@ -387,7 +392,8 @@
     "Remove {name}": "Rimuovi {name}",
     "Suggestions": "Suggerimenti",
     "Searching…": "Ricerca…",
-    "No results": "Nessun risultato"
+    "No results": "Nessun risultato",
+    "Sidebar": "Barra laterale"
   },
   "nl": {
     "Cancel": "Annuleren",
@@ -452,7 +458,8 @@
     "Remove {name}": "{name} verwijderen",
     "Suggestions": "Suggesties",
     "Searching…": "Zoeken…",
-    "No results": "Geen resultaten"
+    "No results": "Geen resultaten",
+    "Sidebar": "Zijbalk"
   },
   "pl": {
     "Cancel": "Anuluj",
@@ -519,7 +526,8 @@
     "Remove {name}": "Usuń {name}",
     "Suggestions": "Podpowiedzi",
     "Searching…": "Wyszukiwanie…",
-    "No results": "Brak wyników"
+    "No results": "Brak wyników",
+    "Sidebar": "Pasek boczny"
   },
   "ru": {
     "Cancel": "Отмена",
@@ -586,7 +594,8 @@
     "Remove {name}": "Удалить {name}",
     "Suggestions": "Подсказки",
     "Searching…": "Поиск…",
-    "No results": "Ничего не найдено"
+    "No results": "Ничего не найдено",
+    "Sidebar": "Боковая панель"
   },
   "uk": {
     "Cancel": "Скасувати",
@@ -653,7 +662,8 @@
     "Remove {name}": "Видалити {name}",
     "Suggestions": "Підказки",
     "Searching…": "Пошук…",
-    "No results": "Нічого не знайдено"
+    "No results": "Нічого не знайдено",
+    "Sidebar": "Бічна панель"
   },
   "ja": {
     "Cancel": "キャンセル",
@@ -717,7 +727,8 @@
     "Remove {name}": "{name} を削除",
     "Suggestions": "候補",
     "Searching…": "検索中…",
-    "No results": "結果なし"
+    "No results": "結果なし",
+    "Sidebar": "サイドバー"
   },
   "ko": {
     "Cancel": "취소",
@@ -781,7 +792,8 @@
     "Remove {name}": "{name} 제거",
     "Suggestions": "제안",
     "Searching…": "검색 중…",
-    "No results": "결과 없음"
+    "No results": "결과 없음",
+    "Sidebar": "사이드바"
   },
   "zh": {
     "Cancel": "取消",
@@ -845,7 +857,8 @@
     "Remove {name}": "移除 {name}",
     "Suggestions": "建议",
     "Searching…": "正在搜索…",
-    "No results": "无结果"
+    "No results": "无结果",
+    "Sidebar": "侧边栏"
   },
   "ar": {
     "Cancel": "إلغاء",
@@ -914,7 +927,8 @@
     "Remove {name}": "إزالة {name}",
     "Suggestions": "اقتراحات",
     "Searching…": "جارٍ البحث…",
-    "No results": "لا توجد نتائج"
+    "No results": "لا توجد نتائج",
+    "Sidebar": "الشريط الجانبي"
   },
   "tr": {
     "Cancel": "İptal",
@@ -979,7 +993,8 @@
     "Remove {name}": "{name} öğesini kaldır",
     "Suggestions": "Öneriler",
     "Searching…": "Aranıyor…",
-    "No results": "Sonuç yok"
+    "No results": "Sonuç yok",
+    "Sidebar": "Kenar çubuğu"
   },
   "sv": {
     "Cancel": "Avbryt",
@@ -1044,7 +1059,8 @@
     "Remove {name}": "Ta bort {name}",
     "Suggestions": "Förslag",
     "Searching…": "Söker…",
-    "No results": "Inga resultat"
+    "No results": "Inga resultat",
+    "Sidebar": "Sidofält"
   },
   "da": {
     "Cancel": "Annuller",
@@ -1109,7 +1125,8 @@
     "Remove {name}": "Fjern {name}",
     "Suggestions": "Forslag",
     "Searching…": "Søger…",
-    "No results": "Ingen resultater"
+    "No results": "Ingen resultater",
+    "Sidebar": "Sidepanel"
   },
   "no": {
     "Cancel": "Avbryt",
@@ -1174,7 +1191,8 @@
     "Remove {name}": "Fjern {name}",
     "Suggestions": "Forslag",
     "Searching…": "Søker…",
-    "No results": "Ingen resultater"
+    "No results": "Ingen resultater",
+    "Sidebar": "Sidepanel"
   },
   "fi": {
     "Cancel": "Peruuta",
@@ -1239,7 +1257,8 @@
     "Remove {name}": "Poista {name}",
     "Suggestions": "Ehdotukset",
     "Searching…": "Haetaan…",
-    "No results": "Ei tuloksia"
+    "No results": "Ei tuloksia",
+    "Sidebar": "Sivupalkki"
   },
   "cs": {
     "Cancel": "Zrušit",
@@ -1305,6 +1324,7 @@
     "Remove {name}": "Odebrat {name}",
     "Suggestions": "Návrhy",
     "Searching…": "Hledání…",
-    "No results": "Žádné výsledky"
+    "No results": "Žádné výsledky",
+    "Sidebar": "Postranní panel"
   }
 }
