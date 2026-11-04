@@ -281,8 +281,16 @@ impl Button {
         self.inner.redraw();
     }
 
+    /// Changes the label. A fitted button takes the new natural width (a
+    /// translation can be longer); an unfitted one does too unless it was
+    /// sized by hand.
     pub fn set_text(&mut self, text: &str) {
+        let before = self.preferred_size();
         self.data.borrow_mut().text = text.into();
+        let now = self.preferred_size();
+        if now != before && !crate::layout::refit(&self.inner, now) && (self.inner.w(), self.inner.h()) == before {
+            self.inner.set_size(now.0, now.1);
+        }
         self.inner.redraw();
     }
 
@@ -290,10 +298,18 @@ impl Button {
         self.data.borrow().text.clone()
     }
 
-    /// Keeps the label in sync with a State.
+    /// Keeps the label in sync with a State (`&i18n::text("Open")` for a
+    /// label that follows the language).
     pub fn bind_text(self, s: &State<String>) -> Self {
         let mut me = self.clone();
         crate::state::bind_widget(&self.inner, s, true, move |v| me.set_text(v));
+        self
+    }
+
+    /// Keeps the tooltip in sync with a State.
+    pub fn bind_tooltip(self, s: &State<String>) -> Self {
+        let mut w = self.inner.clone();
+        crate::state::bind_widget(&self.inner, s, true, move |v| w.set_tooltip(v));
         self
     }
 
@@ -397,6 +413,14 @@ impl ActionButton {
 
     pub fn click(&self) {
         fire(&self.click, ());
+    }
+
+    /// Keeps the tooltip in sync with a State:
+    /// `.bind_tooltip(&i18n::text("Preferences"))`.
+    pub fn bind_tooltip(self, s: &State<String>) -> Self {
+        let mut w = self.inner.clone();
+        crate::state::bind_widget(&self.inner, s, true, move |v| w.set_tooltip(v));
+        self
     }
 }
 
@@ -556,6 +580,7 @@ impl ToggleSwitch {
 pub struct Toggle {
     inner: Widget,
     value: State<bool>,
+    text: Rc<RefCell<(String, String)>>,
 }
 fltk::widget_extends!(Toggle, Widget, inner);
 
@@ -566,10 +591,12 @@ impl Toggle {
         let st = Rc::new(RefCell::new(Interaction::default()));
         let v = value.clone();
         track(&mut inner, st.clone(), true, Rc::new(move || v.update(|b| *b = !*b)));
-        let (title, desc) = (title.to_string(), description.to_string());
+        let text = Rc::new(RefCell::new((title.to_string(), description.to_string())));
         let v = value.clone();
+        let tx = text.clone();
         let (mut fade, mut knob) = (Anim::new(), Anim::new());
         inner.draw(move |w| {
+            let (title, desc) = &*tx.borrow();
             let s = interaction(w, &st);
             let k = knob.get(if v.get() { 1.0 } else { 0.0 }, 120, Ease::OutCubic, w);
             theme::with(|t| {
@@ -585,9 +612,9 @@ impl Toggle {
                 let dh = if desc.is_empty() { 0 } else { t.font.caption + 4 };
                 let block = th + if dh > 0 { t.spacing.xs + dh } else { 0 };
                 let top = w.y() + (w.h() - block) / 2;
-                paint::text_elided(&title, w.x() + pad, top, text_w, th, t.font.subtitle, true, fg, Align::Left);
+                paint::text_elided(title, w.x() + pad, top, text_w, th, t.font.subtitle, true, fg, Align::Left);
                 if dh > 0 {
-                    paint::text_elided(&desc, w.x() + pad, top + th + t.spacing.xs, text_w, dh, t.font.caption, false, fg.darker(1.5), Align::Left);
+                    paint::text_elided(desc, w.x() + pad, top + th + t.spacing.xs, text_w, dh, t.font.caption, false, fg.darker(1.5), Align::Left);
                 }
                 draw_switch(t, w.x() + w.w() - pad - sw, w.y() + (w.h() - sh) / 2, k, false, under);
             });
@@ -596,11 +623,36 @@ impl Toggle {
         inner.set_size(theme::with(|t| (240.0 * t.font.base as f64 / 12.0) as i32), h);
         let mut w2 = inner.clone();
         crate::state::bind_widget(&inner, value, false, move |_| w2.redraw());
-        Self { inner, value: value.clone() }
+        Self { inner, value: value.clone(), text }
     }
 
     pub fn is_on(&self) -> bool {
         self.value.get()
+    }
+
+    pub fn set_title(&mut self, title: &str) {
+        self.text.borrow_mut().0 = title.into();
+        self.inner.redraw();
+    }
+
+    pub fn set_description(&mut self, description: &str) {
+        self.text.borrow_mut().1 = description.into();
+        self.inner.redraw();
+    }
+
+    /// Keeps the title in sync with a State (`&i18n::text("Night light")`).
+    pub fn bind_title(self, s: &State<String>) -> Self {
+        let mut me = self.clone();
+        crate::state::bind_widget(&self.inner, s, true, move |v| me.set_title(v));
+        self
+    }
+
+    /// Keeps the description in sync with a State. An empty description
+    /// keeps the row height it was created with.
+    pub fn bind_description(self, s: &State<String>) -> Self {
+        let mut me = self.clone();
+        crate::state::bind_widget(&self.inner, s, true, move |v| me.set_description(v));
+        self
     }
 
     /// Programmatic toggle (same as a click).
@@ -795,6 +847,8 @@ struct LabelData {
     bold: bool,
     tone: Tone,
     align: Align,
+    /// Aligned to the reading start: left, or right in a right-to-left language.
+    start: bool,
     uppercase: bool,
 }
 
@@ -814,7 +868,7 @@ impl Label {
     pub fn styled(text: &str, style: TextStyle) -> Self {
         let mut inner = Widget::default();
         inner.set_frame(FrameType::NoBox);
-        let data = Rc::new(RefCell::new(LabelData { text: text.into(), style, bold: false, tone: Tone::Normal, align: Align::Left, uppercase: false }));
+        let data = Rc::new(RefCell::new(LabelData { text: text.into(), style, bold: false, tone: Tone::Normal, align: Align::Left, start: true, uppercase: false }));
         let d = data.clone();
         inner.draw(move |w| {
             let d = d.borrow();
@@ -822,7 +876,8 @@ impl Label {
                 let s = if d.uppercase { d.text.to_uppercase() } else { d.text.clone() };
                 let mut c = tone_color(t, d.tone);
                 if !w.active_r() { c = c.darker(2.0); }
-                paint::text_elided(&s, w.x(), w.y(), w.w(), w.h(), d.style.px(t), d.bold, c, d.align);
+                let align = if d.start && crate::i18n::is_rtl() { Align::Right } else { d.align };
+                paint::text_elided(&s, w.x(), w.y(), w.w(), w.h(), d.style.px(t), d.bold, c, align);
             });
         });
         let mut l = Self { inner, data };
@@ -841,8 +896,11 @@ impl Label {
 
     pub fn bold(self) -> Self { self.data.borrow_mut().bold = true; self }
     pub fn tone(self, tone: Tone) -> Self { self.data.borrow_mut().tone = tone; self }
-    pub fn center(self) -> Self { self.data.borrow_mut().align = Align::Center; self }
-    pub fn right(self) -> Self { self.data.borrow_mut().align = Align::Right; self }
+    pub fn center(self) -> Self { { let mut d = self.data.borrow_mut(); d.align = Align::Center; d.start = false; } self }
+    pub fn right(self) -> Self { { let mut d = self.data.borrow_mut(); d.align = Align::Right; d.start = false; } self }
+    /// Always left-aligned, also in right-to-left languages (the default
+    /// follows the reading direction).
+    pub fn left(self) -> Self { { let mut d = self.data.borrow_mut(); d.align = Align::Left; d.start = false; } self }
 
     pub fn set_text(&mut self, text: &str) {
         self.data.borrow_mut().text = text.into();
@@ -1067,6 +1125,16 @@ impl TextField {
 
     pub fn placeholder(self, text: &str) -> Self {
         *self.placeholder.borrow_mut() = text.into();
+        self
+    }
+
+    /// Keeps the placeholder in sync with a State (`&i18n::text("Search…")`).
+    pub fn bind_placeholder(self, s: &State<String>) -> Self {
+        let (ph, mut g) = (self.placeholder.clone(), self.inner.clone());
+        crate::state::bind_widget(&self.inner, s, true, move |v| {
+            *ph.borrow_mut() = v.clone();
+            g.redraw();
+        });
         self
     }
 

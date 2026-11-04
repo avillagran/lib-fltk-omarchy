@@ -338,7 +338,10 @@ impl ConfirmDialog {
         let Some(mut layer) = open_layer(anchor, None, true) else { return };
         let selected = Rc::new(Cell::new(1i32));
         let msg = message.to_string();
-        let labels = ["Cancel".to_string(), confirm.to_string()];
+        // Cancel is the toolkit's, translated when drawn (follows the locale live).
+        let confirm = confirm.to_string();
+        let labels = Rc::new(move || [crate::i18n::tr("Cancel"), confirm.clone()]);
+        let lb = labels.clone();
         let geom = Rc::new(move |l: &Widget| -> ((i32, i32, i32, i32), [(i32, i32, i32, i32); 2]) {
             theme::with(|t| {
                 let s = |px: f64| (px * t.font.base as f64 / 12.0).round() as i32;
@@ -350,7 +353,11 @@ impl ConfirmDialog {
                 let ch = 2 * pad + mh + s(20.0) + s(34.0);
                 let cx = (l.w() - cw) / 2;
                 let cy = (l.h() - ch) / 2;
-                let (bw, bh) = (s(88.0), s(34.0));
+                // 88 px, wider when a (translated) label needs it.
+                fltk::draw::set_font(Font::Helvetica, t.font.caption);
+                let widest = lb().iter().map(|x| fltk::draw::width(x).ceil() as i32).max().unwrap_or(0);
+                let bw = (widest + s(24.0)).max(s(88.0)).min((cw - 2 * pad - s(10.0)) / 2);
+                let bh = s(34.0);
                 let by = cy + ch - pad - bh;
                 let b1 = (cx + cw - pad - bw, by, bw, bh);
                 let b0 = (b1.0 - s(10.0) - bw, by, bw, bh);
@@ -387,7 +394,7 @@ impl ConfirmDialog {
                         (None, fg.over(b, 0.38), fg)
                     };
                     paint::surface(bx, by, bw, bh, 0, fill, Some((border, 1)));
-                    paint::text(&labels2[i], bx, by, bw, bh, t.font.caption, false, text, Align::Center);
+                    paint::text(&labels2()[i], bx, by, bw, bh, t.font.caption, false, text, Align::Center);
                 }
             });
         });
@@ -650,7 +657,7 @@ impl Menu {
                 let ly = g.cy + g.pad + g.header + g.gap;
                 let vis = vis.borrow();
                 if vis.is_empty() {
-                    let msg = if q.is_empty() { "Nothing here yet".to_string() } else { format!("No matches for “{q}”") };
+                    let msg = if q.is_empty() { crate::i18n::tr("Nothing here yet") } else { crate::tr!("No matches for “{query}”", query = q) };
                     paint::glyph(glyph::EMPTY, x, ly, w, g.row, t.font.display_large, m.selected_text.over(fill, 0.8));
                     paint::text(&msg, x, ly + g.row - 6, w, t.font.title + 6, t.font.title, false, m.text.over(fill, 0.7), Align::Center);
                     return;

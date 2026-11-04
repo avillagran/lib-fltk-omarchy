@@ -26,6 +26,17 @@ pub struct State<T: 'static> {
     inner: Rc<RefCell<Inner<T>>>,
 }
 
+/// A State handle that does not keep the value alive.
+pub(crate) struct WeakState<T: 'static> {
+    inner: Weak<RefCell<Inner<T>>>,
+}
+
+impl<T: Clone + PartialEq + 'static> WeakState<T> {
+    pub(crate) fn upgrade(&self) -> Option<State<T>> {
+        self.inner.upgrade().map(|inner| State { inner })
+    }
+}
+
 impl<T> Clone for State<T> {
     fn clone(&self) -> Self {
         Self { inner: self.inner.clone() }
@@ -129,6 +140,10 @@ impl<T: Clone + PartialEq + 'static> State<T> {
         }
     }
 
+    pub(crate) fn downgrade(&self) -> WeakState<T> {
+        WeakState { inner: Rc::downgrade(&self.inner) }
+    }
+
     pub fn listener_count(&self) -> usize {
         self.inner.borrow().listeners.len()
     }
@@ -213,15 +228,21 @@ mod tests {
     }
 }
 
+/// A widget binding: the widget it belongs to, its subscription and the
+/// bound State itself, so a temporary (`.bind(&s.map(..))`) lives as long
+/// as the widget.
+type Tie = (Widget, Subscription, Box<dyn std::any::Any>);
+
 thread_local! {
-    static TIED: RefCell<Vec<(Widget, Subscription)>> = const { RefCell::new(Vec::new()) };
+    static TIED: RefCell<Vec<Tie>> = const { RefCell::new(Vec::new()) };
 }
 
 /// Runs `f` on every change of `state` while the fltk widget `w` exists
 /// (and once now when `now`). The binding belongs to the widget, not to the
 /// Rust handle: `flex.fit(&*Toggle::new(..))` keeps following its State
 /// after the temporary handle is dropped, and the listener goes away when
-/// the widget is deleted.
+/// the widget is deleted. The binding also keeps the State alive, so a
+/// derived temporary (`Label::new("").bind(&count.map(..))`) keeps updating.
 pub fn bind_widget<W: WidgetExt, T: Clone + PartialEq + 'static>(w: &W, state: &State<T>, now: bool, mut f: impl FnMut(&T) + 'static) {
     // SAFETY: `w` is a live widget; the copy only tracks its deletion.
     let guard = unsafe { Widget::from_widget_ptr(w.as_widget_ptr()) };
@@ -232,11 +253,12 @@ pub fn bind_widget<W: WidgetExt, T: Clone + PartialEq + 'static>(w: &W, state: &
     }
     let sub = state.subscribe(run);
     // Drop dead bindings outside the registry borrow (their cancel touches States).
-    let dead: Vec<(Widget, Subscription)> = TIED.with(|t| {
+    let keep: Box<dyn std::any::Any> = Box::new(state.clone());
+    let dead: Vec<Tie> = TIED.with(|t| {
         let mut t = t.borrow_mut();
-        let (dead, live): (Vec<_>, Vec<_>) = std::mem::take(&mut *t).into_iter().partition(|(w, _)| w.was_deleted());
+        let (dead, live): (Vec<_>, Vec<_>) = std::mem::take(&mut *t).into_iter().partition(|(w, _, _)| w.was_deleted());
         *t = live;
-        t.push((guard, sub));
+        t.push((guard, sub, keep));
         dead
     });
     drop(dead);
@@ -244,5 +266,5 @@ pub fn bind_widget<W: WidgetExt, T: Clone + PartialEq + 'static>(w: &W, state: &
 
 /// Number of widget bindings currently registered (tests).
 pub fn widget_binding_count() -> usize {
-    TIED.with(|t| t.borrow().iter().filter(|(w, _)| !w.was_deleted()).count())
+    TIED.with(|t| t.borrow().iter().filter(|(w, _, _)| !w.was_deleted()).count())
 }

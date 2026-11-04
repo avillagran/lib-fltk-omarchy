@@ -4,6 +4,7 @@ pub mod focus;
 pub mod gfx;
 pub mod glass;
 pub mod hyprland;
+pub mod i18n;
 pub mod keys;
 pub mod layout;
 pub mod list;

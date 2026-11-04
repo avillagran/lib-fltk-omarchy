@@ -134,7 +134,7 @@ impl AppWindow {
 
         let mode = Rc::new(Cell::new(Mode::Normal));
         let shortcuts: Rc<RefCell<Vec<(crate::keys::Keys, Box<dyn FnMut()>)>>> = Rc::default();
-        let (m2, sc, ttl) = (mode.clone(), shortcuts.clone(), title.to_string());
+        let (m2, sc) = (mode.clone(), shortcuts.clone());
         win.handle(move |w, ev| {
             let floating = m2.get() == Mode::Floating;
             match ev {
@@ -144,7 +144,8 @@ impl AppWindow {
                         // Native compositor resize first (any Wayland compositor), Hyprland IPC otherwise.
                         let edge = if corner == 1 { crate::native::Edge::BottomLeft } else { crate::native::Edge::BottomRight };
                         if !crate::native::begin_resize(w, edge) {
-                            drag_begin(&ttl, corner);
+                            // Current title: it may have been translated since.
+                            drag_begin(&w.label(), corner);
                         }
                         return true;
                     }
@@ -201,6 +202,21 @@ impl AppWindow {
     pub fn end(&mut self) {
         self.body.end();
         self.win.end();
+    }
+
+    /// Sets the window title (taskbar, compositor) and the header title.
+    pub fn set_title(&mut self, title: &str) {
+        self.win.set_label(title);
+        self.header.set_title(title);
+    }
+
+    /// Keeps both titles in sync with a State (`&i18n::text("Files")`).
+    pub fn bind_title(&mut self, s: &crate::State<String>) {
+        let (mut w, mut h) = (self.win.clone(), self.header.clone());
+        crate::state::bind_widget(&self.win, s, true, move |v| {
+            w.set_label(v);
+            h.set_title(v);
+        });
     }
 
     pub fn header(&self) -> Header {

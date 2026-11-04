@@ -509,13 +509,13 @@ fn open_search(trigger: &mut Widget, options: &Rc<Vec<(String, String)>>, value:
             let st = &t.controls.focus;
             paint::surface(tx + m, ty + m, tw - 2 * m, fh, t.radius, Some(t.fill(st, fill)), Some((t.border(st, fill), st.border_width)));
             let qs = q.borrow();
-            let (text, color) = if qs.is_empty() { ("Search...".to_string(), fg.darker(1.6)) } else { (format!("{qs}▏"), fg) };
+            let (text, color) = if qs.is_empty() { (crate::i18n::tr("Search…"), fg.darker(1.6)) } else { (format!("{qs}▏"), fg) };
             paint::text_elided(&text, tx + m + t.spacing.control_padding_x, ty + m, tw - 2 * m - 2 * t.spacing.control_padding_x, fh, t.font.body, false, color, Align::Left);
             paint::hairline(tx + 2, ty + header, tw - 4, fg, fill, 0.10);
             let vis = vis.borrow();
             let ly = ty + header + 1 + 2;
             if vis.is_empty() {
-                paint::text("No matches", tx, ly, tw, h - header - 4, t.font.body, false, fg.darker(1.6), Align::Center);
+                paint::text(&crate::i18n::tr("No matches"), tx, ly, tw, h - header - 4, t.font.body, false, fg.darker(1.6), Align::Center);
                 return;
             }
             for slot in 0..rows {
@@ -758,10 +758,18 @@ struct ToastData {
     kb: i32,
     on_pause: Option<Box<dyn FnMut(bool)>>,
     on_cancel: Option<Box<dyn FnMut()>>,
-    /// Pause, Resume, Cancel button labels and the paused state text.
-    labels: [String; 4],
+    /// Pause, Resume, Cancel button labels and the paused state text set
+    /// by the app; None: the toolkit's, in the current language.
+    labels: Option<[String; 4]>,
     indeterminate: bool,
     started: std::time::Instant,
+}
+
+impl ToastData {
+    fn labels(&self) -> [String; 4] {
+        use crate::i18n::tr;
+        self.labels.clone().unwrap_or_else(|| [tr("Pause"), tr("Resume"), tr("Cancel"), tr("Paused")])
+    }
 }
 
 /// Toast size for a window width: (w, h, margin).
@@ -780,7 +788,7 @@ impl OperationToast {
         let rect = (win.w() - w - m, win.h() - h - m, w, h);
         let mut layer = open_layer(anchor, Some(rect), false)?;
         let data = Rc::new(RefCell::new(ToastData { title: title.into(), detail: String::new(), progress: 0.0, paused: false, hover: -1, kb: 0, on_pause: None, on_cancel: None,
-            labels: ["Pause".into(), "Resume".into(), "Cancel".into(), "Paused".into()], indeterminate: false, started: std::time::Instant::now() }));
+            labels: None, indeterminate: false, started: std::time::Instant::now() }));
         let lb = data.clone();
         let buttons = Rc::new(move |l: &Widget| -> [(i32, i32, i32, i32); 2] {
             let d = lb.borrow();
@@ -788,8 +796,9 @@ impl OperationToast {
                 let bh = t.spacing.control_height;
                 // Wide enough for the longest label (localized labels can be longer).
                 let fit = |a: &str| crate::widgets::measure_offscreen(a, t.font.body) + 2 * t.spacing.control_padding_x + 2;
-                let b0 = fit(&d.labels[0]).max(fit(&d.labels[1])).max(s(t, 96.0));
-                let b1 = fit(&d.labels[2]).max(s(t, 96.0));
+                let labels = d.labels();
+                let b0 = fit(&labels[0]).max(fit(&labels[1])).max(s(t, 96.0));
+                let b1 = fit(&labels[2]).max(s(t, 96.0));
                 let y = l.y() + l.h() - t.spacing.popup_padding - bh;
                 let x1 = l.x() + l.w() - t.spacing.popup_padding - b1;
                 [(x1 - t.spacing.md - b0, y, b0, bh), (x1, y, b1, bh)]
@@ -818,7 +827,8 @@ impl OperationToast {
                 paint::text_elided(&d.title, x, y, w, t.font.title + 6, t.font.title, true, fg, Align::Left);
                 y += t.font.title + 6;
                 let pct = if d.indeterminate { String::new() } else { format!("{}%", (d.progress.clamp(0.0, 1.0) * 100.0).round()) };
-                let detail = if d.paused { format!("{} · {}", d.labels[3], d.detail) } else { d.detail.clone() };
+                let labels = d.labels();
+                let detail = if d.paused { format!("{} · {}", labels[3], d.detail) } else { d.detail.clone() };
                 paint::text_elided(&detail, x, y, w - s(t, 48.0), t.font.body_small + 6, t.font.body_small, false, fg.darker(1.4), Align::Left);
                 paint::text(&pct, x, y, w, t.font.body_small + 6, t.font.body_small, true, fg, Align::Right);
                 y += t.font.body_small + 6 + t.spacing.lg;
@@ -840,9 +850,9 @@ impl OperationToast {
                 for (i, (bx, by, bw, bh)) in buttons(l).iter().copied().enumerate() {
                     let hot = d.hover == i as i32 || (focused && d.kb == i as i32);
                     let (label, color) = if i == 0 {
-                        (if d.paused { d.labels[1].as_str() } else { d.labels[0].as_str() }, fg)
+                        (if d.paused { labels[1].as_str() } else { labels[0].as_str() }, fg)
                     } else {
-                        (d.labels[2].as_str(), t.palette.urgent)
+                        (labels[2].as_str(), t.palette.urgent)
                     };
                     let st = if focused && d.kb == i as i32 { &t.controls.focus } else if hot { &t.controls.hover } else { &t.controls.normal };
                     paint::surface(bx, by, bw, bh, t.radius, Some(t.fill(st, fill)), Some((t.border(st, fill), st.border_width.max(1))));
@@ -905,10 +915,11 @@ impl OperationToast {
 
     pub fn set_progress(&mut self, p: f64) { self.data.borrow_mut().progress = p; self.layer.redraw(); }
 
-    /// Button labels and the paused text, for localization:
-    /// `.labels("Pausar", "Reanudar", "Cancelar", "En pausa")`.
+    /// Overrides the button labels and the paused text. Not needed for
+    /// translation: by default they come from the toolkit catalog
+    /// (`Pause`, `Resume`, `Cancel`, `Paused`) and follow the locale live.
     pub fn labels(self, pause: &str, resume: &str, cancel: &str, paused: &str) -> Self {
-        self.data.borrow_mut().labels = [pause.into(), resume.into(), cancel.into(), paused.into()];
+        self.data.borrow_mut().labels = Some([pause.into(), resume.into(), cancel.into(), paused.into()]);
         self.layer.clone().redraw();
         self
     }
