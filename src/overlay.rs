@@ -15,8 +15,14 @@ use std::rc::Rc;
 
 thread_local! {
     // Deletion-tracked handles only; a layer does not own its window.
-    static LAYERS: RefCell<Vec<Widget>> = const { RefCell::new(Vec::new()) };
+    // `true` for modal layers (they take the keyboard).
+    static LAYERS: RefCell<Vec<(Widget, bool)>> = const { RefCell::new(Vec::new()) };
     static REDRAW_CHECK: Cell<bool> = const { Cell::new(false) };
+    // Layers fading in or out: (layer, tween, closing).
+    static MOTION: RefCell<Vec<(Widget, crate::anim::Tween, bool)>> = const { RefCell::new(Vec::new()) };
+    // While a layer draws: its presence (0..1) and the card it painted.
+    static DRAWING: Cell<f64> = const { Cell::new(1.0) };
+    static CARD: Cell<Option<(i32, i32, i32, i32)>> = const { Cell::new(None) };
 }
 
 fn install_redraw_guard() {
@@ -35,8 +41,9 @@ fn install_redraw_guard() {
 pub(crate) fn prepare_redraw() {
     LAYERS.with(|layers| {
         let mut layers = layers.borrow_mut();
-        layers.retain(|l| !l.was_deleted() && l.parent().is_some());
-        for layer in layers.iter().filter(|l| l.visible()) {
+        layers.retain(|(l, _)| !l.was_deleted() && l.parent().is_some());
+        let closing: Vec<Widget> = MOTION.with(|m| m.borrow().iter().filter(|(l, _, c)| *c && !l.was_deleted()).map(|(l, _, _)| l.clone()).collect());
+        for layer in layers.iter().map(|(l, _)| l).chain(closing.iter()).filter(|l| l.visible()) {
             if let Some(mut win) = layer.top_window() {
                 if win.damage() && win.damage_type() != Damage::All {
                     win.redraw();
@@ -77,7 +84,16 @@ pub(crate) fn open_layer<A: WidgetExt>(anchor: &A, rect: Option<(i32, i32, i32, 
     layer.resize(x, y, w, h);
     layer.set_frame(FrameType::NoBox);
     group.add(&layer);
-    LAYERS.with(|layers| layers.borrow_mut().push(layer.clone()));
+    LAYERS.with(|layers| layers.borrow_mut().push((layer.clone(), modal)));
+    if crate::anim::enabled() {
+        // Fades in (Omarchy PopupCard: 180 ms Style.easeOut).
+        let t = crate::anim::Tween::start(crate::anim::ms::POPUP_IN, crate::anim::Ease::EaseOut);
+        MOTION.with(|m| {
+            let mut m = m.borrow_mut();
+            m.retain(|(l, _, _)| !l.was_deleted());
+            m.push((layer.clone(), t, false));
+        });
+    }
     if let Some(g) = prev {
         g.begin();
     }
@@ -95,12 +111,39 @@ pub(crate) fn open_layer<A: WidgetExt>(anchor: &A, rect: Option<(i32, i32, i32, 
 
 /// Removes and deletes a layer; if it had focus, focus goes back to the
 /// control that had it before (see [`crate::focus`]). Closing twice is a no-op.
+/// With animations on, focus goes back and the layer stops taking events
+/// at once, and it fades out (120 ms) before it is deleted.
 pub(crate) fn close_layer(layer: &Widget) {
     let Some(mut parent) = layer.parent() else { return };
+    let closing = MOTION.with(|m| m.borrow().iter().any(|(l, _, c)| *c && alive_ptr(l) == layer.as_widget_ptr() as usize));
+    if closing {
+        return;
+    }
     // SAFETY: a Fl_Window is a Fl_Widget.
     let win = layer.top_window().map(|w| unsafe { Widget::from_widget_ptr(w.as_widget_ptr()) });
+    LAYERS.with(|layers| layers.borrow_mut().retain(|(l, _)| !l.was_deleted() && l.as_widget_ptr() != layer.as_widget_ptr()));
+    if crate::anim::enabled() && layer.visible_r() {
+        let mut l = layer.clone();
+        // From where it is (a popup closed while still fading in).
+        let shown = MOTION.with(|m| m.borrow().iter().find(|(x, _, _)| alive_ptr(x) == l.as_widget_ptr() as usize).map(|(_, t, _)| t.value()));
+        let ms = (crate::anim::ms::POPUP_OUT as f64 * shown.unwrap_or(1.0).clamp(0.0, 1.0)).round() as u32;
+        // Focus first (deactivating a focused widget would throw it away).
+        crate::focus::give_back(layer, win);
+        l.deactivate();
+        let t = crate::anim::Tween::start(ms.max(1), crate::anim::Ease::EaseOut);
+        MOTION.with(|m| {
+            let mut m = m.borrow_mut();
+            m.retain(|(x, _, _)| !x.was_deleted() && alive_ptr(x) != l.as_widget_ptr() as usize);
+            m.push((l.clone(), t, true));
+        });
+        l.redraw();
+        parent.redraw();
+        let l2 = l.clone();
+        // Deleted after the fade even if it is never drawn again.
+        app::add_timeout3(ms as f64 / 1000.0 + 0.02, move |_| finish_close(&l2));
+        return;
+    }
     parent.remove(layer);
-    LAYERS.with(|layers| layers.borrow_mut().retain(|l| !l.was_deleted() && l.as_widget_ptr() != layer.as_widget_ptr()));
     parent.redraw();
     crate::focus::give_back(layer, win);
     // Deferred: layers close from inside their own handler, and fltk keeps
@@ -110,6 +153,77 @@ pub(crate) fn close_layer(layer: &Widget) {
     unsafe { Fl_delete_widget(layer.as_widget_ptr() as *mut std::ffi::c_void) }
 }
 
+/// A widget's address, 0 once deleted (`as_widget_ptr` panics then).
+fn alive_ptr(w: &Widget) -> usize {
+    if w.was_deleted() { 0 } else { w.as_widget_ptr() as usize }
+}
+
+/// The end of a fade-out: removes and deletes the layer.
+fn finish_close(layer: &Widget) {
+    let lp = alive_ptr(layer);
+    MOTION.with(|m| m.borrow_mut().retain(|(x, _, _)| !x.was_deleted() && alive_ptr(x) != lp));
+    if lp == 0 {
+        return;
+    }
+    let Some(mut parent) = layer.parent() else { return };
+    parent.remove(layer);
+    parent.redraw();
+    // SAFETY: a live widget pointer; fltk deletes it on the next loop turn.
+    unsafe { Fl_delete_widget(layer.as_widget_ptr() as *mut std::ffi::c_void) }
+}
+
+/// How much of a layer shows (0..1): fading in after it opened, out after
+/// it closed, 1 otherwise. Schedules the next frame while it moves.
+pub(crate) fn presence(l: &Widget) -> f64 {
+    let state = MOTION.with(|m| m.borrow().iter().find(|(x, _, _)| alive_ptr(x) == l.as_widget_ptr() as usize).map(|(_, t, c)| (*t, *c)));
+    let Some((t, closing)) = state else { return 1.0 };
+    if !crate::anim::enabled() {
+        return if closing { 0.0 } else { 1.0 };
+    }
+    let v = t.value().clamp(0.0, 1.0);
+    if t.done() {
+        if !closing {
+            MOTION.with(|m| m.borrow_mut().retain(|(x, _, _)| alive_ptr(x) != l.as_widget_ptr() as usize));
+        }
+    } else {
+        crate::anim::request_redraw(l);
+    }
+    if closing { 1.0 - v } else { v }
+}
+
+/// Sets a layer's draw: `f` paints it (its [`card`] and [`draw_scrim`]
+/// follow the layer's [`presence`]) and the card then fades in or out
+/// toward the window background.
+pub(crate) fn draw_layer(layer: &mut Widget, mut f: impl FnMut(&mut Widget) + 'static) {
+    layer.draw(move |l| {
+        let p = presence(l);
+        if p <= 0.0 {
+            return;
+        }
+        DRAWING.with(|d| d.set(p));
+        CARD.with(|c| c.set(None));
+        f(l);
+        DRAWING.with(|d| d.set(1.0));
+        if p < 1.0 {
+            if let Some((x, y, w, h)) = CARD.with(|c| c.take()) {
+                let bg = theme::with(bg);
+                paint::alpha_fill(x, y, w, h, bg, 1.0 - p);
+            }
+        }
+    });
+}
+
+/// True when a modal layer (menu, dialog, popup) is open in `w`'s window:
+/// hover-opened surfaces stay open under it.
+pub(crate) fn modal_open_over<W: WidgetExt>(w: &W) -> bool {
+    let Some(win) = w.top_window() else { return false };
+    LAYERS.with(|l| {
+        l.borrow().iter().any(|(x, modal)| {
+            *modal && !x.was_deleted() && x.visible() && x.top_window().is_some_and(|t| t.as_widget_ptr() == win.as_widget_ptr())
+        })
+    })
+}
+
 extern "C" {
     // cfltk wrapper of Fl::delete_widget (linked through fltk-sys).
     fn Fl_delete_widget(w: *mut std::ffi::c_void);
@@ -117,6 +231,8 @@ extern "C" {
 
 /// Card surface with the given section style.
 pub(crate) fn card(t: &Theme, x: i32, y: i32, w: i32, h: i32, surface: &theme::Surface, border_width: i32) {
+    // The card a fading layer veils (see `draw_layer`).
+    CARD.with(|c| if c.get().is_none() { c.set(Some((x, y, w, h))) });
     let fill = surface.fill(bg(t));
     let border = surface.border.over(fill, surface.border_alpha);
     paint::surface(x, y, w, h, t.radius, Some(fill), Some((border, border_width)));
@@ -250,7 +366,7 @@ fn open_popup(trigger: &mut Widget, options: &Rc<RefCell<Vec<String>>>, value: &
     let current = Rc::new(Cell::new(value.get() as i32));
     let top = Rc::new(Cell::new(0i32));
     let (opts, cur, tp) = (options.clone(), current.clone(), top.clone());
-    layer.draw(move |_| {
+    draw_layer(&mut layer, move |_| {
         theme::with(|t| {
             let (x, y, w, h) = rect;
             card(t, x, y, w, h, &t.popups, t.controls.normal.border_width.max(1));
@@ -415,7 +531,7 @@ impl ConfirmDialog {
             })
         });
         let (sel, msg2, labels2, geom2) = (selected.clone(), message.to_string(), labels.clone(), geom.clone());
-        layer.draw(move |l| {
+        draw_layer(&mut layer, move |l| {
             if let Some(win) = l.top_window() {
                 if (l.w(), l.h()) != (win.w(), win.h()) { l.resize(0, 0, win.w(), win.h()); }
             }
@@ -520,7 +636,9 @@ impl ConfirmDialog {
 /// rectangles, but it alpha-blends RGBA images, so a 1×1 RGBA image is
 /// scaled over the area.
 pub fn draw_scrim(l: &Widget, color: Rgb, alpha: f64) {
-    paint::alpha_fill(l.x(), l.y(), l.w(), l.h(), color, alpha);
+    // A layer fading in or out fades its scrim too.
+    let p = DRAWING.with(|d| d.get());
+    paint::alpha_fill(l.x(), l.y(), l.w(), l.h(), color, alpha * p);
 }
 
 // ============================================================ Notification
@@ -566,7 +684,7 @@ impl Notification {
         TOASTS.with(|v| v.borrow_mut().push(layer.clone()));
         let (icon, summary, body) = (icon.to_string(), summary.to_string(), body.to_string());
         let (summary2, body2) = (summary.clone(), body.clone());
-        layer.draw(move |l| {
+        draw_layer(&mut layer, move |l| {
             theme::with(|t| {
                 let n = &t.notifications;
                 card(t, l.x(), l.y(), l.w(), l.h(), n, 2);
@@ -737,7 +855,7 @@ impl Menu {
         };
 
         let (it, fl, cu, tp, vis, g2) = (items.clone(), filter.clone(), cursor.clone(), top.clone(), visible.clone(), geo.clone());
-        layer.draw(move |l| {
+        draw_layer(&mut layer, move |l| {
             if let Some(win) = l.top_window() {
                 if (l.w(), l.h()) != (win.w(), win.h()) { l.resize(0, 0, win.w(), win.h()); }
             }

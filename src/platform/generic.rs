@@ -51,6 +51,15 @@ pub(crate) fn watch_theme(stop: Arc<AtomicBool>, changed: &dyn Fn()) {
     super::poll::watch(stop, changed)
 }
 
+/// No motion setting known: animations stay on.
+pub(crate) fn animations() -> Option<bool> {
+    None
+}
+
+/// No change notifications: the setting is read again when an animation
+/// starts (at most every 2 s, see `anim::kick`).
+pub(crate) fn watch_animations(_kick: std::sync::mpsc::Sender<()>) {}
+
 /// Glass stays opaque: [`target`] is always None.
 pub(crate) mod glass {
     pub(crate) struct Target {

@@ -48,6 +48,8 @@ pub mod glyph {
     pub const SUBMENU_RTL: &str = "\u{2039}";
 }
 
+pub use crate::sidebar::{Sidebar, SidebarItem, SidebarMode};
+
 type Cb<T> = Rc<RefCell<Option<Box<dyn FnMut(T)>>>>;
 
 fn cb<T>() -> Cb<T> {

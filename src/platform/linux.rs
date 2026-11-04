@@ -314,6 +314,63 @@ pub(super) fn ipc_request(path: &Path, cmd: &str, timeout: Duration) -> Option<S
     Some(out)
 }
 
+// ------------------------------------------------------------ motion setting
+
+/// Hyprland's `animations:enabled` (Omarchy's Animations switch), else
+/// GNOME's `enable-animations` on GNOME-family desktops, else unknown.
+pub(super) fn animations() -> Option<bool> {
+    if let Some(sock) = hyprland_socket() {
+        let out = ipc_request(&sock, "j/getoption animations:enabled", Duration::from_millis(300))?;
+        return crate::anim::parse_hyprland_option(&out);
+    }
+    let desktop = std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_default().to_ascii_lowercase();
+    let gnome_like = ["gnome", "unity", "budgie", "pantheon", "cinnamon", "mate"]
+        .iter()
+        .any(|d| desktop.split(':').any(|p| p.contains(d)));
+    if !gnome_like {
+        return None;
+    }
+    // One short process on the watcher thread (startup and kicks only).
+    let out = std::process::Command::new("gsettings")
+        .args(["get", "org.gnome.desktop.interface", "enable-animations"])
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .ok()?;
+    match String::from_utf8_lossy(&out.stdout).trim() {
+        "true" => Some(true),
+        "false" => Some(false),
+        _ => None,
+    }
+}
+
+/// Hyprland announces reloads (`omarchy toggle animations`, config edits)
+/// on its event socket; `hyprctl keyword` does not, so focus changes (the
+/// user coming back from a settings panel) also trigger a re-read. The
+/// thread blocks in `read`: no CPU while nothing happens.
+pub(super) fn watch_animations(kick: std::sync::mpsc::Sender<()>) {
+    let Some(sock) = hyprland_socket() else { return };
+    let Some(dir) = sock.parent().map(|d| d.join(".socket2.sock")) else { return };
+    let _ = std::thread::Builder::new()
+        .name("omarchy-motion-events".into())
+        .spawn(move || {
+            use std::io::BufRead;
+            let Ok(s) = std::os::unix::net::UnixStream::connect(&dir) else { return };
+            for line in std::io::BufReader::new(s).lines() {
+                let Ok(line) = line else { return };
+                if hyprland_event_rereads(&line) && kick.send(()).is_err() {
+                    return;
+                }
+            }
+        });
+}
+
+/// Events after which `animations:enabled` may have changed.
+pub(crate) fn hyprland_event_rereads(line: &str) -> bool {
+    let name = line.split(">>").next().unwrap_or("");
+    matches!(name, "configreloaded" | "activewindowv2")
+}
+
 // ------------------------------------------------------------------ inotify
 
 /// Follows `omarchy-theme-set` (it renames `next-theme` over `theme`), edits

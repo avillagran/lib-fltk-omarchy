@@ -37,6 +37,8 @@ impl App {
         theme::set(theme::Theme::load());
         style_tooltips(&theme::current());
         theme::on_change(style_tooltips);
+        // Follow the system's Animations setting (Hyprland, GNOME, macOS, Windows).
+        crate::anim::init();
         App { id: id.to_string(), _fltk: fltk, watcher: Some(ThemeWatcher::start()) }
     }
 

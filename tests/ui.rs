@@ -52,6 +52,8 @@ fn main() {
     std::env::remove_var("HYPRLAND_INSTANCE_SIGNATURE");
 
     let app = App::new("dev.omarchy.fltk.tests");
+    // Final states unless a check turns animations on (AGENTS.md rule 11).
+    fltk_omarchy::anim::set_enabled(false);
     // Toolkit strings follow the system language: pin English.
     i18n::set_locale("en");
     let shots = root.join("shots");
@@ -626,7 +628,6 @@ fn main() {
         fltk_omarchy::anim::set_enabled(false);
         on.set(false);
         let x_now = knob_x(&shot("sw-4-off.png")?)?;
-        fltk_omarchy::anim::set_enabled(true);
         check(x_now == x_off && fltk_omarchy::anim::pending() == 0, &format!("disabled: jumps to {x_now}"))
     });
     run("portable shaders: same pixels as sl eval, backend choice, display rate on the CPU", &|shots| {

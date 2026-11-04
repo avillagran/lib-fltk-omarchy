@@ -1226,7 +1226,7 @@ impl Composer {
     fn install_layer(&self, layer: &Widget) {
         let mut layer = layer.clone();
         let me = self.clone();
-        layer.draw(move |l| {
+        crate::overlay::draw_layer(&mut layer, move |l| {
             if me.area.was_deleted() {
                 // The composer went away with its list open.
                 let l2 = l.clone();

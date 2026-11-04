@@ -32,6 +32,29 @@
 //! ```
 //!
 //! Custom widgets read [`direction_of`] (or [`Mirror::of`]) when they draw.
+//!
+//! ## Motion
+//!
+//! When animations are on ([`crate::anim::enabled`]), the toolkit's rows
+//! and columns animate their own changes: a `fixed` size that changes, a
+//! child shown, hidden or added slides and fades over 190 ms OutCubic
+//! instead of jumping. Nothing to call: `row()`, `column()`, `section()`,
+//! containers you [`FlexExt::fit`] into and every `Flex` of an
+//! [`AppWindow`](crate::AppWindow) at `end` do it (not a `Flex` with its
+//! own draw callback). [`set_visible`] also collapses and fades out what
+//! it hides. Opt out per container with [`FlexExt::animated`]`(false)` or
+//! [`set_animated`] (a whole window too). The first layout, window
+//! resizes and direction flips never animate. docs/ANIMATION.md.
+//!
+//! ```no_run
+//! use fltk::prelude::*;
+//! use fltk_omarchy::layout::{self, FlexExt};
+//! # let mut row = layout::row();
+//! # let sidebar = fltk::frame::Frame::default();
+//! row.fixed(&sidebar, 240);   // was 56: slides to 240 px
+//! row.layout();
+//! layout::set_visible(&sidebar, false); // collapses and fades out
+//! ```
 
 use crate::theme;
 use fltk::{group::Flex, prelude::*};
@@ -40,6 +63,7 @@ use fltk::{group::Flex, prelude::*};
 pub fn column() -> Flex {
     let mut f = Flex::default().column();
     f.set_spacing(theme::with(|t| t.spacing.panel_gap));
+    crate::motion::install(&f);
     f
 }
 
@@ -47,6 +71,7 @@ pub fn column() -> Flex {
 pub fn section() -> Flex {
     let mut f = Flex::default().column();
     f.set_spacing(theme::with(|t| t.spacing.md));
+    crate::motion::install(&f);
     f
 }
 
@@ -135,6 +160,9 @@ pub trait FlexExt {
     /// whatever the language: `row.direction(Direction::Ltr)` for media
     /// controls, code, numbers or a timeline. See [`set_direction`].
     fn direction(&mut self, d: Direction) -> &mut Self;
+    /// Turns automatic layout motion off (`false`) or on again for this
+    /// container and everything inside it. See [`set_animated`].
+    fn animated(&mut self, on: bool) -> &mut Self;
 }
 
 impl FlexExt for Flex {
@@ -149,6 +177,7 @@ impl FlexExt for Flex {
             (child.w(), child.h())
         });
         self.fixed(child, if is_column(self) { h } else { w });
+        crate::motion::install_if_free(self);
         if !is_column(self) {
             register(self);
             // Shown already: FLTK would lay it out left to right at the next draw.
@@ -159,6 +188,7 @@ impl FlexExt for Flex {
     }
 
     fn direction(&mut self, d: Direction) -> &mut Self {
+        crate::motion::install_if_free(self);
         if !is_column(self) {
             register(self);
         }
@@ -166,8 +196,14 @@ impl FlexExt for Flex {
         self
     }
 
+    fn animated(&mut self, on: bool) -> &mut Self {
+        set_animated(self, on);
+        self
+    }
+
     fn close_fitted(&mut self) {
         self.end();
+        crate::motion::install_if_free(self);
         if !is_column(self) {
             register(self);
         }
@@ -203,6 +239,11 @@ fn natural(f: &Flex) -> (i32, i32) {
 
 /// Writing direction of a layout (the language's, see [`crate::i18n::direction`]).
 pub use crate::i18n::Direction;
+
+// ================================================================== motion
+
+pub use crate::motion::{animated, animating, set_animated, set_visible};
+pub use crate::sidebar::{Sidebar, SidebarItem, SidebarMode};
 use fltk::enums::{Align, Key};
 use fltk::widget::Widget;
 
@@ -361,9 +402,8 @@ pub fn mirror(f: &Flex) {
     if !register(f) {
         return;
     }
-    let mut f2 = f.clone();
-    f2.super_draw_first(false);
-    f2.draw(relayout_if_mirrored);
+    // The toolkit's draw: lays the row out (mirrored) and animates changes.
+    crate::motion::install(f);
 }
 
 /// Registers the row and its resize hook; false if it was already.
@@ -384,8 +424,11 @@ pub(crate) fn register(f: &Flex) -> bool {
     });
     if new {
         watch();
-        let mut f2 = f.clone();
-        f2.resize_callback(|f, _, _, _, _| flip(f));
+        // The motion hook's resize callback mirrors too.
+        if !crate::motion::installed(f) {
+            let mut f2 = f.clone();
+            f2.resize_callback(|f, _, _, _, _| flip(f));
+        }
     }
     new
 }
@@ -403,6 +446,7 @@ pub fn mirror_rows<G: GroupExt>(g: &G) {
             let Some(c) = g.child(i) else { continue };
             let Some(sub) = c.as_group() else { continue };
             if let Some(mut f) = Flex::from_dyn_widget(&c) {
+                crate::motion::install_if_free(&f);
                 if !is_column(&f) && register(&f) && f.visible_r() {
                     relayout_if_mirrored(&mut f);
                 }
@@ -424,6 +468,11 @@ pub fn relayout_if_mirrored(f: &mut Flex) {
         let (x, y, w, h) = (f.x(), f.y(), f.w(), f.h());
         f.resize(x, y, w, h);
     }
+}
+
+/// Mirrors a row's children after FLTK laid it out (resize hooks).
+pub(crate) fn flip_row(f: &mut Flex) {
+    flip(f)
 }
 
 /// Mirrors the children of a row laid out left to right by FLTK.
