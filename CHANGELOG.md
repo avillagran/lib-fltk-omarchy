@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+- Translations (`i18n`, docs/I18N.md): catalogs in o3's flat JSON
+  (`{locale: {English source: translation}}`, `{name}` placeholders), the
+  toolkit catalog `i18n/toolkit.json` in o3's 20 languages (component
+  strings plus common ones) with app catalogs on top, o3's fallback order
+  (regional → language, nb/nn → no, English, the key), CLDR plural forms
+  as `key|category` entries next to the plain `other` key (`trn!`), RTL
+  argument isolation as in o3. The language comes from the system: gettext
+  variables on Linux/BSD, CoreFoundation on macOS, the Windows UI languages
+  API, English otherwise; `i18n::set_locale` switches it live (the locale is
+  a `State`; `i18n::text`/`map`/`live` give live Strings; `tr!`/`trn!`).
+  ConfirmDialog, OperationToast, SearchableDropdown and Menu draw their own
+  strings translated. New bindings: `Button::bind_tooltip`,
+  `ActionButton::bind_tooltip`, `TextField::bind_placeholder`,
+  `Toggle::set_title`/`set_description`/`bind_title`/`bind_description`,
+  `AppWindow::set_title`/`bind_title`, `Label::left`; labels without an
+  explicit alignment follow the reading direction. `examples/i18n_check`
+  reports missing/extra keys, placeholder mismatches, plural gaps and
+  unlisted source strings. The gallery's Preferences switches the language.
+- `Button::set_text` refits a fitted button to its new natural width (an
+  unfitted one too unless it was sized by hand), so translated labels fit.
+- Widget bindings keep their State alive: a temporary such as
+  `Label::new("").bind(&count.map(..))` used to stop updating once the
+  derived State was dropped at the end of the statement.
+- ConfirmDialog buttons widen for long labels (88 px minimum).
+
 - Glassy windows: `glass` follows Omarchy's window transparency
   (Appearance > Windows > Window Opacity: opaque, transparent, glassy) from
   `$XDG_STATE_HOME/omarchy/toggles/hypr`, live through `ThemeWatcher`.

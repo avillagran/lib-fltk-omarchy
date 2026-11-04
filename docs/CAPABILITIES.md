@@ -22,7 +22,7 @@ lib-fltk-omarchy does not claim QML equivalence.
 | Images | Image | fltk-rs images (PNG/JPEG/SVG…) | Implemented by fltk-rs |
 | Clipboard / DnD | Clipboard, DropArea | fltk-rs `app::copy/paste`, DnD events | Implemented by fltk-rs, no Omarchy helpers |
 | DPI | automatic | FLTK per-screen scaling on Wayland; spacing and fonts scale with `[font] base-size` like the shell | Implemented |
-| Localization | qsTr | UTF-8 everywhere | Planned |
+| Localization | qsTr | `i18n`: o3's flat JSON catalogs (toolkit catalog in 20 languages + app catalogs on top), `{name}` placeholders, CLDR plural forms as `key\|category` entries, regional → language → English fallback, system language on Linux/BSD (gettext env), macOS (CoreFoundation) and Windows (`GetUserPreferredUILanguages`), live switching through a locale `State` (`i18n::text`/`map`, `bind_text`/`bind_tooltip`/`bind_title`/`bind_placeholder`), `tr!`/`trn!`, `i18n_check` tool ([I18N.md](I18N.md)) | Implemented (unit + UI tests, Arabic/CJK snapshots); Partial for RTL: Pango shapes and orders Arabic, labels align to the reading start, layout is not mirrored and text input stays LTR |
 | Async tasks | WorkerScript | `task::Task` (bounded pool, cooperative cancel, coalesced progress, UI-thread callbacks), `task::post` | Implemented |
 | Window modes | Window flags | `Mode::Normal` / `Mode::Floating` (float at map, header drag, corner resize via Hyprland IPC on own windows only) / `Mode::Fullscreen` (FLTK) | Implemented (native xdg_toplevel move/resize through libdecor, validated with a real mouse; Hyprland IPC as fallback) |
 | Corner preference | — | `Corners::{Omarchy, Square, Rounded}` interior radius, fixed `badge_radius` | Implemented (pixel-tested) |

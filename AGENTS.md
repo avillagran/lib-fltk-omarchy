@@ -53,7 +53,17 @@ classic Omarchy look. Import as `fltk_omarchy`.
     there is a reason (`.backend(..)`). Guide: docs/SHADERS.md.
     Control transitions follow Omarchy durations automatically; tests and
     screenshots that need final states call `anim::set_enabled(false)`.
-12. Verify visually: `win.snapshot("shot.png")` renders offscreen without
+12. Every user-visible string goes through `i18n`: `tr!("Open")`,
+   `tr!("Delete {name}?", name = f)`, `trn!("{count} files", n)` for
+   counts. Bind live text so a language switch re-labels without a rebuild:
+   `Button::new("").bind_text(&i18n::text("Open"))`,
+   `Label::new("").bind(&i18n::map(&count, |n| trn!("{count} files", *n)))`,
+   `win.bind_title(..)`, `.bind_tooltip(..)`, `i18n::bind(&w, || ..)` for the
+   rest. App strings live in an o3-style catalog (`i18n::load(include_str!(..))`,
+   English source keys); check it with `cargo run --example i18n_check --
+   app.json --sources src`. Never build a sentence from translated pieces;
+   use placeholders. Guide: docs/I18N.md.
+13. Verify visually: `win.snapshot("shot.png")` renders offscreen without
    showing a window; look at the PNG. Verify keys with
    `focus::press("Tab")`, `press("Down")`, `press("Enter")`… (same path as
    a real key).
