@@ -177,6 +177,40 @@
     Windows and macOS type-checked only.
   - Guide: docs/ACCESSIBILITY.md.
 
+- **RichText memory: 1.6–1.8 bytes per byte of streamed Markdown instead
+  of 5.4.** Blocks live in a packed store of four arenas shared by the
+  document (text; 4-byte runs with style bits and link marks, 8 bytes in
+  blocks of 4 MiB or more; per-block URLs, list numbers, code languages
+  and table cells as bytes; 16 bytes of metadata per block) instead of a
+  `Block` with its own `String` and `Vec<Run>` each. Blocks near the view
+  are materialized with their layout in the bounded cache, as before.
+  9.75 MB streamed at 1 MB/s grows PSS by 15.6–17.7 MB (was 52.7–53.1
+  MB); 5 000 messages idle at 16.1 MB PSS (was 26.2 MB); push and paint
+  times are unchanged (alternating A/B runs; docs/PERFORMANCE.md). Public types (`Block`, `Inline`, `Run`,
+  `Style`) are unchanged.
+- **RichText and RichLabel are accessible** (feature `a11y`): a
+  `RichText` is a read-only Document whose virtual children are the
+  blocks near the view (Paragraph, Heading with level, List/ListItem with
+  "n of m" and task state, Code with a Copy button, Table/Row/Cell/
+  ColumnHeader), each with its text as name and one text run per laid out
+  line, and Link children with their URL. Click on a link or the Copy
+  button runs the Enter path; Focus and ScrollIntoView scroll the view;
+  the selection is exposed and can be set by the AT. Children are in
+  content coordinates under a scrolled Document, so a scroll changes one
+  node and a streamed token changes the last block's nodes. A `RichLabel`
+  is a Label with Link children. Verified with `tests/ui.rs` (AccessKit's
+  consumer) and the real AT-SPI check (33/33, `script/a11y-check`);
+  `script/richtext-a11y-bench` measures streaming with an AT active.
+- `a11y`: `Node::url`, `Node::scroll(y, max)`, `Node::text_run(key, line,
+  bounds)`, `Node::text_selection_in(..)`, `Role::Code`, `Role::Table`, and
+  `Value::TextRange` for selections over runs of virtual children.
+- `a11y` fix: positions were sent 1-based although AccessKit's
+  `position_in_set` is zero-based, and the set size only on the items
+  (AccessKit reads it from the container). AT-SPI and UIA reported list,
+  tab, menu and tree positions one too high and without a set size.
+- RichText: Space on a focused code copy button clears the check mark
+  after 1.5 s, like Enter.
+
 - Glassy windows: `glass` follows Omarchy's window transparency
   (Appearance > Windows > Window Opacity: opaque, transparent, glassy) from
   `$XDG_STATE_HOME/omarchy/toggles/hypr`, live through `ThemeWatcher`.

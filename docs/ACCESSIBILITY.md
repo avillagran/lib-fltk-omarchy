@@ -127,7 +127,27 @@ Names come from the visible text. Icon-only controls use their tooltip, or
 | `table::Table` | Grid → table; header Row of ColumnHeader (sort direction); Row → table row of Cell | row/column counts of the whole table; rows in view plus the cursor row; selected | Click (select by ID), Focus, ScrollIntoView; Click on a header sorts |
 | `table::Tree` | Tree → tree, TreeItem → tree item | label, description, level, expanded, selected, position among siblings | Click, Focus, Expand, Collapse, ScrollIntoView |
 | `focus::host` canvas (`KeyboardPanel`) | Group, one ListBox per panel (panel name) | 25 items each side of the cursor, labels from `KeyboardPanel::accessible_labels`; the cursor item of the active panel is focused | Click (select), Focus / ScrollIntoView (move the cursor) |
+| `text::RichText` | Document → document frame, read-only; the scroll offset and range (`scroll_y`, `scroll_y_max`) | `accessible_name`; blocks near the view (below) | Focus; SetTextSelection |
+| RichText block | Paragraph, Heading (level), ListItem in a List ("2 of 3", checked for tasks, level), Code → static (description = language), Table (rows × columns) with Row, ColumnHeader and Cell | the block's text as name; one text run per laid out line (the Document's Text interface reads them in order) | Focus, ScrollIntoView (scroll the view) |
+| RichText link | Link → link, AT-SPI Hyperlink with the URL | link text; URL | Click (opens it, like Enter), Focus (Tab target) |
+| RichText code copy | Button "Copy" | — | Click (copies, like Enter), Focus |
+| `text::RichLabel` | Label, with a Link child per link | its text; link URL | Click on a link (as a mouse click) |
 | `announce` | Status, live | the text | — |
+
+**Rich text.** A `RichText` exposes only the blocks in view and half a
+view above and below (at most 200), plus the blocks that hold the Tab
+target and the ends of the selection. Each block's text is its name and
+one text run per laid out line (with its rectangle), so the AT reads it by
+character, word and line, and the Document's Text interface reads every
+exposed block in order (a line break after each block, a tab between
+cells). Lists are List nodes with ListItem children ("2 of 3"). Blocks
+are placed in content coordinates and the Document carries the scroll
+offset as its transform: scrolling sends the Document node and the blocks
+that enter the window; a token streamed into the last block sends that
+block's nodes and the Document. The selection is exposed on the Document
+and an AT can set it within the exposed blocks. A huge block exposes the
+400 lines near the view, and names are cut at 4 000 bytes (its runs still
+carry the text).
 
 **Virtual rows.** Lists, tables, trees and panels expose the rows in view
 (plus the cursor/selected row), each with its position in the whole set,
@@ -197,9 +217,12 @@ a11y::register(&*chat_widget, chat.clone());
   `live`, `level`, `position(n, of)`, `row_index`, `column_index`,
   `counts(rows, cols)`, `sort`, `bounds` (window coordinates), `action`,
   `focusable`, `shortcut`, `text_selection(anchor, focus)` (characters),
-  `child(key, ..)` (virtual children, any depth), `focused` (this child has
-  the keyboard focus while the widget has it), and `leaf` (do not expose
-  the fltk children).
+  `url` (links), `scroll(y, max)` (a scrolled view: children in content
+  coordinates), `text_run(key, line, bounds)` (explicit text runs, any
+  depth), `text_selection_in((path, char), (path, char))` (a selection
+  over runs of virtual children), `child(key, ..)` (virtual children, any
+  depth), `focused` (this child has the keyboard focus while the widget
+  has it), and `leaf` (do not expose the fltk children).
 - Text roles (TextInput, PasswordInput, SearchInput, MultilineTextInput,
   Document, Paragraph) get one AccessKit text run per line with character
   lengths and word starts. The AT can then read by character, word and
@@ -209,15 +232,16 @@ a11y::register(&*chat_widget, chat.clone());
   of its window. If your data changes without a repaint, call
   `a11y::changed(&widget)`.
 - `Request::path` lists the keys of the virtual children down to the
-  target; `Request::value` carries `Value::Text`, `Value::Number` or
-  `Value::Selection { anchor, focus }`.
+  target; `Request::value` carries `Value::Text`, `Value::Number`,
+  `Value::Selection { anchor, focus }` (the widget's own runs) or
+  `Value::TextRange { anchor, focus }` (runs of virtual children: each end
+  is the key path of the node that holds the runs and a character).
 
-For a future RichText/Markdown view: expose the view as `Role::Document`
-with one `Paragraph`/`Heading`/`ListItem`/`Link` child per block near the
-viewport (plus the block with the caret). Give each its text and
-`position(n, of)`, put `text_selection` on the block that holds the
-selection, and handle `ScrollIntoView` and `SetTextSelection`. Streaming
-output can use `a11y::announce(.., Live::Polite)` or a live Status child.
+`text::RichText` (src/text/access.rs) is the reference for a long
+document: a `Document` with `scroll(..)`, a child per block near the
+viewport with its text runs, links as `Link` children with a `url`, and
+`ScrollIntoView`, `Focus`, `Click` and `SetTextSelection` handled.
+Streaming output can also use `a11y::announce(.., Live::Polite)`.
 
 ## Announcements
 
@@ -252,11 +276,19 @@ runs `examples/a11y_check` on the hidden Hyprland workspace
 private D-Bus session with its own AT-SPI bus and registry. Turning AT-SPI
 on there does not change your session, and nothing speaks.
 `script/a11y_atspi.py` (python3 + `gi`/Atspi) prints the AT-SPI tree, then
-checks four things through AT-SPI only, never with synthetic input:
+checks through AT-SPI only, never with synthetic input:
 `DoAction("click")` reaches the button's `on_click`, a switch toggles, the
-slider's `Value.SetCurrentValue` lands, and `EditableText` reaches the
-field. The 2026-11-04 report:
+slider's `Value.SetCurrentValue` lands, `EditableText` reaches the field,
+the list's first row is "1 of 10000", and on a `RichText` transcript: the
+document frame, heading and paragraph names, list item positions, the
+Text interface over the blocks, the link's Hyperlink URI, `DoAction` on
+the link (it reaches `on_link`), `GrabFocus` on the link and the code
+block's Copy button. The 2026-11-04 report (33/33):
 [evidence/a11y-20261104/atspi-report.txt](evidence/a11y-20261104/atspi-report.txt).
+
+`script/richtext-a11y-bench` runs `examples/richtext_bench` (built with
+`--features a11y`) in the same kind of private AT-SPI session and prints
+the bench line plus the size and time of every accessibility update.
 
 **With a screen reader** (by hand):
 
@@ -276,9 +308,14 @@ field. The 2026-11-04 report:
 
 - **Linux (x86_64, Hyprland 0.56.2, Wayland, at-spi2-core 2.62.1)**:
   - unit tests: 7 tree-generation tests, no bus
-  - `tests/ui.rs`: 3 a11y checks through the recording adapter and
-    AccessKit's consumer
-  - the real AT-SPI check: 20/20 checks pass
+  - `tests/ui.rs`: 4 a11y checks through the recording adapter and
+    AccessKit's consumer (the fourth: RichText and RichLabel roles,
+    links, code, tables, the Document's text, AT click/focus/scroll/select,
+    and the size of stream and scroll updates)
+  - the real AT-SPI check: 33/33 checks pass (13 of them on a RichText:
+    document frame, heading and paragraph names, list items "1 of 2",
+    code, the Text interface, the Hyperlink URI, DoAction on a link,
+    GrabFocus, the Copy button)
 - **Windows (x86_64-pc-windows-gnu)** and **macOS (aarch64-apple-darwin)**:
   type-checked with `cargo check` and `cargo clippy` with
   `--features a11y`. They have not been run: no Windows or macOS machine
@@ -310,9 +347,26 @@ field. The 2026-11-04 report:
 - Damage detection covers repaints of a top-level window. A change that
   repaints only inside a GL subwindow, or data that changes without any
   repaint, needs `a11y::changed`.
-- A large document exposed as one text node is rebuilt and compared in
-  full on every update. Expose the blocks near the viewport as virtual
+- The whole window's description is rebuilt and compared on each update.
+  For documents this stays cheap because a `RichText` describes only the
+  blocks near the view (about 120 nodes for a full 800×900 view, 0.2 ms
+  per update); a custom widget that puts a large document in one text
+  node is still rebuilt and compared in full: expose blocks as virtual
   children instead (see "Custom widgets").
+- Streaming into a RichText with an AT active: at 20 KB/s (a fast model)
+  each update sends ~23 of ~118 nodes (the new blocks, the last block and
+  the Document) in 0.2 ms on the UI thread; the process uses 15 % of a
+  core instead of 11 % without an AT, the rest being the adapter's D-Bus
+  work. At 1 MB/s a whole screen of new blocks arrives per frame, so
+  nearly every exposed node is new each update (47 % of a core instead
+  of 19 %). Measured with `script/richtext-a11y-bench`.
+- AT-SPI (accesskit_atspi_common 0.20) does not bridge heading levels
+  (`level`) or code roles: Orca reads a heading without its level, and a
+  code block as static text with its language as the description.
+- AccessKit's `position_in_set` is zero-based and the set size belongs
+  to the container. Before this release the toolkit sent 1-based
+  positions, so AT-SPI and UIA reported list, tab and menu positions one
+  too high and without a set size; containers now carry the size.
 - `List` rows have no "activate" action of their own: Click selects, as a
   mouse click does. Enter from the keyboard still activates.
 - A table row whose item ID is `u64::MAX - 7` would collide with the

@@ -98,9 +98,11 @@ classic Omarchy look. Import as `fltk_omarchy`.
    their tooltip; anything else without visible text gets
    `.accessible_name("..")` (`Button::icon`, `ToggleSwitch`, `Slider`,
    `NumberField`; `use fltk_omarchy::a11y::AccessibleExt`). Give
-   `KeyboardPanel`s `accessible_labels(|id| ..)`. A custom widget
-   implements `a11y::Accessible` and exposes rows near the viewport as
-   virtual children, never one node per item. Check names with
+   `KeyboardPanel`s `accessible_labels(|id| ..)`. A `RichText` is already
+   a Document of the blocks near the view (headings, paragraphs, list
+   items, code, tables, links): name it (`.accessible_name("Conversation")`).
+   A custom widget implements `a11y::Accessible` and exposes rows near the
+   viewport as virtual children, never one node per item. Check names with
    `a11y::snapshot(&*win)`.
 
 ## Minimal app
