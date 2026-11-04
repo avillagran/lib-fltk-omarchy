@@ -58,6 +58,8 @@ struct Inner {
     sel_id: Option<ItemId>,
     slots: RowSlots,
     inval: Invalidations,
+    // Model lists: rows arrive, leave, make room and fly (by item ID).
+    rm: crate::rowmotion::RowMotion<ListRow>,
 }
 
 type IdAtFn = Box<dyn Fn(usize) -> Option<ItemId>>;
@@ -147,6 +149,7 @@ impl List {
         let inner = Rc::new(RefCell::new(Inner {
             row: Box::new(row), count, top: 0, motion: crate::scroll::Scroll::new(), row_h, hover: None, selected: None, fetched: 0, dragging_thumb: None,
             ids: None, sel_id: None, slots: RowSlots::default(), inval: Invalidations::default(),
+            rm: Default::default(),
         }));
         let list = List {
             widget,
@@ -248,17 +251,67 @@ impl List {
                 let text_w = w.w() - BAR - 4;
                 let top = i.top;
                 i.slots.begin(top, visible);
+                // Row motion (model lists, full redraws): where each row in view is now.
+                let full = w.damage_type().contains(Damage::All);
+                let moving = full && i.ids.is_some();
+                if moving {
+                    let rows: Vec<(ItemId, i32)> = (0..visible)
+                        .map(|k| first + k)
+                        .filter(|idx| *idx < i.count)
+                        .filter_map(|idx| {
+                            let id = i.ids.as_ref().and_then(|s| (s.id_at)(idx))?;
+                            Some((id, (idx as i64 * i.row_h as i64 - i.top) as i32))
+                        })
+                        .collect();
+                    let inn = &mut *i;
+                    let ids = inn.ids.as_ref();
+                    inn.rm.begin(&rows, |id| ids.is_some_and(|s| (s.index_of)(id).is_some()));
+                }
+                let drift = (22.0 * t.font.base as f64 / 12.0).round();
+                let mut drawn = Vec::new();
+                let mut lifted = Vec::new();
                 for k in 0..visible {
                     let idx = first + k;
                     if idx >= i.count { i.slots.drawn(k, None); continue; }
-                    let ry = w.y() + (idx as i64 * i.row_h as i64 - i.top) as i32;
+                    let base = w.y() + (idx as i64 * i.row_h as i64 - i.top) as i32;
+                    let id = i.ids.as_ref().and_then(|s| (s.id_at)(idx));
+                    let (dy, opacity, lift) = match (moving, id) { (true, Some(id)) => i.rm.at(id, drift), _ => (0, 1.0, 0.0) };
+                    let ry = base + dy;
                     // Partial redraws (one changed row) build only the rows in the damaged area.
                     if !fltk::draw::not_clipped(w.x(), ry, w.w(), i.row_h) { continue; }
                     let r = (i.row)(idx);
-                    let id = i.ids.as_ref().and_then(|s| (s.id_at)(idx));
                     i.slots.drawn(k, id);
                     i.fetched += 1;
-                    draw_row(t, m.x(w.x(), text_w), ry, text_w, i.row_h, &r.icon, &r.label, &r.detail, i.hover == Some(idx), i.selected == Some(idx), under, m.on);
+                    if lift > 0.0 {
+                        lifted.push((idx, ry, lift, r.clone()));
+                    } else {
+                        draw_row(t, m.x(w.x(), text_w), ry, text_w, i.row_h, &r.icon, &r.label, &r.detail, i.hover == Some(idx), i.selected == Some(idx), under, m.on);
+                        if opacity < 1.0 {
+                            paint::alpha_fill(m.x(w.x(), text_w), ry, text_w, i.row_h, under, 1.0 - opacity);
+                        }
+                    }
+                    if let (true, Some(id)) = (moving && crate::anim::enabled(), id) {
+                        drawn.push((id, ry - w.y(), r));
+                    }
+                }
+                if moving {
+                    for g in &i.rm.ghosts {
+                        let (dy, o) = g.sample(drift);
+                        let ry = w.y() + g.y + dy;
+                        draw_row(t, m.x(w.x(), text_w), ry, text_w, i.row_h, &g.row.icon, &g.row.label, &g.row.detail, false, false, under, m.on);
+                        paint::alpha_fill(m.x(w.x(), text_w), ry, text_w, i.row_h, under, 1.0 - o);
+                    }
+                    // Rows in flight on top: a lifted card (o3 T3RowFlight).
+                    for (idx, ry, bow, r) in lifted {
+                        let x = m.x(w.x(), text_w);
+                        paint::alpha_fill(x + 2, ry + (5.0 * bow) as i32, text_w, i.row_h, theme::Rgb(0), 0.32 * bow);
+                        let card = t.palette.foreground.over(under, 0.06);
+                        paint::fill(x, ry, text_w, i.row_h, t.radius, card);
+                        draw_row(t, x, ry, text_w, i.row_h, &r.icon, &r.label, &r.detail, false, i.selected == Some(idx), card, m.on);
+                        paint::stroke(x, ry, text_w, i.row_h, t.radius, 1, t.palette.accent.over(card, 0.55 * bow));
+                    }
+                    i.rm.end(drawn);
+                    if i.rm.running() { crate::anim::request_redraw(w); }
                 }
                 if max_top > 0 {
                     let track = w.h();
@@ -486,6 +539,14 @@ fn apply_changes(inn: &Rc<RefCell<Inner>>, w: &mut Widget, len: usize, changes: 
         i.top = r.top;
     }
     i.count = len;
+    let structural = changes.is_structural() || !changes.removed().is_empty();
+    if structural {
+        let flown: Vec<ItemId> = changes.ops().iter().filter_map(|op| match op {
+            crate::model::Change::Moved { to, .. } => (ids.id_at)(*to),
+            _ => None,
+        }).collect();
+        i.rm.changed(changes.inserted(), &flown);
+    }
     let mut moved = None;
     if changes.is_structural() || !changes.removed().is_empty() {
         let now = i.sel_id.and_then(|id| (ids.index_of)(id));
@@ -497,7 +558,8 @@ fn apply_changes(inn: &Rc<RefCell<Inner>>, w: &mut Widget, len: usize, changes: 
             moved = Some(now);
         }
     }
-    if r.full {
+    // Rows that move are drawn in full while they move.
+    if r.full || (structural && crate::anim::enabled()) {
         i.inval.full += 1;
         w.redraw();
         return moved;

@@ -200,6 +200,8 @@ pub(super) struct Inner {
     view_h: i32,
     frames: u64,
     paint_time: std::time::Duration,
+    /// A new message fading in: its first block and the motion.
+    reveal: Option<(usize, crate::anim::Tween)>,
 }
 
 impl Inner {
@@ -232,6 +234,7 @@ impl Inner {
             view_h: 0,
             frames: 0,
             paint_time: std::time::Duration::ZERO,
+            reveal: None,
         }
     }
 
@@ -389,6 +392,7 @@ impl Inner {
     }
 
     fn clear(&mut self) {
+        self.reveal = None;
         self.store.clear();
         self.hot.clear();
         self.heights = Heights::default();
@@ -531,6 +535,13 @@ impl Inner {
         let margin = 64;
         let keep = vis.start.saturating_sub(margin)..vis.end + margin;
         self.hot.retain(|k, _| keep.contains(k));
+    }
+
+    /// A message appended after others fades in (o3 row arrival, 360 ms);
+    /// streaming into it later costs nothing more.
+    fn reveal_from(&mut self, start: usize) {
+        self.reveal = (start > 0 && self.store.len() > start && crate::anim::enabled())
+            .then(|| (start, crate::anim::Tween::start(crate::anim::ms::ROW_ARRIVE, crate::anim::Ease::OutCubic)));
     }
 
     fn screen_y(&self, i: usize, wy: i32) -> i32 {
@@ -876,6 +887,7 @@ impl RichText {
             let o = i.opts.clone();
             i.stream = Some((start, MarkdownStream::with_options(o)));
             i.push_markdown(md);
+            i.reveal_from(start);
         }
         self.changed();
     }
@@ -901,9 +913,11 @@ impl RichText {
         {
             let mut i = self.inner.borrow_mut();
             i.stream = None;
+            let start = i.store.len();
             for b in blocks {
                 i.push_slot(b);
             }
+            i.reveal_from(start);
         }
         self.changed();
     }
@@ -1289,6 +1303,19 @@ fn draw_view(w: &mut Widget, i: &mut Inner, t: &Theme) {
             color: None,
         };
         draw_block(&ctx, b, l, bx, by, &mut m);
+    }
+    // A new message fading in over what is under it.
+    if let Some((start, tw)) = i.reveal {
+        if tw.done() || !crate::anim::enabled() || start >= i.store.len() {
+            i.reveal = None;
+        } else {
+            let y0 = i.screen_y(start, w.y()).max(w.y());
+            let bottom = w.y() + w.h();
+            if y0 < bottom {
+                paint::alpha_fill(w.x(), y0, w.w() - BAR - 2, bottom - y0, under, 1.0 - tw.value());
+            }
+            crate::anim::request_redraw(w);
+        }
     }
     // Scrollbar.
     let content = i.content_h();

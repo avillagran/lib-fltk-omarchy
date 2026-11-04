@@ -12,6 +12,7 @@ pub mod layout;
 pub mod list;
 pub mod model;
 pub(crate) mod motion;
+pub(crate) mod rowmotion;
 pub mod native;
 pub mod overlay;
 pub mod paint;
