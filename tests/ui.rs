@@ -1567,6 +1567,210 @@ fn main() {
         i18n::set_locale("en");
         check(tr!("Cancel") == "Cancel", "back to English")
     });
+    run("rtl: header, rows, toggles mirror live (no rebuild); direction(Ltr) override; plain Flex rows", &|shots| {
+        i18n::set_locale("en");
+        let mut win = AppWindow::new("Title", 460, 320);
+        let act = win.header().action(glyph::SETTINGS, "Preferences", || {});
+        let mut body = win.body();
+        let (a, b, c) = (Button::new("A").bordered(), Button::new("B").bordered(), Button::new("C").bordered());
+        let mut row = layout::row();
+        row.fit(&*a);
+        row.fit(&*b);
+        row.fit(&*c);
+        row.close_fitted();
+        let (x, y) = (Button::new("X").bordered(), Button::new("Y").bordered());
+        let mut media = layout::row();
+        media.direction(layout::Direction::Ltr);
+        media.fit(&*x);
+        media.fit(&*y);
+        media.close_fitted();
+        // A row made with plain fltk-rs (AppWindow::end registers it).
+        let plain = fltk::group::Flex::default().row();
+        let p1 = fltk::frame::Frame::default();
+        let p2 = fltk::frame::Frame::default();
+        plain.end();
+        body.fixed(&plain, 20);
+        let toggle = Toggle::new("Night light", "", &State::new(true));
+        body.fit(&*toggle);
+        win.end();
+        let en = shots.join("rtl-live-en.png");
+        win.snapshot(&en).map_err(|e| e.to_string())?;
+        check(a.x() < b.x() && b.x() < c.x() && x.x() < y.x() && p1.x() < p2.x(), "en: left to right")?;
+        check(act.x() > win.w() / 2, "en: actions on the right")?;
+        let (ax, cx) = (a.x(), c.x() + c.w());
+        i18n::set_locale("ar");
+        let ar = shots.join("rtl-live-ar.png");
+        win.snapshot(&ar).map_err(|e| e.to_string())?;
+        check(a.x() > b.x() && b.x() > c.x(), &format!("ar: row mirrored ({} {} {})", a.x(), b.x(), c.x()))?;
+        check(win.w() - (a.x() + a.w()) == ax, &format!("ar: first child at the right edge ({} vs {ax})", win.w() - a.x() - a.w()))?;
+        check(c.x() == win.w() - cx, "ar: last child where the mirror of its end was")?;
+        check(x.x() < y.x(), "ar: direction(Ltr) row keeps its order")?;
+        check(p1.x() > p2.x(), "ar: plain Flex row mirrored")?;
+        check(act.x() < win.w() / 2, &format!("ar: header actions on the left ({})", act.x()))?;
+        // Header title on the right half: ink in the right half of the header, none in the middle-left.
+        let bg = pixel(&ar, win.w() / 2, 4)?;
+        let hh = win.header().h();
+        let mut right_ink = 0;
+        let mut left_ink = 0;
+        for yy in (4..hh - 4).step_by(2) {
+            for xx in (win.w() / 2..win.w() - 4).step_by(2) {
+                if pixel(&ar, xx, yy)? != bg { right_ink += 1; }
+            }
+            for xx in (act.x() + act.w() + 4..win.w() / 2).step_by(2) {
+                if pixel(&ar, xx, yy)? != bg { left_ink += 1; }
+            }
+        }
+        check(right_ink > 10 && left_ink == 0, &format!("ar: header title on the right ({right_ink} right, {left_ink} left)"))?;
+        // Toggle on: the knob is on the left end of the switch, the mirror of en.
+        let t = theme::current();
+        let th = t.spacing.control_height.max(28);
+        let track_h = 22.max((th as f64 * 0.55).round() as i32);
+        let track_w = (track_h as f64 * 1.9).round() as i32;
+        let knob = 6.max((track_h as f64 * 0.72).round() as i32);
+        let inset = 1.max((track_h - knob) / 2);
+        let pad = t.spacing.row_padding_x + 1;
+        let cy = toggle.y() + toggle.h() / 2;
+        let knob_en = pixel(&en, toggle.x() + toggle.w() - pad - inset - knob / 2, cy)?;
+        let knob_ar = pixel(&ar, toggle.x() + pad + inset + knob / 2, cy)?;
+        let far_ar = pixel(&ar, toggle.x() + pad + track_w - inset - knob / 2, cy)?;
+        check(knob_ar == knob_en && far_ar != knob_ar, &format!("ar: switch knob on the left ({knob_ar:?} = {knob_en:?}, other end {far_ar:?})"))?;
+        // And back, still without rebuilding.
+        i18n::set_locale("en");
+        win.snapshot(shots.join("rtl-live-back.png")).map_err(|e| e.to_string())?;
+        check(a.x() == ax && a.x() < c.x() && act.x() > win.w() / 2, "back to left to right")
+    });
+    run("rtl: Left/Right follow the screen (tabs, button group, slider, grid panel, tree); Tab goes start to end", &|shots| {
+        i18n::set_locale("ar");
+        let mut win = AppWindow::new("t", 600, 420);
+        let mut body = win.body();
+        let mut r = layout::row();
+        let first = Button::new("first");
+        let second = Button::new("second");
+        r.fit(&*first);
+        r.fit(&*second);
+        r.close_fitted();
+        let tab = State::new(0usize);
+        let tabs = TabBar::new(&["one", "two", "three"], &tab);
+        body.fit(&*tabs);
+        let view = State::new(0usize);
+        let group = ButtonGroup::new(&["Day", "Week", "Month"], &view);
+        body.fit(&*group);
+        let vol = State::new(0.5);
+        let slider = Slider::new(&vol, 0.0, 1.0, 0.1);
+        body.fit(&*slider);
+        let grid = KeyboardPanel::new("grid").layout(PanelLayout::Grid { columns: 3 });
+        grid.set_items(9, |i| i as u64, |id| (id < 9).then_some(id as usize));
+        let mut canvas = fltk::widget::Widget::default().with_size(200, 40);
+        canvas.handle(|_, ev| matches!(ev, fltk::enums::Event::Focus | fltk::enums::Event::Unfocus));
+        body.fit(&canvas);
+        focus::host(&canvas, &[&grid]);
+        let tp = KeyboardPanel::new("tree");
+        let tree = Tree::new(&tp, |p| match p {
+            None => vec![TreeNode::new(1, "root").branch()],
+            Some(1) => vec![TreeNode::new(2, "child")],
+            _ => vec![],
+        });
+        body.fit(&*tree);
+        body.fixed(&*tree, 80);
+        win.end();
+        win.snapshot(shots.join("rtl-keys-ar.png")).map_err(|e| e.to_string())?;
+        check(first.x() > second.x(), "row mirrored")?;
+        focus::first(&*win).ok_or("nothing focusable")?;
+        check(focus::is_focused(&*first), "the first stop is the rightmost control")?;
+        press("Tab");
+        check(focus::is_focused(&*second), "Tab goes on to the left")?;
+        press("Tab");
+        check(focus::is_focused(&*tabs), "then the tab bar")?;
+        let (r0, r1) = (tabs.tab_rect(0).ok_or("tab 0")?, tabs.tab_rect(1).ok_or("tab 1")?);
+        check(r0.0 > r1.0, &format!("first tab on the right ({r0:?} {r1:?})"))?;
+        press("Left");
+        check(tab.get() == 1, &format!("Left goes to the next tab ({})", tab.get()))?;
+        press("Right");
+        check(tab.get() == 0, "Right goes back")?;
+        press("Tab");
+        check(focus::is_focused(&*group.button(0).unwrap()), "button group")?;
+        press("Left");
+        check(view.get() == 1, "Left picks the next option")?;
+        press("Tab");
+        check(focus::is_focused(&*slider), "slider")?;
+        press("Left");
+        check(vol.get() > 0.5, &format!("Left raises a mirrored slider ({})", vol.get()))?;
+        press("Tab");
+        check(grid.has_focus(), "grid panel")?;
+        press("Left");
+        check(grid.cursor_index() == Some(0), "first key lands on the first item")?;
+        press("Left");
+        check(grid.cursor_index() == Some(1), &format!("Left moves to the next item ({:?})", grid.cursor_index()))?;
+        press("Right");
+        check(grid.cursor_index() == Some(0), "Right moves back")?;
+        press("Tab");
+        check(tp.has_focus(), "tree panel")?;
+        press("Down");
+        check(tp.cursor() == Some(1), "tree cursor on the root")?;
+        press("Left");
+        check(tree.is_expanded(1), "Left expands in a right-to-left tree")?;
+        press("Right");
+        check(!tree.is_expanded(1), "Right collapses")?;
+        i18n::set_locale("en");
+        Ok(())
+    });
+    run("rtl: list scrollbar, popup menu glyphs, toast corner, rich text bidi", &|shots| {
+        i18n::set_locale("ar");
+        let mut win = AppWindow::new("t", 520, 520);
+        let mut body = win.body();
+        let anchor = Button::new("menu").bordered();
+        body.fit(&*anchor);
+        let list = List::new(&State::new(500usize), |i| ListRow::new(&format!("row {i}")));
+        body.fit(&*list);
+        body.fixed(&*list, 120);
+        let rt = RichText::new().padding(0);
+        body.fit(&*rt);
+        body.fixed(&*rt, 160);
+        win.end();
+        rt.set_markdown("نص عربي مع كلمة word ورقم 2026.\n\nplain English line");
+        let p = shots.join("rtl-parts-ar.png");
+        win.snapshot(&p).map_err(|e| e.to_string())?;
+        let bg = pixel(&p, 2, win.h() - 3)?;
+        // Scrollbar thumb on the left edge of the list.
+        let ty = list.y() + 10;
+        check(pixel(&p, list.x() + 1, ty)? != bg, "ar: list scrollbar on the left")?;
+        check(pixel(&p, list.x() + list.w() - 2, ty)? == bg, "ar: nothing at the right edge")?;
+        // Rich text: the Arabic paragraph is right-aligned, "word" sits left of
+        // the Arabic words before it, the English paragraph stays left-aligned.
+        let arabic = rt.text_rect("نص").ok_or("arabic rect")?;
+        let word = rt.text_rect("word").ok_or("word rect")?;
+        let plain = rt.text_rect("plain").ok_or("plain rect")?;
+        let mid = rt.x() + rt.w() / 2;
+        check(arabic.0 > mid, &format!("Arabic paragraph starts on the right ({arabic:?})"))?;
+        check(word.0 + word.2 <= arabic.0, &format!("Latin word after the Arabic text, to its left ({word:?} {arabic:?})"))?;
+        check(plain.0 < mid, &format!("English paragraph on the left ({plain:?})"))?;
+        // Popup menu: glyph and label on the right, nothing in the left half.
+        let h = PopupMenu::open(&*anchor, vec![PopupItem::new(glyph::FOLDER, "فتح"), PopupItem::new(glyph::TRASH, "حذف")], |_| {});
+        let (mx, my, mw, _) = h.rect().ok_or("menu rect")?;
+        let pm = shots.join("rtl-popup-ar.png");
+        win.snapshot(&pm).map_err(|e| e.to_string())?;
+        // The second entry (the first one has the hover fill).
+        let row_h = theme::current().spacing.popup_row_height;
+        let top = my + 2 + theme::current().spacing.xxs + row_h;
+        let fill = pixel(&pm, mx + mw / 2, top + 2)?;
+        let (mut left, mut right) = (0, 0);
+        for yy in (top + 3..top + row_h - 3).step_by(2) {
+            for xx in (mx + 4..mx + mw / 2).step_by(2) {
+                if pixel(&pm, xx, yy)? != fill { left += 1; }
+            }
+            for xx in (mx + mw / 2..mx + mw - 4).step_by(2) {
+                if pixel(&pm, xx, yy)? != fill { right += 1; }
+            }
+        }
+        check(right > 10 && left == 0, &format!("ar: menu entry on the right ({left} left, {right} right)"))?;
+        h.close();
+        let toast = OperationToast::show(&*win, "نسخ").ok_or("toast")?;
+        let (tx, _, tw, _) = toast.rect();
+        check(tx + tw < win.w() / 2 + tw / 2 && tx < win.w() - tx - tw, &format!("ar: operation toast at the bottom-left ({tx})"))?;
+        toast.close();
+        i18n::set_locale("en");
+        Ok(())
+    });
     run("rich text: bold ink, code chip, link underline, code surface, selection color", &|shots| {
         let mut win = AppWindow::new("t", 520, 300);
         let rt = RichText::new();

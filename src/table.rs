@@ -192,11 +192,12 @@ impl Table {
             let len = s.panel.len();
             n.role(Role::Grid).counts(len + 1, s.cols.len()).multiselectable(true).focusable();
             let cols = col_layout(&s.cols, me.w() - BAR - 4);
+            let m = crate::layout::Mirror::of(&me);
             n.child(HEADER_KEY, |h| {
                 h.role(Role::Row).row_index(0).bounds(me.x(), me.y(), me.w(), hh);
                 for (ci, (c, (cx, cw))) in s.cols.iter().zip(cols.iter()).enumerate() {
                     h.child(ci as u64, |cell| {
-                        cell.role(Role::ColumnHeader).name(&c.title).column_index(ci).bounds(me.x() + cx, me.y(), *cw, hh).action(Action::Click);
+                        cell.role(Role::ColumnHeader).name(&c.title).column_index(ci).bounds(m.x(me.x() + cx, *cw), me.y(), *cw, hh).action(Action::Click);
                         if let Some((_, asc)) = s.sort.filter(|(sc, _)| *sc == ci) {
                             cell.sort(asc);
                         }
@@ -215,11 +216,11 @@ impl Table {
                 let Some(id) = s.panel.id_at(idx) else { continue };
                 let ry = me.y() + hh + (idx as i64 * rh as i64 - s.top) as i32;
                 n.child(id, |r| {
-                    r.role(Role::Row).row_index(idx + 1).name(&(s.cell)(idx, 0)).selected(s.panel.is_selected(id)).bounds(me.x(), ry, me.w() - BAR - 4, rh)
+                    r.role(Role::Row).row_index(idx + 1).name(&(s.cell)(idx, 0)).selected(s.panel.is_selected(id)).bounds(m.x(me.x(), me.w() - BAR - 4), ry, me.w() - BAR - 4, rh)
                         .action(Action::Click).action(Action::Focus).action(Action::ScrollIntoView);
                     for (ci, (cx, cw)) in cols.iter().enumerate().take(s.cols.len()) {
                         r.child(ci as u64, |cell| {
-                            cell.role(Role::Cell).name(&(s.cell)(idx, ci)).column_index(ci).bounds(me.x() + cx, ry, *cw, rh);
+                            cell.role(Role::Cell).name(&(s.cell)(idx, ci)).column_index(ci).bounds(m.x(me.x() + cx, *cw), ry, *cw, rh);
                         });
                     }
                     if cursor == Some(id) {
@@ -281,6 +282,15 @@ impl Table {
     /// Sets the sort shown in the header (without calling `on_sort`).
     pub fn set_sort(&self, s: Option<(usize, bool)>) {
         self.st.borrow_mut().sort = s;
+        self.widget.clone().redraw();
+    }
+
+    /// Renames the columns (in order; extra titles are ignored), e.g. from
+    /// `i18n::bind` so the header follows the language.
+    pub fn set_titles(&self, titles: &[&str]) {
+        for (c, t) in self.st.borrow_mut().cols.iter_mut().zip(titles) {
+            c.title = t.to_string();
+        }
         self.widget.clone().redraw();
     }
 
@@ -385,7 +395,8 @@ fn refit_rows(
         }
     }
     if r.bar {
-        w.set_damage_area(Damage::User1, w.x() + w.w() - BAR, y0, BAR, body_h);
+        let x = crate::layout::Mirror::of(&*w).x(w.x() + w.w() - BAR, BAR);
+        w.set_damage_area(Damage::User1, x, y0, BAR, body_h);
     }
 }
 
@@ -421,6 +432,9 @@ fn table_draw(w: &mut Widget, st: &Rc<RefCell<TState>>) {
     if s.motion.running() { crate::anim::request_redraw(w); }
     let ring = s.panel.show_ring();
     let cols = col_layout(&s.cols, w.w() - BAR - 4);
+    // Right to left: the first column on the right, cells aligned to their
+    // mirrored side, the scrollbar on the left.
+    let m = crate::layout::Mirror::of(w);
     theme::with(|t| {
         let fg = t.palette.foreground;
         let under = t.palette.background;
@@ -428,17 +442,18 @@ fn table_draw(w: &mut Widget, st: &Rc<RefCell<TState>>) {
         // Header.
         for (i, (c, (cx, cw))) in s.cols.iter().zip(cols.iter()).enumerate() {
             let x = w.x() + cx;
-            let align = if c.right { Align::Right } else { Align::Left };
+            let align = m.align(if c.right { Align::Right } else { Align::Left });
             let sorted = s.sort.filter(|(sc, _)| *sc == i).map(|(_, asc)| asc);
             let arrow = if sorted.is_some() { t.font.caption + t.spacing.sm } else { 0 };
             // Sorted column: a chevron next to the title (up = ascending).
             let (tx, ax) = if c.right { (x + pad + arrow, x + pad) } else { (x + pad, x + cw - pad - arrow) };
-            paint::text_elided(&c.title, tx, w.y(), cw - 2 * pad - arrow, hh, t.font.caption, true, fg.darker(1.4), align);
+            let tw = cw - 2 * pad - arrow;
+            paint::text_elided(&c.title, m.x(tx, tw), w.y(), tw, hh, t.font.caption, true, fg.darker(1.4), align);
             if let Some(asc) = sorted {
-                paint::glyph(if asc { glyph::CHEVRON_UP } else { glyph::CHEVRON_DOWN }, ax, w.y(), arrow, hh, t.font.caption, t.palette.accent);
+                paint::glyph(if asc { glyph::CHEVRON_UP } else { glyph::CHEVRON_DOWN }, m.x(ax, arrow), w.y(), arrow, hh, t.font.caption, t.palette.accent);
             }
             if i + 1 < cols.len() {
-                paint::fill(x + cw - 1, w.y() + hh / 4, 1, hh / 2, 0, fg.over(under, 0.15));
+                paint::fill(m.x(x + cw - 1, 1), w.y() + hh / 4, 1, hh / 2, 0, fg.over(under, 0.15));
             }
         }
         paint::hairline(w.x(), w.y() + hh - 1, w.w(), fg, under, 0.12);
@@ -458,7 +473,7 @@ fn table_draw(w: &mut Widget, st: &Rc<RefCell<TState>>) {
             if !draw::not_clipped(w.x(), ry, w.w(), rh) { continue; }
             s.slots.drawn(k, Some(id));
             let rw = w.w() - BAR - 4;
-            draw_row_bg(t, w.x(), ry, rw, rh, s.panel.is_selected(id), cursor == Some(id), s.hover == Some(idx), ring);
+            draw_row_bg(t, m.x(w.x(), rw), ry, rw, rh, s.panel.is_selected(id), cursor == Some(id), s.hover == Some(idx), ring);
             for (ci, (c, (cx, cw))) in s.cols.iter().zip(cols.iter()).enumerate() {
                 let mut tx = w.x() + cx + pad;
                 let mut tw = cw - 2 * pad;
@@ -467,7 +482,7 @@ fn table_draw(w: &mut Widget, st: &Rc<RefCell<TState>>) {
                         let g = icon(idx);
                         if !g.is_empty() {
                             let cell = (22.0 * t.font.base as f64 / 12.0).round() as i32;
-                            paint::glyph(&g, tx, ry, cell, rh, t.font.title, fg);
+                            paint::glyph(&g, m.x(tx, cell), ry, cell, rh, t.font.title, fg);
                             tx += cell + t.spacing.md;
                             tw -= cell + t.spacing.md;
                         }
@@ -475,12 +490,12 @@ fn table_draw(w: &mut Widget, st: &Rc<RefCell<TState>>) {
                 }
                 let text = (s.cell)(idx, ci);
                 let color = if ci == 0 { fg } else { fg.darker(1.25) };
-                paint::text_elided(&text, tx, ry, tw.max(0), rh, t.font.body, false, color, if c.right { Align::Right } else { Align::Left });
+                paint::text_elided(&text, m.x(tx, tw.max(0)), ry, tw.max(0), rh, t.font.body, false, color, m.align(if c.right { Align::Right } else { Align::Left }));
             }
             s.drawn += 1;
         }
         draw::pop_clip();
-        scrollbar(t, w.x() + w.w() - BAR, by, body_h, s.top, content);
+        scrollbar(t, m.x(w.x() + w.w() - BAR, BAR), by, body_h, s.top, content);
         if crate::focus::show_ring(w) && cursor.is_none() {
             paint::stroke(w.x(), by, w.w(), body_h, t.radius, 1, t.border(&t.controls.focus, under));
         }
@@ -490,7 +505,9 @@ fn table_draw(w: &mut Widget, st: &Rc<RefCell<TState>>) {
 fn table_handle(w: &mut Widget, ev: Event, st: &Rc<RefCell<TState>>) -> bool {
     let rh = row_height();
     let hh = header_h();
-    let (ex, ey) = (app::event_x() - w.x(), app::event_y() - w.y());
+    // Mirrored tables are hit-tested in their left-to-right geometry.
+    let m = crate::layout::Mirror::of(w);
+    let (ex, ey) = (m.point(app::event_x()) - w.x(), app::event_y() - w.y());
     let row_at = |s: &TState| -> Option<usize> {
         if ey < hh { return None; }
         let i = ((ey - hh) as i64 + s.top) / rh as i64;
@@ -524,7 +541,7 @@ fn table_handle(w: &mut Widget, ev: Event, st: &Rc<RefCell<TState>>) -> bool {
                 // Column edge: resize; title: sort.
                 if let Some(i) = cols.iter().position(|(x, cw)| (ex - (x + cw)).abs() <= 4) {
                     if !st.borrow().cols[i].flex {
-                        st.borrow_mut().resizing = Some((i, app::event_x(), cols[i].1));
+                        st.borrow_mut().resizing = Some((i, m.point(app::event_x()), cols[i].1));
                         return true;
                     }
                 }
@@ -553,7 +570,7 @@ fn table_handle(w: &mut Widget, ev: Event, st: &Rc<RefCell<TState>>) -> bool {
         Event::Drag => {
             let r = st.borrow().resizing;
             if let Some((i, x0, w0)) = r {
-                st.borrow_mut().cols[i].width = (w0 + app::event_x() - x0).max(40);
+                st.borrow_mut().cols[i].width = (w0 + m.point(app::event_x()) - x0).max(40);
                 w.redraw();
             }
             true
@@ -702,7 +719,8 @@ impl Tree {
                 let ry = me.y() + (idx as i64 * rh as i64 - s.top) as i32;
                 n.child(id, |t| {
                     t.role(Role::TreeItem).name(&v.node.label).description(&v.node.detail).level(v.depth as usize + 1)
-                        .selected(s.panel.is_selected(id)).position(pos[idx], seen[&v.parent]).bounds(me.x(), ry, me.w() - BAR - 4, rh)
+                        .selected(s.panel.is_selected(id)).position(pos[idx], seen[&v.parent])
+                        .bounds(crate::layout::Mirror::of(&me).x(me.x(), me.w() - BAR - 4), ry, me.w() - BAR - 4, rh)
                         .action(Action::Click).action(Action::Focus).action(Action::ScrollIntoView);
                     if v.node.has_children {
                         let open = s.expanded.contains(&id);
@@ -1035,6 +1053,8 @@ fn tree_draw(w: &mut Widget, st: &Rc<RefCell<TrState>>) {
     if s.motion.running() { crate::anim::request_redraw(w); }
     let ring = s.panel.show_ring();
     let cursor = s.panel.cursor();
+    // Right to left: indentation from the right, expanders point left.
+    let m = crate::layout::Mirror::of(w);
     theme::with(|t| {
         let fg = t.palette.foreground;
         draw::push_clip(w.x(), w.y(), w.w(), w.h());
@@ -1051,36 +1071,38 @@ fn tree_draw(w: &mut Widget, st: &Rc<RefCell<TrState>>) {
             if !draw::not_clipped(w.x(), ry, w.w(), rh) { continue; }
             s.slots.drawn(k, Some(v.node.id));
             let rw = w.w() - BAR - 4;
-            draw_row_bg(t, w.x(), ry, rw, rh, s.panel.is_selected(v.node.id), cursor == Some(v.node.id), s.hover == Some(idx), ring);
+            draw_row_bg(t, m.x(w.x(), rw), ry, rw, rh, s.panel.is_selected(v.node.id), cursor == Some(v.node.id), s.hover == Some(idx), ring);
             let mut x = w.x() + pad + v.depth as i32 * ind;
             if v.node.has_children {
                 let open = s.expanded.contains(&v.node.id);
-                paint::glyph(if open { glyph::CHEVRON_DOWN } else { glyph::CHEVRON_RIGHT }, x, ry, ind, rh, t.font.body_small, fg.darker(1.3));
+                let closed = m.glyph(glyph::CHEVRON_RIGHT, glyph::CHEVRON_LEFT);
+                paint::glyph(if open { glyph::CHEVRON_DOWN } else { closed }, m.x(x, ind), ry, ind, rh, t.font.body_small, fg.darker(1.3));
             }
             x += ind;
             if !v.node.icon.is_empty() {
                 let cell = (22.0 * t.font.base as f64 / 12.0).round() as i32;
-                paint::glyph(&v.node.icon, x, ry, cell, rh, t.font.title, fg);
+                paint::glyph(&v.node.icon, m.x(x, cell), ry, cell, rh, t.font.title, fg);
                 x += cell + t.spacing.md;
             }
             let right = w.x() + rw - pad;
             let mut lw = right - x;
             if !v.node.detail.is_empty() {
                 let dw = paint::measure(&v.node.detail, t.font.caption, false).min(lw / 2);
-                paint::text_elided(&v.node.detail, right - dw, ry, dw, rh, t.font.caption, false, fg.darker(1.4), Align::Right);
+                paint::text_elided(&v.node.detail, m.x(right - dw, dw), ry, dw, rh, t.font.caption, false, fg.darker(1.4), m.align(Align::Right));
                 lw -= dw + t.spacing.lg;
             }
-            paint::text_elided(&v.node.label, x, ry, lw.max(0), rh, t.font.body, false, fg, Align::Left);
+            paint::text_elided(&v.node.label, m.x(x, lw.max(0)), ry, lw.max(0), rh, t.font.body, false, fg, m.align(Align::Left));
             s.drawn += 1;
         }
         draw::pop_clip();
-        scrollbar(t, w.x() + w.w() - BAR, w.y(), w.h(), s.top, content);
+        scrollbar(t, m.x(w.x() + w.w() - BAR, BAR), w.y(), w.h(), s.top, content);
     });
 }
 
 fn tree_handle(w: &mut Widget, ev: Event, st: &Rc<RefCell<TrState>>) -> bool {
     let rh = row_height();
-    let (ex, ey) = (app::event_x() - w.x(), app::event_y() - w.y());
+    let ex = crate::layout::Mirror::of(w).point(app::event_x()) - w.x();
+    let ey = app::event_y() - w.y();
     let row_at = |s: &TrState| -> Option<usize> {
         let i = (ey as i64 + s.top) / rh as i64;
         (i >= 0 && (i as usize) < s.rows.borrow().len()).then_some(i as usize)

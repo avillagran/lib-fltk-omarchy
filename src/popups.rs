@@ -140,6 +140,10 @@ fn finish(state: &Rc<RefCell<HandleState>>, layer: &Widget, reason: Dismiss) -> 
 /// room; right-aligned when the anchor is in the right half, like
 /// omarchy-shell's PopupCard) or opened at a point (context menu).
 ///
+/// Right to left (the anchor's direction) the entries are mirrored: glyph
+/// and label on the right, shortcut and check on the left, and `open_at`
+/// grows to the left of the point.
+///
 /// The card always fits the window: when the entries do not fit, it is
 /// clamped to the window and scrolls (wheel, keys), keeping the active
 /// entry visible; long labels end in "…" and keep their shortcut.
@@ -173,6 +177,8 @@ impl PopupMenu {
     pub fn open_at<A: WidgetExt>(anchor: &A, x: i32, y: i32, items: Vec<PopupItem>, on_pick: impl FnOnce(usize) + 'static) -> PopupHandle {
         let Some(win) = anchor.top_window() else { return PopupHandle::closed_now() };
         let w = Self::width(&items).min(win.w() - 4).max(1);
+        // Right to left the card grows to the left of the point.
+        let x = if crate::layout::is_rtl(anchor) { x - w } else { x };
         Self::open_rect(anchor, items, x, (y, y), w, on_pick)
     }
 
@@ -234,6 +240,9 @@ impl PopupMenu {
         let current = Rc::new(Cell::new(items.iter().position(|i| i.enabled).map(|i| i as i32).unwrap_or(-1)));
         let scroll = Rc::new(Cell::new(0i32));
         let motion = Rc::new(RefCell::new(crate::scroll::Scroll::new()));
+        // The anchor's direction: right to left, glyphs on the right,
+        // shortcuts and checks on the left, the scrollbar on the left.
+        let rtl = crate::layout::is_rtl(anchor);
 
         let (it, cur, sc, gd, mo) = (items.clone(), current.clone(), scroll.clone(), g.clone(), motion.clone());
         layer.draw(move |l| {
@@ -246,6 +255,7 @@ impl PopupMenu {
             }
             theme::with(|t| {
                 let (x, y, w, h) = gd.rect;
+                let m = crate::layout::Mirror::new(rtl, x, w);
                 card(t, x, y, w, h, &t.popups, t.controls.normal.border_width.max(1));
                 let fill = t.popups.fill(bg(t));
                 let fg = t.popups.text;
@@ -259,25 +269,27 @@ impl PopupMenu {
                     let ry = top + oy - sc.get();
                     if ry + rh < top || ry > top + gd.view_h { continue; }
                     if i as i32 == cur.get() && item.enabled {
-                        paint::fill(x + inset, ry, w - 2 * inset - if scrolls { SCROLLBAR } else { 0 }, rh, t.radius, t.fill(&t.controls.hover, fill));
+                        let hw = w - 2 * inset - if scrolls { SCROLLBAR } else { 0 };
+                        paint::fill(m.x(x + inset, hw), ry, hw, rh, t.radius, t.fill(&t.controls.hover, fill));
                     }
                     let color = if item.enabled { fg } else { fg.darker(2.0) };
                     let cell = s(t, 22.0);
                     if !item.icon.is_empty() {
-                        paint::glyph(&item.icon, x + pad, ry, cell, rh, t.font.icon, color);
+                        paint::glyph(&item.icon, m.x(x + pad, cell), ry, cell, rh, t.font.icon, color);
                     }
                     let tx = x + pad + cell + t.spacing.lg;
                     let mut right = right_edge;
                     if item.checked {
-                        paint::glyph(glyph::CHECKMARK, right - s(t, 14.0), ry, s(t, 14.0), rh, t.font.body, t.palette.accent);
+                        paint::glyph(glyph::CHECKMARK, m.x(right - s(t, 14.0), s(t, 14.0)), ry, s(t, 14.0), rh, t.font.body, t.palette.accent);
                         right -= s(t, 18.0);
                     }
                     if !item.shortcut.is_empty() {
                         let sw = paint::measure(&item.shortcut, t.font.caption, false);
-                        paint::text(&item.shortcut, right - sw, ry, sw, rh, t.font.caption, false, fg.darker(1.4), Align::Right);
+                        paint::text(&item.shortcut, m.x(right - sw, sw), ry, sw, rh, t.font.caption, false, fg.darker(1.4), m.align(Align::Right));
                         right -= sw + t.spacing.xl;
                     }
-                    paint::text_elided(&item.label, tx, ry, (right - tx).max(0), rh, t.font.body, false, color, Align::Left);
+                    let lw = (right - tx).max(0);
+                    paint::text_elided(&item.label, m.x(tx, lw), ry, lw, rh, t.font.body, false, color, m.align(Align::Left));
                     if item.divider {
                         paint::hairline(x + inset + pad, ry + rh + t.spacing.md / 2, w - 2 * (inset + pad), fg, fill, 0.12);
                     }
@@ -288,7 +300,7 @@ impl PopupMenu {
                     let thumb = ((gd.view_h as f64 / gd.content_h as f64) * track as f64).max(16.0) as i32;
                     let max = (gd.content_h - gd.view_h).max(1);
                     let ty = top + ((sc.get() as f64 / max as f64) * (track - thumb) as f64) as i32;
-                    paint::fill(x + w - SCROLLBAR - 2, ty, SCROLLBAR - 2, thumb, (SCROLLBAR - 2) / 2, fg.over(fill, 0.3));
+                    paint::fill(m.x(x + w - SCROLLBAR - 2, SCROLLBAR - 2), ty, SCROLLBAR - 2, thumb, (SCROLLBAR - 2) / 2, fg.over(fill, 0.3));
                 }
             });
         });
@@ -494,8 +506,10 @@ impl SearchableDropdown {
                     Some((l, _)) => (l.clone(), fg),
                     None => (ph.clone(), fg.darker(1.5)),
                 };
-                paint::text_elided(&text, w.x() + pad, w.y(), w.w() - 2 * pad - chev - t.spacing.md, w.h(), t.font.body, false, color, Align::Left);
-                paint::glyph(glyph::CHEVRON_DOWN, w.x() + w.w() - 9 - chev, w.y(), chev, w.h(), t.font.body, fg.darker(1.2));
+                let m = crate::layout::Mirror::of(w);
+                let tw = w.w() - 2 * pad - chev - t.spacing.md;
+                paint::text_elided(&text, m.x(w.x() + pad, tw), w.y(), tw, w.h(), t.font.body, false, color, m.align(Align::Left));
+                paint::glyph(glyph::CHEVRON_DOWN, m.x(w.x() + w.w() - 9 - chev, chev), w.y(), chev, w.h(), t.font.body, fg.darker(1.2));
             });
         });
         let (opts, v, hv) = (options.clone(), value.clone(), hover.clone());
@@ -553,6 +567,8 @@ fn open_search(trigger: &mut Widget, options: &Rc<Vec<(String, String)>>, value:
     let cur = Rc::new(Cell::new(0usize));
     let top = Rc::new(Cell::new(0usize));
     let (tx, ty, tw) = (trigger.x(), trigger.y() + trigger.h() + 2, trigger.w());
+    // Right to left: query and rows right-aligned.
+    let al = crate::layout::Mirror::new(crate::layout::is_rtl(trigger), tx, tw).align(Align::Left);
     let geo = move || theme::with(|t| {
         let row = t.spacing.popup_row_height.max(t.font.body + t.font.caption + 12);
         let header = t.spacing.popup_row_height + t.spacing.xl;
@@ -574,7 +590,7 @@ fn open_search(trigger: &mut Widget, options: &Rc<Vec<(String, String)>>, value:
             paint::surface(tx + m, ty + m, tw - 2 * m, fh, t.radius, Some(t.fill(st, fill)), Some((t.border(st, fill), st.border_width)));
             let qs = q.borrow();
             let (text, color) = if qs.is_empty() { (crate::i18n::tr("Search…"), fg.darker(1.6)) } else { (format!("{qs}▏"), fg) };
-            paint::text_elided(&text, tx + m + t.spacing.control_padding_x, ty + m, tw - 2 * m - 2 * t.spacing.control_padding_x, fh, t.font.body, false, color, Align::Left);
+            paint::text_elided(&text, tx + m + t.spacing.control_padding_x, ty + m, tw - 2 * m - 2 * t.spacing.control_padding_x, fh, t.font.body, false, color, al);
             paint::hairline(tx + 2, ty + header, tw - 4, fg, fill, 0.10);
             let vis = vis.borrow();
             let ly = ty + header + 1 + 2;
@@ -592,12 +608,12 @@ fn open_search(trigger: &mut Widget, options: &Rc<Vec<(String, String)>>, value:
                 }
                 let pad = t.spacing.control_padding_x;
                 if desc.is_empty() {
-                    paint::text_elided(label, tx + pad, ry, tw - 2 * pad, row, t.font.body, false, fg, Align::Left);
+                    paint::text_elided(label, tx + pad, ry, tw - 2 * pad, row, t.font.body, false, fg, al);
                 } else {
                     let lh = t.font.body + 4;
                     let top_y = ry + (row - lh - t.font.caption - 4 - t.spacing.xxs) / 2;
-                    paint::text_elided(label, tx + pad, top_y, tw - 2 * pad, lh, t.font.body, false, fg, Align::Left);
-                    paint::text_elided(desc, tx + pad, top_y + lh + t.spacing.xxs, tw - 2 * pad, t.font.caption + 4, t.font.caption, false, fg.darker(1.5), Align::Left);
+                    paint::text_elided(label, tx + pad, top_y, tw - 2 * pad, lh, t.font.body, false, fg, al);
+                    paint::text_elided(desc, tx + pad, top_y + lh + t.spacing.xxs, tw - 2 * pad, t.font.caption + 4, t.font.caption, false, fg.darker(1.5), al);
                 }
             }
         });
@@ -735,6 +751,8 @@ impl ShortcutHelp {
         });
         let (sc, ext) = (scroll.clone(), extent.clone());
         let (scroll_out, extent_out) = (scroll.clone(), extent.clone());
+        // Right to left: key chips on the right, descriptions on their left.
+        let rtl = crate::layout::is_rtl(anchor);
         layer.draw(move |l| {
             if let Some(win) = l.top_window() { if (l.w(), l.h()) != (win.w(), win.h()) { l.resize(0, 0, win.w(), win.h()); } }
             theme::with(|t| {
@@ -746,7 +764,9 @@ impl ShortcutHelp {
                 paint::surface(cx, cy, cw, ch, t.radius, Some(fill), Some((t.menu.border.over(fill, t.menu.border_alpha), 2)));
                 let pad = t.spacing.panel_padding;
                 let fg = t.menu.text;
-                paint::text_elided(&title, cx + pad, cy + pad, cw - 2 * pad, t.font.heading + 8, t.font.heading, true, fg, Align::Left);
+                let m = crate::layout::Mirror::new(rtl, cx, cw);
+                let al = m.align(Align::Left);
+                paint::text_elided(&title, cx + pad, cy + pad, cw - 2 * pad, t.font.heading + 8, t.font.heading, true, fg, al);
                 let top = cy + pad + t.font.heading + 8 + t.spacing.lg;
                 let bottom = cy + ch - pad;
                 // Content height first, so scrolling stops at the last row.
@@ -760,23 +780,33 @@ impl ShortcutHelp {
                 let row = t.font.body + t.spacing.xl;
                 let key_col = s(t, 170.0);
                 for (sec, rows) in &sections {
-                    paint::text(&sec.to_uppercase(), cx + pad, y, cw - 2 * pad, t.font.caption + 6, t.font.caption, true, fg.darker(1.4), Align::Left);
+                    paint::text(&sec.to_uppercase(), cx + pad, y, cw - 2 * pad, t.font.caption + 6, t.font.caption, true, fg.darker(1.4), al);
                     y += t.font.caption + 6 + t.spacing.sm;
                     for (keys, desc) in rows {
+                        // A key combination reads left to right in every language
+                        // ("Ctrl+S"): its chips keep their order, the column moves.
                         let mut kx = cx + pad;
-                        for (i, part) in keys.split('+').enumerate() {
+                        let parts: Vec<&str> = keys.split('+').collect();
+                        let plus = s(t, 10.0);
+                        let kws: Vec<i32> = parts.iter().map(|p| paint::measure(p, t.font.caption, true) + t.spacing.lg).collect();
+                        let total = kws.iter().sum::<i32>() + plus * (parts.len() as i32 - 1).max(0);
+                        if rtl {
+                            kx = cx + cw - pad - total;
+                        }
+                        for (i, part) in parts.iter().enumerate() {
                             if i > 0 {
-                                paint::text("+", kx, y, s(t, 10.0), row, t.font.caption, false, fg.darker(1.4), Align::Center);
-                                kx += s(t, 10.0);
+                                paint::text("+", kx, y, plus, row, t.font.caption, false, fg.darker(1.4), Align::Center);
+                                kx += plus;
                             }
-                            let kw = paint::measure(part, t.font.caption, true) + t.spacing.lg;
+                            let kw = kws[i];
                             let kh = t.font.caption + t.spacing.md + 2;
                             paint::surface(kx, y + (row - kh) / 2, kw, kh, t.radius.min(4), Some(t.fill(&t.controls.normal, fill)),
                                            Some((t.border(&t.controls.normal, fill), 1)));
                             paint::text(part, kx, y + (row - kh) / 2, kw, kh, t.font.caption, true, fg, Align::Center);
                             kx += kw;
                         }
-                        paint::text_elided(desc, cx + pad + key_col, y, cw - 2 * pad - key_col, row, t.font.body, false, fg, Align::Left);
+                        let dw = cw - 2 * pad - key_col;
+                        paint::text_elided(desc, m.x(cx + pad + key_col, dw), y, dw, row, t.font.body, false, fg, al);
                         y += row;
                     }
                     y += t.spacing.lg;
@@ -785,7 +815,7 @@ impl ShortcutHelp {
                 if content > view && view > 0 {
                     let thumb = ((view as f64 / content as f64) * view as f64).max(16.0) as i32;
                     let ty = top + ((sc.get() as f64 / (content - view) as f64) * (view - thumb) as f64) as i32;
-                    paint::fill(cx + cw - pad / 2 - 2, ty, 4, thumb, 2, fg.over(fill, 0.3));
+                    paint::fill(m.x(cx + cw - pad / 2 - 2, 4), ty, 4, thumb, 2, fg.over(fill, 0.3));
                 }
             });
         });
@@ -849,7 +879,7 @@ impl ShortcutHelpHandle {
 
 // ========================================================== OperationToast
 
-/// Long operation card at the window's bottom-right (copy/move/delete):
+/// Long operation card at the window's bottom-right, bottom-left right to left (copy/move/delete):
 /// title, detail line, accent progress bar and Pause/Resume + Cancel
 /// buttons. Not modal; update it from the UI thread (e.g. task progress).
 /// Keyboard: Tab reaches it (or call [`OperationToast::focus`] from a
@@ -885,6 +915,14 @@ impl ToastData {
     }
 }
 
+/// Toast rectangle in its window: the bottom-right corner, bottom-left
+/// right to left.
+fn toast_rect(win_w: i32, win_h: i32, rtl: bool) -> (i32, i32, i32, i32) {
+    let (w, h, m) = toast_size(win_w);
+    let x = if rtl { m } else { win_w - w - m };
+    (x, win_h - h - m, w, h)
+}
+
 /// Toast size for a window width: (w, h, margin).
 fn toast_size(win_w: i32) -> (i32, i32, i32) {
     theme::with(|t| {
@@ -897,8 +935,8 @@ fn toast_size(win_w: i32) -> (i32, i32, i32) {
 impl OperationToast {
     pub fn show<A: WidgetExt>(anchor: &A, title: &str) -> Option<OperationToast> {
         let win = anchor.top_window()?;
-        let (w, h, m) = toast_size(win.w());
-        let rect = (win.w() - w - m, win.h() - h - m, w, h);
+        let rtl = crate::layout::is_rtl(anchor);
+        let rect = toast_rect(win.w(), win.h(), rtl);
         let mut layer = open_layer(anchor, Some(rect), false)?;
         let data = Rc::new(RefCell::new(ToastData { title: title.into(), detail: String::new(), progress: 0.0, paused: false, hover: -1, kb: 0, on_pause: None, on_cancel: None,
             labels: None, indeterminate: false, started: std::time::Instant::now() }));
@@ -914,7 +952,9 @@ impl OperationToast {
                 let b1 = fit(&labels[2]).max(s(t, 96.0));
                 let y = l.y() + l.h() - t.spacing.popup_padding - bh;
                 let x1 = l.x() + l.w() - t.spacing.popup_padding - b1;
-                [(x1 - t.spacing.md - b0, y, b0, bh), (x1, y, b1, bh)]
+                // Right to left: Cancel at the left end, Pause on its right.
+                let m = crate::layout::Mirror::new(rtl, l.x(), l.w());
+                [m.rect((x1 - t.spacing.md - b0, y, b0, bh)), m.rect((x1, y, b1, bh))]
             })
         });
         let (d, buttons2, buttons3) = (data.clone(), buttons.clone(), buttons.clone());
@@ -922,8 +962,7 @@ impl OperationToast {
             let buttons = &buttons2;
             // Stay in the bottom-right corner when the window is resized.
             if let Some(win) = l.top_window() {
-                let (w, h, m) = toast_size(win.w());
-                let want = (win.w() - w - m, win.h() - h - m, w, h);
+                let want = toast_rect(win.w(), win.h(), rtl);
                 if (l.x(), l.y(), l.w(), l.h()) != want {
                     l.resize(want.0, want.1, want.2, want.3);
                     if let Some(mut p) = l.parent() { p.redraw(); }
@@ -937,13 +976,15 @@ impl OperationToast {
                 let fg = t.notifications.text;
                 let p = t.spacing.popup_padding;
                 let (x, mut y, w) = (l.x() + p, l.y() + p, l.w() - 2 * p);
-                paint::text_elided(&d.title, x, y, w, t.font.title + 6, t.font.title, true, fg, Align::Left);
+                let m = crate::layout::Mirror::new(rtl, l.x(), l.w());
+                paint::text_elided(&d.title, x, y, w, t.font.title + 6, t.font.title, true, fg, m.align(Align::Left));
                 y += t.font.title + 6;
                 let pct = if d.indeterminate { String::new() } else { format!("{}%", (d.progress.clamp(0.0, 1.0) * 100.0).round()) };
                 let labels = d.labels();
                 let detail = if d.paused { format!("{} · {}", labels[3], d.detail) } else { d.detail.clone() };
-                paint::text_elided(&detail, x, y, w - s(t, 48.0), t.font.body_small + 6, t.font.body_small, false, fg.darker(1.4), Align::Left);
-                paint::text(&pct, x, y, w, t.font.body_small + 6, t.font.body_small, true, fg, Align::Right);
+                let dw = w - s(t, 48.0);
+                paint::text_elided(&detail, m.x(x, dw), y, dw, t.font.body_small + 6, t.font.body_small, false, fg.darker(1.4), m.align(Align::Left));
+                paint::text(&pct, x, y, w, t.font.body_small + 6, t.font.body_small, true, fg, m.align(Align::Right));
                 y += t.font.body_small + 6 + t.spacing.lg;
                 paint::fill(x, y, w, 4, 2, t.fill(&t.controls.selected, fill));
                 let bar = if d.paused { fg.darker(1.6) } else { t.notifications.border };
@@ -954,10 +995,11 @@ impl OperationToast {
                         let ph = (d.started.elapsed().as_secs_f64() / 1.2) % 2.0;
                         crate::anim::Ease::OutCubic.apply(if ph < 1.0 { ph } else { 2.0 - ph })
                     } else { 0.5 };
-                    paint::fill(x + ((w - seg) as f64 * k).round() as i32, y, seg, 4, 2, bar);
+                    paint::fill(m.x(x + ((w - seg) as f64 * k).round() as i32, seg), y, seg, 4, 2, bar);
                     if crate::anim::enabled() && !d.paused { crate::anim::request_redraw(l); }
                 } else {
-                    paint::fill(x, y, (w as f64 * d.progress.clamp(0.0, 1.0)).round() as i32, 4, 2, bar);
+                    let fw = (w as f64 * d.progress.clamp(0.0, 1.0)).round() as i32;
+                    paint::fill(m.x(x, fw), y, fw, 4, 2, bar);
                 }
                 let focused = crate::focus::show_ring(l);
                 for (i, (bx, by, bw, bh)) in buttons(l).iter().copied().enumerate() {

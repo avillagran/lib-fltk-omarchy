@@ -180,8 +180,9 @@ impl List {
                 let r = (i.row)(idx);
                 let y = me.y() + (idx as i64 * rh - i.top) as i32;
                 n.child(idx as u64, |o| {
+                    let m = crate::layout::Mirror::of(&me);
                     o.role(Role::ListBoxOption).name(&r.label).description(&r.detail).selected(i.selected == Some(idx))
-                        .position(idx + 1, i.count).bounds(me.x(), y, me.w() - BAR - 4, i.row_h)
+                        .position(idx + 1, i.count).bounds(m.x(me.x(), me.w() - BAR - 4), y, me.w() - BAR - 4, i.row_h)
                         .action(Action::Click).action(Action::Focus).action(Action::ScrollIntoView);
                     if i.selected == Some(idx) {
                         o.focused();
@@ -233,6 +234,8 @@ impl List {
         let mut w = self.widget.clone();
         w.draw(move |w| {
             let mut i = inn.borrow_mut();
+            // Right to left: rows mirrored, the scrollbar on the left.
+            let m = crate::layout::Mirror::of(w);
             theme::with(|t| {
                 let under = t.palette.background;
                 fltk::draw::push_clip(w.x(), w.y(), w.w(), w.h());
@@ -255,13 +258,13 @@ impl List {
                     let id = i.ids.as_ref().and_then(|s| (s.id_at)(idx));
                     i.slots.drawn(k, id);
                     i.fetched += 1;
-                    draw_row(t, w.x(), ry, text_w, i.row_h, &r.icon, &r.label, &r.detail, i.hover == Some(idx), i.selected == Some(idx), under);
+                    draw_row(t, m.x(w.x(), text_w), ry, text_w, i.row_h, &r.icon, &r.label, &r.detail, i.hover == Some(idx), i.selected == Some(idx), under, m.on);
                 }
                 if max_top > 0 {
                     let track = w.h();
                     let thumb = ((w.h() as f64 / (i.count as f64 * i.row_h as f64)) * track as f64).max(24.0) as i32;
                     let ty = w.y() + ((i.top as f64 / max_top as f64) * (track - thumb) as f64) as i32;
-                    paint::fill(w.x() + w.w() - BAR, ty, BAR, thumb, BAR / 2, t.palette.foreground.over(under, 0.25));
+                    paint::fill(m.x(w.x() + w.w() - BAR, BAR), ty, BAR, thumb, BAR / 2, t.palette.foreground.over(under, 0.25));
                 }
                 fltk::draw::pop_clip();
                 if crate::focus::show_ring(w) {
@@ -273,7 +276,7 @@ impl List {
                     match row {
                         Some(ry) => {
                             fltk::draw::push_clip(w.x(), w.y(), w.w(), w.h());
-                            paint::stroke(w.x(), ry, text_w, i.row_h, t.radius, bw, ring);
+                            paint::stroke(m.x(w.x(), text_w), ry, text_w, i.row_h, t.radius, bw, ring);
                             fltk::draw::pop_clip();
                         }
                         None => paint::stroke(w.x(), w.y(), w.w(), w.h(), t.radius, bw, ring),
@@ -317,7 +320,7 @@ impl List {
                 Event::Push => {
                     let _ = w.take_focus();
                     { let mut i = inn.borrow_mut(); let top = i.top; i.motion.jump(top); }
-                    if app::event_x() >= w.x() + w.w() - BAR - 4 {
+                    if crate::layout::Mirror::of(w).point(app::event_x()) >= w.x() + w.w() - BAR - 4 {
                         let top = inn.borrow().top;
                         inn.borrow_mut().dragging_thumb = Some((app::event_y(), top));
                         return true;
@@ -513,7 +516,8 @@ fn apply_changes(inn: &Rc<RefCell<Inner>>, w: &mut Widget, len: usize, changes: 
         }
     }
     if r.bar {
-        w.set_damage_area(Damage::User1, w.x() + w.w() - BAR, w.y(), BAR, w.h());
+        let x = crate::layout::Mirror::of(&*w).x(w.x() + w.w() - BAR, BAR);
+        w.set_damage_area(Damage::User1, x, w.y(), BAR, w.h());
     }
     moved
 }

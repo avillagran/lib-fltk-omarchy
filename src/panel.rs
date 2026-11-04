@@ -41,7 +41,13 @@
 //!
 //! At an edge (Up on the first row, Left on the first column…) the key goes
 //! to `on_edge`, then to the arrow scopes and window shortcuts. `on_key`
-//! sees every key first and can take it.
+//! sees every key first (as pressed) and can take it.
+//!
+//! Right to left (the host widget's [`crate::layout::direction_of`]) a grid
+//! is drawn from the right, so Left and Right swap before the cursor moves:
+//! Left goes to the next item, and `on_edge` gets the logical key (`Left` =
+//! toward the start of the row). Force `Direction::Ltr` on the host with
+//! `layout::set_direction` when the canvas is not mirrored.
 
 use fltk::{enums::{Key, Shortcut}, prelude::*, widget::Widget};
 use std::cell::RefCell;
@@ -514,6 +520,14 @@ impl KeyboardPanel {
                 return true;
             }
         }
+        // Right to left (the host widget's direction, see `layout::direction_of`):
+        // Left and Right swap, so the cursor follows the screen in a mirrored
+        // grid and `on_edge` gets `Left` for "toward the start" (a tree
+        // collapses with the key that points to its parent).
+        let k = match self.host() {
+            Some(h) => crate::layout::logical_key(&h, k),
+            None => k,
+        };
         // Ctrl here is the platform's primary modifier (Cmd on macOS).
         let primary = crate::keys::PRIMARY;
         if mods.intersects((Shortcut::Alt | Shortcut::Ctrl | Shortcut::Meta).difference(primary)) {
