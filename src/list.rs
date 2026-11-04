@@ -10,6 +10,7 @@
 //!     .on_activate(|i| println!("open {i}"));
 //! ```
 
+use crate::a11y::{self, Action, Role};
 use crate::paint;
 use crate::state::State;
 use crate::theme;
@@ -84,7 +85,75 @@ impl List {
             w.redraw();
         });
         list.install();
+        list.describe();
         list
+    }
+
+    /// Screen readers: a list box with the visible rows (and the selected
+    /// one), each with its position in the whole list.
+    fn describe(&self) {
+        let (inn, me) = (self.inner.clone(), self.widget.clone());
+        a11y::describe(&self.widget, move |n| {
+            let Ok(i) = inn.try_borrow() else { return };
+            n.role(Role::ListBox).focusable();
+            let rh = i.row_h.max(1) as i64;
+            let first = (i.top / rh).max(0) as usize;
+            let last = ((i.top + me.h() as i64) / rh + 1).max(0) as usize;
+            let mut rows: Vec<usize> = (first..=last.min(i.count.saturating_sub(1))).filter(|r| *r < i.count).collect();
+            if let Some(s) = i.selected.filter(|s| *s < i.count && !rows.contains(s)) {
+                rows.push(s);
+                rows.sort_unstable();
+            }
+            for idx in rows {
+                let r = (i.row)(idx);
+                let y = me.y() + (idx as i64 * rh - i.top) as i32;
+                n.child(idx as u64, |o| {
+                    o.role(Role::ListBoxOption).name(&r.label).description(&r.detail).selected(i.selected == Some(idx))
+                        .position(idx + 1, i.count).bounds(me.x(), y, me.w() - BAR - 4, i.row_h)
+                        .action(Action::Click).action(Action::Focus).action(Action::ScrollIntoView);
+                    if i.selected == Some(idx) {
+                        o.focused();
+                    }
+                });
+            }
+        });
+        let me = self.clone();
+        a11y::on_action(&self.widget, move |r| {
+            let Some(idx) = r.key().map(|k| k as usize).filter(|k| *k < me.count()) else { return false };
+            let mut l = me.clone();
+            match r.action {
+                Action::Click | Action::Focus => {
+                    if r.action == Action::Focus {
+                        let _ = l.widget.take_focus();
+                    }
+                    l.select_visible(idx);
+                }
+                Action::ScrollIntoView => l.scroll_to(idx),
+                _ => return false,
+            }
+            true
+        });
+    }
+
+    /// Selects like a click (scrolls only as much as needed, fires on_select).
+    fn select_visible(&mut self, idx: usize) {
+        self.scroll_to(idx);
+        self.inner.borrow_mut().selected = Some(idx);
+        if let Some(s) = self.selected_state.borrow().as_ref() { s.set(Some(idx)); }
+        if let Some(f) = self.select_cb.borrow_mut().as_mut() { f(idx); }
+        self.widget.redraw();
+    }
+
+    fn scroll_to(&mut self, idx: usize) {
+        let h = self.widget.h() as i64;
+        let mut i = self.inner.borrow_mut();
+        let rh = i.row_h as i64;
+        let y = idx as i64 * rh;
+        if y < i.top { i.top = y } else if y + rh > i.top + h { i.top = y + rh - h }
+        let top = i.top;
+        i.motion.jump(top);
+        drop(i);
+        self.widget.redraw();
     }
 
     fn install(&self) {

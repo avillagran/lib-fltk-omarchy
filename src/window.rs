@@ -405,6 +405,16 @@ impl Header {
         // cfltk runs FLTK's own draw before this closure by default: it would
         // draw damaged children first and this background would then cover them.
         inner.super_draw(false);
+        let tt = title_rc.clone();
+        crate::a11y::describe(&handle, move |n| {
+            n.role(crate::a11y::Role::Heading).level(1).name(&tt.borrow());
+        });
+        let acts = actions.clone();
+        crate::a11y::describe(&actions, move |n| {
+            if acts.children() > 0 {
+                n.role(crate::a11y::Role::Toolbar);
+            }
+        });
         Header { inner, title: title_rc, actions, draggable }
     }
 

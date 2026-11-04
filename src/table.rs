@@ -14,6 +14,7 @@
 //!     .on_sort(|col, ascending| println!("sort by {col}, ascending: {ascending}"));
 //! ```
 
+use crate::a11y::{self, Action, Role};
 use crate::panel::{ItemId, KeyboardPanel};
 use crate::paint;
 use crate::theme;
@@ -54,6 +55,19 @@ fn scrollbar(t: &theme::Theme, x: i32, y: i32, h: i32, top: i64, content: i64) {
     let thumb = ((h as f64 / content as f64) * h as f64).max(24.0) as i32;
     let ty = y + ((top as f64 / max as f64) * (h - thumb) as f64) as i32;
     paint::fill(x, ty, BAR, thumb, BAR / 2, t.palette.foreground.over(t.palette.background, 0.25));
+}
+
+/// Key of a table's header row among its accessible rows (item IDs are the
+/// other keys; an item with this ID would hide the header).
+const HEADER_KEY: u64 = u64::MAX - 7;
+
+fn scroll_into_view(top: &mut i64, index: usize, row_h: i32, view_h: i32) {
+    let y = index as i64 * row_h as i64;
+    if y < *top {
+        *top = y;
+    } else if y + row_h as i64 > *top + view_h as i64 {
+        *top = y + row_h as i64 - view_h as i64;
+    }
 }
 
 /// Keeps the cursor row in view when it moves.
@@ -153,7 +167,87 @@ impl Table {
         let s3 = st.clone();
         widget.handle(move |w, ev| table_handle(w, ev, &s3));
         crate::focus::host(&widget, &[panel]);
-        Table { widget, st }
+        let t = Table { widget, st };
+        t.describe();
+        t
+    }
+
+    /// Screen readers: a grid with a header row and the rows in view (plus
+    /// the cursor row), each with its row index in the whole table.
+    fn describe(&self) {
+        let (st, me) = (self.st.clone(), self.widget.clone());
+        a11y::describe(&self.widget, move |n| {
+            let Ok(s) = st.try_borrow() else { return };
+            let (rh, hh) = (row_height(), header_h());
+            let len = s.panel.len();
+            n.role(Role::Grid).counts(len + 1, s.cols.len()).multiselectable(true).focusable();
+            let cols = col_layout(&s.cols, me.w() - BAR - 4);
+            n.child(HEADER_KEY, |h| {
+                h.role(Role::Row).row_index(0).bounds(me.x(), me.y(), me.w(), hh);
+                for (ci, (c, (cx, cw))) in s.cols.iter().zip(cols.iter()).enumerate() {
+                    h.child(ci as u64, |cell| {
+                        cell.role(Role::ColumnHeader).name(&c.title).column_index(ci).bounds(me.x() + cx, me.y(), *cw, hh).action(Action::Click);
+                        if let Some((_, asc)) = s.sort.filter(|(sc, _)| *sc == ci) {
+                            cell.sort(asc);
+                        }
+                    });
+                }
+            });
+            let body_h = me.h() - hh;
+            let first = (s.top / rh as i64).max(0) as usize;
+            let mut rows: Vec<usize> = (first..(first + (body_h / rh + 2).max(0) as usize).min(len)).collect();
+            if let Some(c) = s.panel.cursor_index().filter(|c| !rows.contains(c)) {
+                rows.push(c);
+                rows.sort_unstable();
+            }
+            let cursor = s.panel.cursor();
+            for idx in rows {
+                let Some(id) = s.panel.id_at(idx) else { continue };
+                let ry = me.y() + hh + (idx as i64 * rh as i64 - s.top) as i32;
+                n.child(id, |r| {
+                    r.role(Role::Row).row_index(idx + 1).name(&(s.cell)(idx, 0)).selected(s.panel.is_selected(id)).bounds(me.x(), ry, me.w() - BAR - 4, rh)
+                        .action(Action::Click).action(Action::Focus).action(Action::ScrollIntoView);
+                    for (ci, (cx, cw)) in cols.iter().enumerate().take(s.cols.len()) {
+                        r.child(ci as u64, |cell| {
+                            cell.role(Role::Cell).name(&(s.cell)(idx, ci)).column_index(ci).bounds(me.x() + cx, ry, *cw, rh);
+                        });
+                    }
+                    if cursor == Some(id) {
+                        r.focused();
+                    }
+                });
+            }
+        });
+        let (st, mut me) = (self.st.clone(), self.widget.clone());
+        a11y::on_action(&self.widget, move |r| {
+            let panel = st.borrow().panel.clone();
+            match (r.path.as_slice(), r.action) {
+                ([HEADER_KEY, ci], Action::Click) => {
+                    let ci = *ci as usize;
+                    if ci >= st.borrow().cols.len() { return false; }
+                    let asc = match st.borrow().sort { Some((c, a)) if c == ci => !a, _ => true };
+                    st.borrow_mut().sort = Some((ci, asc));
+                    let f = st.borrow_mut().on_sort.take();
+                    if let Some(mut f) = f {
+                        f(ci, asc);
+                        let mut s = st.borrow_mut();
+                        if s.on_sort.is_none() { s.on_sort = Some(f); }
+                    }
+                }
+                ([id, ..], Action::Click) => panel.click(*id, false, false),
+                ([id, ..], Action::Focus) => { panel.focus(); panel.set_cursor(Some(*id)); }
+                ([id, ..], Action::ScrollIntoView) => {
+                    let Some(i) = panel.index_of(*id) else { return false };
+                    let mut s = st.borrow_mut();
+                    scroll_into_view(&mut s.top, i, row_height(), me.h() - header_h());
+                    let top = s.top;
+                    s.motion.jump(top);
+                }
+                _ => return false,
+            }
+            me.redraw();
+            true
+        });
     }
 
     /// A glyph for the first column of each row.
@@ -459,7 +553,74 @@ impl Tree {
         let s3 = tree.st.clone();
         tree.widget.clone().handle(move |w, ev| tree_handle(w, ev, &s3));
         crate::focus::host(&tree.widget, &[panel]);
+        tree.describe();
         tree
+    }
+
+    /// Screen readers: a tree with the items in view (plus the cursor
+    /// item), each with its level, expanded state and place among siblings.
+    fn describe(&self) {
+        let (st, me) = (self.st.clone(), self.widget.clone());
+        a11y::describe(&self.widget, move |n| {
+            let Ok(s) = st.try_borrow() else { return };
+            let rh = row_height();
+            n.role(Role::Tree).multiselectable(true).focusable();
+            let rows = s.rows.borrow();
+            let first = (s.top / rh as i64).max(0) as usize;
+            let mut shown: Vec<usize> = (first..(first + (me.h() / rh + 2).max(0) as usize).min(rows.len())).collect();
+            if let Some(c) = s.panel.cursor_index().filter(|c| *c < rows.len() && !shown.contains(c)) {
+                shown.push(c);
+                shown.sort_unstable();
+            }
+            // Position among siblings: one pass over the visible rows.
+            let mut seen: HashMap<Option<ItemId>, usize> = HashMap::new();
+            let mut pos = vec![0usize; rows.len()];
+            for (i, v) in rows.iter().enumerate() {
+                let c = seen.entry(v.parent).or_insert(0);
+                *c += 1;
+                pos[i] = *c;
+            }
+            let cursor = s.panel.cursor();
+            for idx in shown {
+                let v = &rows[idx];
+                let id = v.node.id;
+                let ry = me.y() + (idx as i64 * rh as i64 - s.top) as i32;
+                n.child(id, |t| {
+                    t.role(Role::TreeItem).name(&v.node.label).description(&v.node.detail).level(v.depth as usize + 1)
+                        .selected(s.panel.is_selected(id)).position(pos[idx], seen[&v.parent]).bounds(me.x(), ry, me.w() - BAR - 4, rh)
+                        .action(Action::Click).action(Action::Focus).action(Action::ScrollIntoView);
+                    if v.node.has_children {
+                        let open = s.expanded.contains(&id);
+                        t.expanded(open).action(if open { Action::Collapse } else { Action::Expand });
+                    }
+                    if cursor == Some(id) {
+                        t.focused();
+                    }
+                });
+            }
+        });
+        let me = self.clone();
+        a11y::on_action(&self.widget, move |r| {
+            let Some(id) = r.key() else { return false };
+            let panel = me.st.borrow().panel.clone();
+            match r.action {
+                Action::Click => panel.click(id, false, false),
+                Action::Focus => { panel.focus(); panel.set_cursor(Some(id)); }
+                Action::Expand => me.expand(id),
+                Action::Collapse => me.collapse(id),
+                Action::ScrollIntoView => {
+                    let Some(i) = panel.index_of(id) else { return false };
+                    let h = me.widget.h();
+                    let mut s = me.st.borrow_mut();
+                    scroll_into_view(&mut s.top, i, row_height(), h);
+                    let top = s.top;
+                    s.motion.jump(top);
+                }
+                _ => return false,
+            }
+            me.widget.clone().redraw();
+            true
+        });
     }
 
     /// Asks again for every node's children (call after the data changes);

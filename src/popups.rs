@@ -3,6 +3,7 @@
 //! and context menus), `SearchableDropdown`, `ShortcutHelp` (F1 overlay)
 //! and `OperationToast` (progress with pause / cancel).
 
+use crate::a11y::{self, Action, Live, Role};
 use crate::overlay::{bg, card, close_layer, open_layer};
 use crate::paint;
 use crate::state::State;
@@ -291,6 +292,53 @@ impl PopupMenu {
         });
 
         let on_pick = Rc::new(RefCell::new(Some(Box::new(on_pick) as Box<dyn FnOnce(usize)>)));
+        let (it, cur, sc, gd) = (items.clone(), current.clone(), scroll.clone(), g.clone());
+        a11y::describe(&layer, move |n| {
+            let (x, y, w, h) = gd.rect;
+            n.role(Role::Menu).bounds(x, y, w, h);
+            let c = cur.get().max(0) as usize;
+            let top = y + gd.pad;
+            for i in c.saturating_sub(100)..(c + 101).min(it.len()) {
+                let item = &it[i];
+                let (oy, rh) = gd.rows[i];
+                n.child(i as u64, |m| {
+                    m.role(if item.checked { Role::MenuItemCheckBox } else { Role::MenuItem }).name(&item.label).shortcut(&item.shortcut)
+                        .disabled(!item.enabled).position(i + 1, it.len()).action(Action::Click).action(Action::Focus);
+                    if item.checked {
+                        m.toggled(true);
+                    }
+                    let ry = top + oy - sc.get();
+                    if ry + rh > top && ry < top + gd.view_h {
+                        m.bounds(x + 2, ry, w - 4, rh);
+                    }
+                    if i as i32 == cur.get() {
+                        m.focused();
+                    }
+                });
+            }
+        });
+        let (it, cur, st, op, l5) = (items.clone(), current.clone(), state.clone(), on_pick.clone(), layer.clone());
+        a11y::on_action(&layer, move |r| {
+            let Some(i) = r.key().map(|k| k as usize).filter(|i| *i < it.len()) else { return false };
+            match r.action {
+                Action::Click if it[i].enabled => {
+                    // Same order as a pick with the keyboard: close, then the callbacks.
+                    {
+                        let mut s = st.borrow_mut();
+                        if !s.open { return false; }
+                        s.open = false;
+                        s.reason = Some(Dismiss::Picked(i));
+                    }
+                    close_layer(&l5);
+                    if let Some(f) = op.borrow_mut().take() { f(i); }
+                    let f = st.borrow_mut().on_dismiss.take();
+                    if let Some(f) = f { f(Dismiss::Picked(i)); }
+                }
+                Action::Focus | Action::ScrollIntoView if it[i].enabled => { cur.set(i as i32); l5.clone().redraw(); }
+                _ => return false,
+            }
+            true
+        });
         let (it, cur, sc, gd, st) = (items.clone(), current.clone(), scroll.clone(), g.clone(), state.clone());
         layer.handle(move |l, ev| {
             if matches!(ev, Event::Push | Event::KeyDown) { motion.borrow_mut().jump(sc.get() as i64); }
@@ -461,6 +509,20 @@ impl SearchableDropdown {
         inner.set_size(w, h);
         let mut w2 = inner.clone();
         crate::state::bind_widget(&inner, value, false, move |_| w2.redraw());
+        let (opts, v, me, ph) = (options.clone(), value.clone(), inner.clone(), placeholder.to_string());
+        a11y::describe(&inner, move |n| {
+            let text = v.get().and_then(|i| opts.get(i)).map(|(l, _)| l.clone()).unwrap_or_default();
+            n.role(Role::ComboBox).name(&ph).placeholder(&ph).value(&text).expanded(a11y::has_popup(&me)).focusable()
+                .action(Action::Click).action(Action::Expand);
+        });
+        let (opts, v, mut me) = (options.clone(), value.clone(), inner.clone());
+        a11y::on_action(&inner, move |r| {
+            if !matches!(r.action, Action::Click | Action::Expand) || a11y::has_popup(&me) {
+                return false;
+            }
+            open_search(&mut me, &opts, &v);
+            true
+        });
         SearchableDropdown { inner, options, value: value.clone() }
     }
 
@@ -537,6 +599,37 @@ fn open_search(trigger: &mut Widget, options: &Rc<Vec<(String, String)>>, value:
                 }
             }
         });
+    });
+    a11y::popup_of(&layer, trigger);
+    let (opts, q, vis, cu, tp) = (options.clone(), query.clone(), visible.clone(), cur.clone(), top.clone());
+    a11y::describe(&layer, move |n| {
+        let (row, header, rows, h) = geo();
+        let gap = theme::with(|t| t.spacing.sm);
+        n.role(Role::ListBox).description(&q.borrow()).bounds(tx, ty, tw, h);
+        let vis = vis.borrow();
+        let c = cu.get();
+        for vi in c.saturating_sub(50)..(c + 51).min(vis.len()) {
+            let (label, desc) = &opts[vis[vi]];
+            let slot = vi as i32 - tp.get() as i32;
+            n.child(vis[vi] as u64, |o| {
+                o.role(Role::ListBoxOption).name(label).description(desc).selected(vi == c).position(vi + 1, vis.len()).action(Action::Click);
+                if (0..rows as i32).contains(&slot) {
+                    o.bounds(tx + 2, ty + header + 3 + slot * (row + gap), tw - 4, row);
+                }
+                if vi == c {
+                    o.focused();
+                }
+            });
+        }
+    });
+    let (v, mut trig, l2) = (value.clone(), trigger.clone(), layer.clone());
+    a11y::on_action(&layer, move |r| {
+        let (Some(i), Action::Click) = (r.key(), r.action) else { return false };
+        v.set(Some(i as usize));
+        close_layer(&l2);
+        let _ = trig.take_focus();
+        trig.redraw();
+        true
     });
     let (opts, q, vis, cu, tp, v) = (options.clone(), query.clone(), visible.clone(), cur.clone(), top.clone(), value.clone());
     let mut trig = trigger.clone();
@@ -620,6 +713,20 @@ impl ShortcutHelp {
         // (content height, visible height), measured while drawing.
         let extent = Rc::new(Cell::new((0i32, 0i32)));
         let title = title.to_string();
+        let (t2, secs) = (title.clone(), sections.clone());
+        a11y::describe(&layer, move |n| {
+            n.role(Role::Dialog).name(&t2).modal(true);
+            for (si, (sec, rows)) in secs.iter().enumerate() {
+                n.child(si as u64, |g| {
+                    g.role(Role::Group).name(sec);
+                    for (ri, (keys, desc)) in rows.iter().enumerate() {
+                        g.child(ri as u64, |l| {
+                            l.role(Role::Label).name(&format!("{keys}: {desc}"));
+                        });
+                    }
+                });
+            }
+        });
         let (sc, ext) = (scroll.clone(), extent.clone());
         let (scroll_out, extent_out) = (scroll.clone(), extent.clone());
         layer.draw(move |l| {
@@ -795,7 +902,7 @@ impl OperationToast {
                 [(x1 - t.spacing.md - b0, y, b0, bh), (x1, y, b1, bh)]
             })
         });
-        let (d, buttons2) = (data.clone(), buttons.clone());
+        let (d, buttons2, buttons3) = (data.clone(), buttons.clone(), buttons.clone());
         layer.draw(move |l| {
             let buttons = &buttons2;
             // Stay in the bottom-right corner when the window is resized.
@@ -887,6 +994,42 @@ impl OperationToast {
             }
         });
         layer.set_visible_focus();
+        let (d, lw, b3) = (data.clone(), layer.clone(), buttons3);
+        a11y::describe(&layer, move |n| {
+            let d = d.borrow();
+            let detail = if d.paused { format!("{} · {}", d.labels[3], d.detail) } else { d.detail.clone() };
+            n.role(Role::Status).live(Live::Polite).name(&d.title).description(&detail).focusable();
+            let focused = crate::focus::is_focused(&lw);
+            n.child(0, |p| {
+                p.role(Role::ProgressIndicator).name(&d.title);
+                if !d.indeterminate {
+                    let v = d.progress.clamp(0.0, 1.0);
+                    p.numeric(v, 0.0, 1.0, 0.0).value(&format!("{}%", (v * 100.0).round()));
+                }
+            });
+            let bs = b3(&lw);
+            for (i, label) in [if d.paused { &d.labels[1] } else { &d.labels[0] }, &d.labels[2]].into_iter().enumerate() {
+                let (bx, by, bw, bh) = bs[i];
+                n.child(i as u64 + 1, |b| {
+                    b.role(Role::Button).name(label).bounds(bx, by, bw, bh).action(Action::Click).focusable();
+                    if focused && d.kb == i as i32 {
+                        b.focused();
+                    }
+                });
+            }
+        });
+        let (d, lw) = (data.clone(), layer.clone());
+        a11y::on_action(&layer, move |r| {
+            match (r.action, r.key()) {
+                (Action::Click, Some(k @ 1..=2)) => press_toast(&d, &lw, k as i32 - 1),
+                (Action::Focus, Some(k @ 1..=2)) => {
+                    d.borrow_mut().kb = k as i32 - 1;
+                    let _ = lw.clone().take_focus();
+                }
+                _ => return false,
+            }
+            true
+        });
         Some(OperationToast { layer, data })
     }
 
@@ -1051,6 +1194,9 @@ impl PopupCard {
             }
         });
         crate::focus::push_modal(&layer);
+        a11y::describe(&layer, |n| {
+            n.role(Role::Dialog).modal(true);
+        });
         // Focus goes into the card; it comes back to `prev_focus` on close.
         if let Some(p) = prev_focus {
             crate::focus::remember_for(&lw, p);
