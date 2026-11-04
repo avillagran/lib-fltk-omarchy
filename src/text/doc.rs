@@ -36,6 +36,25 @@ pub enum ColorRole {
 }
 
 impl ColorRole {
+    /// Every role, in declaration order (compact storage indexes into it).
+    pub(crate) const ALL: [ColorRole; 15] = [
+        ColorRole::Foreground,
+        ColorRole::Bright,
+        ColorRole::Dim,
+        ColorRole::Faint,
+        ColorRole::Accent,
+        ColorRole::Urgent,
+        ColorRole::Red,
+        ColorRole::Green,
+        ColorRole::Yellow,
+        ColorRole::Blue,
+        ColorRole::Cyan,
+        ColorRole::Magenta,
+        ColorRole::Background,
+        ColorRole::DarkerBackground,
+        ColorRole::LighterBackground,
+    ];
+
     pub fn rgb(self, t: &Theme) -> Rgb {
         let p = &t.palette;
         match self {
@@ -120,6 +139,12 @@ pub struct Inline {
 impl Inline {
     pub fn new() -> Inline {
         Inline::default()
+    }
+
+    /// Text and runs that already cover it in order (compact storage).
+    pub(crate) fn from_parts(text: String, runs: Vec<Run>) -> Inline {
+        debug_assert!(runs.last().map_or(text.is_empty(), |r| r.range.end == text.len()));
+        Inline { text, runs }
     }
 
     pub fn plain(text: &str) -> Inline {

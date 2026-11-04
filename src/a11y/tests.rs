@@ -148,8 +148,10 @@ fn virtual_rows_positions_and_focused_child() {
             row.size_of_set(),
             row.is_selected()
         ),
-        (Some("Item 42"), Some(43), Some(100_000), Some(true))
+        (Some("Item 42"), Some(42), Some(100_000), Some(true))
     );
+    // AccessKit reads the set size from the container.
+    assert_eq!(m[&20].size_of_set(), Some(100_000));
     assert_eq!(focus, Some(virt(20, 42)));
 }
 
@@ -283,4 +285,61 @@ fn fltk_labels_and_offsets() {
     assert_eq!(char_index(s, 3), 2);
     assert_eq!(byte_index(s, 3), 4);
     assert_eq!(byte_index(s, 9), s.len());
+}
+
+#[test]
+fn documents_with_explicit_runs_links_scroll_and_selection() {
+    let mut d = Node::default();
+    d.role(Role::Document)
+        .name("Chat")
+        .bounds(0, 40, 300, 200)
+        .scroll(120.0, 900.0);
+    d.child(3, |p| {
+        p.role(Role::Paragraph)
+            .name("Read the docs")
+            .bounds(10, 300, 280, 20)
+            .text_run(1 << 32, "Read the docs\n", Some((10, 300, 120, 20)));
+        p.child(0, |l| {
+            l.role(Role::Link).name("the docs").url("https://d.dev").action(Action::Click);
+        });
+    });
+    d.text_selection_in((&[3, 1 << 32], 5), (&[3, 1 << 32], 8));
+    let (m, _) = map(&d, 30);
+    let doc = &m[&30];
+    // Scrolled: the transform moves the content up, the own bounds stay put.
+    assert_eq!(doc.scroll_y(), Some(120.0));
+    assert_eq!(doc.scroll_y_max(), Some(900.0));
+    assert_eq!(doc.transform().map(|t| t.as_coeffs()[5]), Some(-120.0));
+    assert_eq!(doc.bounds().map(|b| b.y0), Some(160.0));
+    // No automatic run on the document: the paragraph's explicit run.
+    assert!(doc
+        .children()
+        .iter()
+        .all(|c| m[&c.0].role() != ak::Role::TextRun));
+    let p = virt(30, 3);
+    let run = virt(p, 1 << 32);
+    assert_eq!(m[&run].role(), ak::Role::TextRun);
+    assert_eq!(m[&run].value(), Some("Read the docs\n"));
+    assert_eq!(m[&run].character_lengths().len(), 14);
+    let link = &m[&virt(p, 0)];
+    assert_eq!((link.role(), link.url()), (ak::Role::Link, Some("https://d.dev")));
+    let sel = doc.text_selection().expect("selection");
+    assert_eq!((sel.anchor.node.0, sel.anchor.character_index), (run, 5));
+    assert_eq!(sel.focus.character_index, 8);
+    // The consumer accepts it and reads the document as text.
+    let mut nodes: Vec<(ak::NodeId, ak::Node)> = m.into_iter().map(|(i, n)| (ak::NodeId(i), n)).collect();
+    nodes.sort_by_key(|(i, _)| *i == ak::NodeId(30));
+    let tree = accesskit_consumer::Tree::new(
+        ak::TreeUpdate {
+            nodes,
+            tree: Some(ak::TreeInfo::new(ak::NodeId(30))),
+            tree_id: ak::TreeId::ROOT,
+            focus: ak::NodeId(30),
+        },
+        true,
+    );
+    let root = tree.state().root();
+    assert!(root.supports_text_ranges());
+    assert_eq!(root.document_range().text(), "Read the docs\n");
+    assert_eq!(root.text_selection().map(|r| r.text()).as_deref(), Some("the"));
 }

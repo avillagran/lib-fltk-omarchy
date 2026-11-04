@@ -2,7 +2,8 @@
 //! text document, made for chat transcripts that stream.
 
 use super::doc::*;
-use super::layout::{self, estimate, layout_block, FltkMetrics, Layout, Metrics, Typo};
+use super::layout::{self, estimate_of, layout_block, FltkMetrics, Layout, Metrics, Typo};
+use super::store::Store;
 use super::markdown::{MarkdownOptions, MarkdownStream, StreamUpdate};
 use crate::paint;
 use crate::state::State;
@@ -10,11 +11,16 @@ use crate::theme::{self, Rgb, Theme};
 use crate::widgets::glyph;
 use fltk::{app, draw, enums::*, prelude::*, widget::Widget};
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::ops::Range;
 use std::rc::{Rc, Weak};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use unicode_segmentation::UnicodeSegmentation;
+
+#[cfg(feature = "a11y")]
+#[path = "access.rs"]
+mod access;
 
 const BAR: i32 = 4;
 
@@ -79,6 +85,10 @@ impl Heights {
     fn truncate(&mut self, n: usize) {
         self.t.truncate(n);
     }
+    /// The value at `i`.
+    fn get(&self, i: usize) -> i64 {
+        self.prefix(i + 1) - self.prefix(i)
+    }
     /// Index of the block that holds y (the last one past the end).
     fn find(&self, y: i64) -> usize {
         let n = self.t.len();
@@ -101,30 +111,53 @@ impl Heights {
 
 // ---------------------------------------------------------------- state
 
-struct Slot {
-    block: Block,
-    layout: Option<Box<Layout>>,
-    /// An earlier version of this block and its layout (incremental relayout).
-    prev: Option<Box<(Block, Layout)>>,
-    /// Height in the prefix sums: gap above + block.
-    h: i32,
-    /// Laid out height, kept when the layout is dropped (-1: estimate).
-    measured: i32,
-}
+/// Hashes block indices (keys of the hot map) with one multiply.
+#[derive(Default, Clone, Copy)]
+struct BuildIndexHasher;
 
-impl Slot {
-    fn new(block: Block) -> Slot {
-        Slot {
-            block,
-            layout: None,
-            prev: None,
-            h: 0,
-            measured: -1,
+#[derive(Default)]
+struct IndexHasher(u64);
+
+impl std::hash::Hasher for IndexHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+    fn write(&mut self, bytes: &[u8]) {
+        for b in bytes {
+            self.0 = (self.0.rotate_left(5) ^ *b as u64).wrapping_mul(0x517c_c1b7_2722_0a95);
         }
+    }
+    fn write_usize(&mut self, n: usize) {
+        self.0 = (n as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15);
     }
 }
 
-/// Blocks far from the view drop their layout (their height stays).
+impl std::hash::BuildHasher for BuildIndexHasher {
+    type Hasher = IndexHasher;
+    fn build_hasher(&self) -> IndexHasher {
+        IndexHasher::default()
+    }
+}
+
+/// A block near the view: materialized from the store, with its layout.
+struct Hot {
+    block: Block,
+    layout: Option<Layout>,
+    /// An earlier version of this block and its layout (incremental relayout).
+    prev: Option<(Block, Layout)>,
+}
+
+impl Hot {
+    fn new(block: Block) -> Box<Hot> {
+        Box::new(Hot {
+            block,
+            layout: None,
+            prev: None,
+        })
+    }
+}
+/// Blocks far from the view drop their layout (their height stays) when
+/// more than this many are hot.
 const LIVE_MAX: usize = 600;
 
 struct Press {
@@ -134,8 +167,14 @@ struct Press {
     moved: bool,
 }
 
-struct Inner {
-    slots: Vec<Slot>,
+pub(super) struct Inner {
+    /// Every block, packed. A block laid out once keeps its height in
+    /// `heights` (flagged `measured`) after its layout is dropped.
+    store: Store,
+    /// Blocks near the view (laid out, or about to be): at most about
+    /// `LIVE_MAX`, keyed by block index.
+    hot: HashMap<usize, Box<Hot>, BuildIndexHasher>,
+    /// Gap above + height of each block.
     heights: Heights,
     width: i32,
     typo: Typo,
@@ -159,8 +198,6 @@ struct Inner {
     laid_out: usize,
     bound: Option<(usize, u64)>,
     view_h: i32,
-    /// Slots that hold a layout (eviction).
-    live: Vec<usize>,
     frames: u64,
     paint_time: std::time::Duration,
 }
@@ -168,7 +205,8 @@ struct Inner {
 impl Inner {
     fn new() -> Inner {
         Inner {
-            slots: Vec::new(),
+            store: Store::default(),
+            hot: HashMap::default(),
             heights: Heights::default(),
             width: 0,
             typo: theme::with(Typo::from_theme),
@@ -192,7 +230,6 @@ impl Inner {
             laid_out: 0,
             bound: None,
             view_h: 0,
-            live: Vec::new(),
             frames: 0,
             paint_time: std::time::Duration::ZERO,
         }
@@ -211,25 +248,37 @@ impl Inner {
             0
         } else {
             self.typo
-                .gap(Some(&self.slots[i - 1].block), &self.slots[i].block)
+                .gap_of(Some(self.store.shape(i - 1)), self.store.shape(i))
         }
     }
 
+    /// The laid out block `i` (blocks near the view).
+    fn laid(&self, i: usize) -> Option<(&Block, &Layout)> {
+        let h = self.hot.get(&i)?;
+        Some((&h.block, h.layout.as_ref()?))
+    }
+
     fn body_h(&self, i: usize) -> i32 {
-        let s = &self.slots[i];
-        match &s.layout {
-            Some(l) => l.height,
-            None if s.measured >= 0 => s.measured,
-            None => estimate(&s.block, self.width.max(40), &self.typo, self.avg()),
+        if let Some((_, l)) = self.laid(i) {
+            return l.height;
         }
+        if self.store.measured(i) && i < self.heights.len() {
+            return (self.heights.get(i) - self.gap(i) as i64) as i32;
+        }
+        estimate_of(
+            self.store.shape(i),
+            self.store.text(i),
+            self.width.max(40),
+            &self.typo,
+            self.avg(),
+        )
     }
 
     fn refresh_h(&mut self, i: usize) -> bool {
         let h = self.gap(i) + self.body_h(i);
-        let d = h - self.slots[i].h;
+        let d = h as i64 - self.heights.get(i);
         if d != 0 {
-            self.slots[i].h = h;
-            self.heights.add(i, d as i64);
+            self.heights.add(i, d);
         }
         d != 0
     }
@@ -247,41 +296,77 @@ impl Inner {
     }
 
     fn push_slot(&mut self, block: Block) {
-        self.slots.push(Slot::new(block));
-        let i = self.slots.len() - 1;
+        self.store.push(&block);
+        let i = self.store.len() - 1;
         let h = self.gap(i) + self.body_h(i);
-        self.slots[i].h = h;
         self.heights.push(h as i64);
     }
 
     /// Replaces blocks from `from` on; unchanged ones keep their layout.
     fn replace_from(&mut self, from: usize, blocks: Vec<Block>) {
-        let from = from.min(self.slots.len());
-        let old: Vec<Slot> = self.slots.drain(from..).collect();
-        self.heights.truncate(from);
-        let mut old = old.into_iter();
-        for b in blocks {
-            let slot = match old.next() {
-                Some(o) if o.block == b => o,
-                Some(o) => {
-                    let prev = match o.layout {
-                        Some(l) => Some(Box::new((o.block, *l))),
-                        None => o.prev,
+        let old_n = self.store.len();
+        let from = from.min(old_n);
+        let new_n = from + blocks.len();
+        // Compare with the old blocks before their bytes are dropped:
+        // `Some(measured height)` for an unchanged block.
+        let same: Vec<Option<Option<i32>>> = blocks
+            .iter()
+            .enumerate()
+            .map(|(j, b)| {
+                let k = from + j;
+                let eq = k < old_n
+                    && match self.hot.get(&k) {
+                        Some(h) => h.block == *b,
+                        None => self.store.same(k, b),
                     };
-                    Slot {
-                        prev,
-                        ..Slot::new(b)
+                eq.then(|| {
+                    (self.store.measured(k) && self.laid(k).is_none())
+                        .then(|| (self.heights.get(k) - self.gap(k) as i64) as i32)
+                })
+            })
+            .collect();
+        for k in new_n..old_n {
+            self.hot.remove(&k);
+        }
+        self.store.truncate(from);
+        self.heights.truncate(from);
+        for (j, b) in blocks.into_iter().enumerate() {
+            let k = from + j;
+            self.store.push(&b);
+            let mut body = None;
+            match same[j] {
+                Some(m) => {
+                    if self.hot.get(&k).is_some_and(|h| h.layout.is_some()) {
+                        self.store.set_measured(k, true);
+                    } else if let Some(m) = m {
+                        self.store.set_measured(k, true);
+                        body = Some(m);
                     }
                 }
-                None => Slot::new(b),
-            };
-            self.slots.push(slot);
-            let i = self.slots.len() - 1;
-            let h = self.gap(i) + self.body_h(i);
-            self.slots[i].h = h;
+                None => {
+                    // A block that grew keeps its old layout for reuse.
+                    if let Some(h) = self.hot.remove(&k) {
+                        let prev = match h.layout {
+                            Some(l) => Some((h.block, l)),
+                            None => h.prev,
+                        };
+                        if prev.is_some() {
+                            self.hot.insert(
+                                k,
+                                Box::new(Hot {
+                                    block: b,
+                                    layout: None,
+                                    prev,
+                                }),
+                            );
+                        }
+                    }
+                }
+            }
+            let h = self.gap(k) + body.unwrap_or_else(|| self.body_h(k));
             self.heights.push(h as i64);
         }
-        let n = self.slots.len();
+        let n = self.store.len();
         let clamp = |p: TextPos| TextPos {
             block: p.block.min(n.saturating_sub(1)),
             offset: p.offset,
@@ -304,7 +389,8 @@ impl Inner {
     }
 
     fn clear(&mut self) {
-        self.slots.clear();
+        self.store.clear();
+        self.hot.clear();
         self.heights = Heights::default();
         self.stream = None;
         self.sel = None;
@@ -314,7 +400,6 @@ impl Inner {
         self.motion.jump(0);
         self.stuck = self.stick;
         self.bound = None;
-        self.live.clear();
     }
 
     fn push_markdown(&mut self, more: &str) {
@@ -322,7 +407,7 @@ impl Inner {
             return;
         }
         if self.stream.is_none() {
-            let start = self.slots.len();
+            let start = self.store.len();
             self.stream = Some((start, MarkdownStream::with_options(self.opts.clone())));
         }
         let Some((start, s)) = self.stream.as_mut() else {
@@ -335,51 +420,53 @@ impl Inner {
 
     /// Re-estimates every block (width, font or theme change).
     fn relayout_all(&mut self) {
-        let anchor = (!self.slots.is_empty()).then(|| {
+        let n = self.store.len();
+        let anchor = (n > 0).then(|| {
             let y = (self.top - self.pad as i64).max(0);
             let k = self.heights.find(y);
             (k, y - self.heights.prefix(k))
         });
-        self.live.clear();
+        self.hot.clear();
         let mut h = Heights::default();
-        for i in 0..self.slots.len() {
-            let s = &mut self.slots[i];
-            s.layout = None;
-            s.prev = None;
-            s.measured = -1;
-            let v = self.gap(i) + self.body_h(i);
-            self.slots[i].h = v;
-            h.push(v as i64);
+        for i in 0..n {
+            self.store.set_measured(i, false);
+        }
+        for i in 0..n {
+            h.push((self.gap(i) + self.body_h(i)) as i64);
         }
         self.heights = h;
         if let Some((k, off)) = anchor {
-            self.top = self.heights.prefix(k) + off.min(self.slots[k].h as i64) + self.pad as i64;
+            self.top = self.heights.prefix(k) + off.min(self.heights.get(k)) + self.pad as i64;
             self.motion.jump(self.top);
         }
     }
 
     fn ensure_layout(&mut self, i: usize, m: &mut dyn Metrics) -> bool {
-        if self.slots[i].layout.is_some() {
+        if self.laid(i).is_some() {
             return false;
         }
-        let prev = self.slots[i].prev.take();
+        let store = &self.store;
+        let hot = self
+            .hot
+            .entry(i)
+            .or_insert_with(|| Hot::new(store.block(i)));
+        let prev = hot.prev.take();
         let l = layout_block(
-            &self.slots[i].block,
+            &hot.block,
             self.width,
             &self.typo,
             m,
             prev.as_ref().map(|p| (&p.0, &p.1)),
         );
-        self.slots[i].measured = l.height;
-        self.slots[i].layout = Some(Box::new(l));
+        hot.layout = Some(l);
+        self.store.set_measured(i, true);
         self.laid_out += 1;
-        self.live.push(i);
         self.refresh_h(i)
     }
 
     /// Visible block range for the current top.
     fn visible(&self) -> Range<usize> {
-        let n = self.slots.len();
+        let n = self.store.len();
         if n == 0 {
             return 0..0;
         }
@@ -392,7 +479,7 @@ impl Inner {
     /// Lays out what is visible (and half a view around), keeping the
     /// first already measured visible block where it was on screen.
     fn ensure_visible(&mut self, m: &mut dyn Metrics) {
-        let n = self.slots.len();
+        let n = self.store.len();
         if n == 0 {
             self.top = 0;
             return;
@@ -407,7 +494,7 @@ impl Inner {
             let last = self.heights.find((y0 + self.view_h as i64 + over).max(0));
             let vis = self.heights.find(y0.max(0));
             let anchor = (vis..=last)
-                .find(|&k| self.slots[k].layout.is_some())
+                .find(|&k| self.laid(k).is_some())
                 .map(|k| (k, self.heights.prefix(k) - y0));
             let mut changed = false;
             for k in first..=last {
@@ -437,28 +524,13 @@ impl Inner {
 
     /// Drops the layouts of blocks far from the view when there are many.
     fn evict(&mut self) {
-        if self.live.len() <= LIVE_MAX {
+        if self.hot.len() <= LIVE_MAX {
             return;
         }
         let vis = self.visible();
         let margin = 64;
         let keep = vis.start.saturating_sub(margin)..vis.end + margin;
-        let mut live = std::mem::take(&mut self.live);
-        live.sort_unstable();
-        live.dedup();
-        for i in live {
-            let Some(s) = self.slots.get_mut(i) else {
-                continue;
-            };
-            if s.layout.is_none() {
-                continue;
-            }
-            if keep.contains(&i) {
-                self.live.push(i);
-            } else {
-                s.layout = None;
-            }
-        }
+        self.hot.retain(|k, _| keep.contains(k));
     }
 
     fn screen_y(&self, i: usize, wy: i32) -> i32 {
@@ -467,7 +539,7 @@ impl Inner {
 
     /// Block under window y (clamped), with its screen top.
     fn block_at(&self, wy: i32, ey: i32) -> Option<(usize, i32)> {
-        if self.slots.is_empty() {
+        if self.store.len() == 0 {
             return None;
         }
         let y = (ey as i64 - wy as i64 - self.pad as i64 + self.top).max(0);
@@ -485,17 +557,16 @@ impl Inner {
     ) -> Option<TextPos> {
         let (i, by) = self.block_at(wy, ey)?;
         self.ensure_layout(i, m);
-        let s = &self.slots[i];
-        let l = s.layout.as_ref()?;
+        let (b, l) = self.laid(i)?;
         // Above the first block or below the last: the ends.
         let rel_y = ey - by;
-        if i + 1 == self.slots.len() && rel_y >= l.height {
+        if i + 1 == self.store.len() && rel_y >= l.height {
             return Some(TextPos {
                 block: i,
-                offset: s.block.text().len(),
+                offset: b.text().len(),
             });
         }
-        let off = l.hit(s.block.text(), ex - (wx + self.pad), rel_y, m);
+        let off = l.hit(b.text(), ex - (wx + self.pad), rel_y, m);
         Some(TextPos {
             block: i,
             offset: off,
@@ -512,10 +583,9 @@ impl Inner {
     ) -> Option<Target> {
         let (i, by) = self.block_at(wy, ey)?;
         self.ensure_layout(i, m);
-        let s = &self.slots[i];
-        let l = s.layout.as_ref()?;
+        let (b, l) = self.laid(i)?;
         let bx = wx + self.pad;
-        if s.block.is_code() {
+        if b.is_code() {
             let (x, y, w, h) = copy_rect(l, &self.typo, bx, by);
             return (ex >= x && ex < x + w && ey >= y && ey < y + h)
                 .then_some(Target::Copy { block: i });
@@ -529,8 +599,7 @@ impl Inner {
                 let fx = ln.x as f32 + f.x;
                 if (rx as f32) >= fx && (rx as f32) < fx + f.w {
                     let run = f.run as usize;
-                    return s
-                        .block
+                    return b
                         .content
                         .runs()
                         .get(run)
@@ -544,16 +613,10 @@ impl Inner {
 
     fn link_of(&self, t: Target) -> Option<Arc<str>> {
         match t {
-            Target::Link { block, run } => self
-                .slots
-                .get(block)?
-                .block
-                .content
-                .runs()
-                .get(run)?
-                .style
-                .link
-                .clone(),
+            Target::Link { block, run } => match self.hot.get(&block) {
+                Some(h) => h.block.content.runs().get(run)?.style.link.clone(),
+                None => self.store.link(block, run).map(Arc::from),
+            },
             Target::Copy { .. } => None,
         }
     }
@@ -562,17 +625,15 @@ impl Inner {
     fn targets(&self) -> Vec<Target> {
         let mut out = Vec::new();
         for i in self.visible() {
-            let s = &self.slots[i];
-            let Some(l) = s.layout.as_ref() else { continue };
-            if s.block.is_code() {
+            let Some((b, l)) = self.laid(i) else { continue };
+            if b.is_code() {
                 out.push(Target::Copy { block: i });
                 continue;
             }
             for ln in &l.lines {
                 for f in l.frags_of(ln) {
                     let run = f.run as usize;
-                    if s.block
-                        .content
+                    if b.content
                         .runs()
                         .get(run)
                         .is_some_and(|r| r.style.link.is_some())
@@ -599,8 +660,8 @@ impl Inner {
             return String::new();
         };
         let mut out = String::new();
-        for i in a.block..=b.block.min(self.slots.len().saturating_sub(1)) {
-            let t = self.slots[i].block.text();
+        for i in a.block..=b.block.min(self.store.len().saturating_sub(1)) {
+            let t = self.store.text(i);
             let s = if i == a.block {
                 floor_char(t, a.offset)
             } else {
@@ -622,12 +683,12 @@ impl Inner {
     }
 
     fn select_all(&mut self) {
-        if let Some(last) = self.slots.len().checked_sub(1) {
+        if let Some(last) = self.store.len().checked_sub(1) {
             self.sel = Some((
                 TextPos::default(),
                 TextPos {
                     block: last,
-                    offset: self.slots[last].block.text().len(),
+                    offset: self.store.text(last).len(),
                 },
             ));
         }
@@ -720,6 +781,8 @@ impl RichText {
         });
         let (inn, link) = (self.inner.clone(), self.link.clone());
         w.handle(move |w, ev| handle(w, &inn, &link, ev));
+        #[cfg(feature = "a11y")]
+        access::install(self);
     }
 
     // ------------------------------------------------------------ builders
@@ -784,7 +847,7 @@ impl RichText {
                 i.clear();
                 i.push_markdown(v);
                 if i.stream.is_none() {
-                    let n = i.slots.len();
+                    let n = i.store.len();
                     let o = i.opts.clone();
                     i.stream = Some((n, MarkdownStream::with_options(o)));
                 }
@@ -809,7 +872,7 @@ impl RichText {
     pub fn append_markdown(&self, md: &str) {
         {
             let mut i = self.inner.borrow_mut();
-            let start = i.slots.len();
+            let start = i.store.len();
             let o = i.opts.clone();
             i.stream = Some((start, MarkdownStream::with_options(o)));
             i.push_markdown(md);
@@ -887,24 +950,31 @@ impl RichText {
     // ------------------------------------------------------------- queries
 
     pub fn block_count(&self) -> usize {
-        self.inner.borrow().slots.len()
+        self.inner.borrow().store.len()
     }
 
     pub fn block(&self, i: usize) -> Option<Block> {
-        self.inner.borrow().slots.get(i).map(|s| s.block.clone())
+        let inner = self.inner.borrow();
+        if i >= inner.store.len() {
+            return None;
+        }
+        Some(match inner.hot.get(&i) {
+            Some(h) => h.block.clone(),
+            None => inner.store.block(i),
+        })
     }
 
     /// The whole text, one block per line (for accessibility and search);
     /// [`block_ranges`](Self::block_ranges) maps blocks into it.
     pub fn plain_text(&self) -> String {
         let i = self.inner.borrow();
-        let n: usize = i.slots.iter().map(|s| s.block.text().len() + 1).sum();
-        let mut out = String::with_capacity(n);
-        for (k, s) in i.slots.iter().enumerate() {
+        let n = i.store.len();
+        let mut out = String::with_capacity((0..n).map(|k| i.store.text(k).len() + 1).sum());
+        for k in 0..n {
             if k > 0 {
                 out.push('\n');
             }
-            out.push_str(s.block.text());
+            out.push_str(i.store.text(k));
         }
         out
     }
@@ -912,10 +982,9 @@ impl RichText {
     pub fn block_ranges(&self) -> Vec<Range<usize>> {
         let i = self.inner.borrow();
         let mut at = 0;
-        i.slots
-            .iter()
-            .map(|s| {
-                let r = at..at + s.block.text().len();
+        (0..i.store.len())
+            .map(|k| {
+                let r = at..at + i.store.text(k).len();
                 at = r.end + 1;
                 r
             })
@@ -1014,9 +1083,8 @@ impl RichText {
         let mut m = FltkMetrics::default();
         let (wx, wy) = (self.widget.x(), self.widget.y());
         for k in i.visible() {
-            let s = &i.slots[k];
-            let Some(l) = s.layout.as_ref() else { continue };
-            let text = s.block.text();
+            let Some((b, l)) = i.laid(k) else { continue };
+            let text = b.text();
             let Some(off) = text.find(needle) else {
                 continue;
             };
@@ -1190,8 +1258,7 @@ fn draw_view(w: &mut Widget, i: &mut Inner, t: &Theme) {
     let clip = (w.y(), w.y() + w.h());
     for k in i.visible() {
         let by = i.screen_y(k, w.y());
-        let s = &i.slots[k];
-        let Some(l) = s.layout.as_ref() else { continue };
+        let Some((b, l)) = i.laid(k) else { continue };
         let range = sel.and_then(|(a, b)| {
             if k < a.block || k > b.block {
                 return None;
@@ -1200,7 +1267,7 @@ fn draw_view(w: &mut Widget, i: &mut Inner, t: &Theme) {
             let e0 = if k == b.block { b.offset } else { usize::MAX };
             Some(s0..e0)
         });
-        let prev_quote = if k > 0 { i.slots[k - 1].block.quote } else { 0 };
+        let prev_quote = if k > 0 { i.store.shape(k - 1).quote } else { 0 };
         let gap = i.gap(k);
         let ctx = BlockCtx {
             t,
@@ -1221,7 +1288,7 @@ fn draw_view(w: &mut Widget, i: &mut Inner, t: &Theme) {
             clip,
             color: None,
         };
-        draw_block(&ctx, &s.block, l, bx, by, &mut m);
+        draw_block(&ctx, b, l, bx, by, &mut m);
     }
     // Scrollbar.
     let content = i.content_h();
@@ -1571,7 +1638,7 @@ fn handle(w: &mut Widget, inn: &Rc<RefCell<Inner>>, link: &LinkFn, ev: Event) ->
                 return true;
             }
             if let Some(Target::Copy { block }) = i.target_at(wx, wy, ex, ey, &mut m) {
-                let text = i.slots[block].block.text().to_string();
+                let text = i.store.text(block).to_string();
                 i.copied = Some((block, Instant::now()));
                 drop(i);
                 app::copy(&text);
@@ -1596,7 +1663,7 @@ fn handle(w: &mut Widget, inn: &Rc<RefCell<Inner>>, link: &LinkFn, ev: Event) ->
                     i.sel = Some((a, pos));
                 }
             } else if clicks == 1 {
-                let t = i.slots[pos.block].block.text();
+                let t = i.store.text(pos.block);
                 let (a, b) = word_at(t, pos.offset);
                 i.sel = Some((
                     TextPos {
@@ -1609,7 +1676,7 @@ fn handle(w: &mut Widget, inn: &Rc<RefCell<Inner>>, link: &LinkFn, ev: Event) ->
                     },
                 ));
             } else if clicks >= 2 {
-                let n = i.slots[pos.block].block.text().len();
+                let n = i.store.text(pos.block).len();
                 i.sel = Some((
                     TextPos {
                         block: pos.block,
@@ -1753,7 +1820,7 @@ fn key(w: &mut Widget, inn: &Rc<RefCell<Inner>>, link: &LinkFn) -> bool {
         if k == Key::from_char('c') {
             let text = match i.focus {
                 Some(Target::Copy { block }) if i.sel_range().is_none() => {
-                    i.slots[block].block.text().to_string()
+                    i.store.text(block).to_string()
                 }
                 _ => i.selected_text(),
             };
@@ -1821,7 +1888,7 @@ fn key(w: &mut Widget, inn: &Rc<RefCell<Inner>>, link: &LinkFn) -> bool {
             let Some(t) = i.focus else { return false };
             match t {
                 Target::Copy { block } => {
-                    let text = i.slots[block].block.text().to_string();
+                    let text = i.store.text(block).to_string();
                     i.copied = Some((block, Instant::now()));
                     drop(i);
                     app::copy(&text);
@@ -1872,12 +1939,18 @@ fn activate_focus(w: &mut Widget, inn: &Rc<RefCell<Inner>>, link: &LinkFn) -> bo
         (
             t,
             i.link_of(t),
-            matches!(t, Target::Copy { .. }).then(|| i.slots[t.block()].block.text().to_string()),
+            matches!(t, Target::Copy { .. }).then(|| i.store.text(t.block()).to_string()),
         )
     };
     if let Some(code) = code {
         app::copy(&code);
         inn.borrow_mut().copied = Some((t.block(), Instant::now()));
+        let mut ww = w.clone();
+        app::add_timeout3(1.6, move |_| {
+            if !ww.was_deleted() {
+                ww.redraw()
+            }
+        });
     } else if let (Some(url), Some(f)) = (url, link.borrow_mut().as_mut()) {
         f(&url);
     }
@@ -1888,7 +1961,7 @@ fn activate_focus(w: &mut Widget, inn: &Rc<RefCell<Inner>>, link: &LinkFn) -> bo
 /// Scrolls so the target's block line is fully in view.
 fn reveal(i: &mut Inner, t: Target, w: &Widget) {
     let k = t.block();
-    let Some(l) = i.slots[k].layout.as_ref() else {
+    let Some((_, l)) = i.laid(k) else {
         return;
     };
     let (y, h) = match t {
@@ -1937,16 +2010,6 @@ mod tests {
         h.truncate(5);
         h.push(100);
         assert_eq!(h.prefix(6), 20 + 7 + 100);
-    }
-
-    #[test]
-    fn slot_stays_small() {
-        // Per-block cost of a long transcript (layouts are boxed and evicted).
-        assert!(
-            std::mem::size_of::<Slot>() <= 128,
-            "{}",
-            std::mem::size_of::<Slot>()
-        );
     }
 
     #[test]

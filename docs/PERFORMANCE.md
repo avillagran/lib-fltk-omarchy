@@ -99,38 +99,66 @@ stime and `Pss + SwapPss` from `/proc/self`). The transcript is 5 000
 messages (1.6 MB of Markdown with lists, tables, code blocks and links,
 27 501 blocks); the last message then receives Markdown for 10 s. Phases:
 settle 1.5 s, idle 3 s, stream 10 s, idle 3 s. Medians of 3 runs (single
-runs for the 20 KB/s rows; the paint / push split of the 1 MB/s rows comes
-from one more run with `RichText::paint_stats`); CPU is % of one core.
+runs for the 20 KB/s rows); CPU is % of one core. Raw lines:
+[evidence/richtext-20261104/](evidence/richtext-20261104/).
 
-| Case | Parse 5 000 msgs | Idle CPU | Stream CPU | of which paint | of which push (parse + apply) | Push avg / max | PSS idle | PSS after stream |
+| Case | Parse 5 000 msgs | Idle CPU before / after | Stream CPU | of which paint | of which push (parse + apply) | Push avg / max | PSS idle | PSS after stream |
 |---|---|---|---|---|---|---|---|---|
-| empty view | — | 0.0 % | — | — | — | — | 12.7 MB | — |
-| 5 000 messages, no stream | 33 ms | 0.0 % | — | — | — | — | 27.8 MB | — |
-| 1 MB/s at 60 updates/s | 33 ms | 0.0 % / 0.0 % | 18.5 % | 16.5 % (2.8 ms/frame) | 1.8 % | 0.30 / 0.66 ms | 27.6 MB | 80.6 MB |
-| 1 MB/s at 30 updates/s | 32 ms | 0.0 % / 0.0 % | 10.4 % | 9.3 % (3.1 ms/frame) | 1.7 % | 0.55 / 0.92 ms | 26.1 MB | 79.0 MB |
-| 1 MB/s, worker thread, 8-byte tokens (`sender()`, ≤ 60 updates/s) | 34 ms | 0.0 % / 0.0 % | 20.2 % | — | — | — | 26.1 MB | 77.6 MB |
-| 20 KB/s at 60 updates/s (a fast model) | 41 ms | 0.0 % / 0.0 % | 10.8 % | 10.4 % (1.7 ms/frame) | 0.2 % | 0.03 / 0.07 ms | 25.6 MB | 27.7 MB |
-| 20 KB/s at 30 updates/s | 32 ms | 0.0 % / 0.0 % | 6.4 % | 6.0 % (2.0 ms/frame) | 0.1 % | 0.05 / 0.14 ms | 26.3 MB | 27.9 MB |
+| empty view | — | 0.0 % | — | — | — | — | 12.6 MB | — |
+| 5 000 messages, no stream | 31 ms | 0.0 % | — | — | — | — | 16.1 MB | — |
+| 1 MB/s at 60 updates/s | 33 ms | 0.0 % / 0.0 % | 19.5 % | 17.2 % (2.9 ms/frame) | 2.0 % | 0.34 / 0.61 ms | 16.2 MB | 31.9 MB |
+| 1 MB/s at 30 updates/s | 31 ms | 0.0 % / 0.0 % | 10.0 % | 8.1 % (2.7 ms/frame) | 1.7 % | 0.58 / 0.85 ms | 16.2 MB | 33.8 MB |
+| 1 MB/s, worker thread, 8-byte tokens (`sender()`, ≤ 60 updates/s) | 31 ms | 0.0 % / 0.0 % | 19.3 % | 16.8 % (2.8 ms/frame) | — | — | 16.2 MB | 33.8 MB |
+| 20 KB/s at 60 updates/s (a fast model) | 31 ms | 0.0 % / 0.0 % | 10.9 % | 10.5 % (1.8 ms/frame) | 0.2 % | 0.03 / 0.07 ms | 16.2 MB | 17.4 MB |
+| 20 KB/s at 30 updates/s | 32 ms | 0.0 % / 0.0 % | 5.8 % | 5.5 % (1.9 ms/frame) | 0.1 % | 0.04 / 0.07 ms | 17.0 MB | 18.2 MB |
 
 Idle is the 3 s before and after the stream: no timer runs, nothing is
 painted. Only blocks in view (and half a view around) are laid out: 30 of
 27 501 after the transcript loads. At 1 MB/s more than a screen of new text
 arrives every frame, so every frame lays out a whole screen of new blocks;
-that is the worst case. Parsing and applying the stream costs under 2 % of
+that is the worst case. Parsing and applying the stream costs about 2 % of
 a core; the rest is painting the whole view through Cairo/Pango once per
 update, so 30 updates/s halves the cost (`sender()` caps updates at 60/s).
 
-Memory: the document keeps every block as text plus styled runs, about
-5 bytes of memory per byte of densely styled Markdown (10 MB streamed into
-one message grows PSS by ~53 MB: 120 000 blocks, ~580 000 runs). Layouts are
-kept only for blocks near the view (they are dropped beyond ~600 laid-out
-blocks; their measured height stays).
+**Memory.** Blocks are packed into four arenas shared by the document
+(src/text/store.rs): the text; 4 bytes per styled run (end offset, style
+bits, link marks; 8 in blocks of 4 MiB or more); the rare per-block data
+(URLs, list numbers, code languages, table cells) as bytes; 16 bytes of
+metadata per block, plus 8 bytes per block of height sums. Only the
+blocks near the view are materialized as `Block`s with their layout (at
+most ~600; their measured height stays when the layout is dropped).
 
-Release size (`opt-level = "s"`, thin LTO, stripped): `bench_minimal` is
-1 276 040 bytes (1 275 208 before this change: +832 bytes, the italic font
-mapping); `richtext_minimal` (the same app with a `RichText`) is 1 763 176
-bytes: the `text` module, `pulldown-cmark` (no default features), and
-`unicode-segmentation` add 487 KB.
+| Same runs, before → after | Before (a `Block` per block) | After (packed store) |
+|---|---|---|
+| PSS growth, ~9.75 MB streamed at 1 MB/s (60 Hz / 30 Hz / sender) | 52.7 / 53.1 / 52.8 MB | 15.6 / 17.6 / 17.7 MB |
+| Memory per byte of streamed Markdown | 5.4 B/B | 1.6–1.8 B/B |
+| PSS idle with the 5 000-message transcript | 26.2 MB | 16.1 MB |
+| Transcript alone (minus the empty view) | 13.0 MB for 1.6 MB of Markdown | 3.5 MB |
+| Data held per byte of the dense stream (unit test `dense_markdown_costs_under_two_bytes_per_byte`) | — | 1.51 B/B (text 0.88, runs 0.21, metadata and sums 0.29, URLs and languages 0.13) |
+
+The rest of the growth over the data held is the allocator: arenas grow by
+doubling, and an old buffer freed inside the heap stays resident. Push and
+paint did not get slower: the same session alternating the two binaries
+four times (1 MB/s, 60 updates/s) gives push 0.31 → 0.30 ms, paint 2.84 →
+2.75 ms per frame, process 19.0 → 18.3 % of a core (medians; single runs
+vary by ±15 %).
+
+With an assistive technology active (`script/richtext-a11y-bench`: the
+same bench built with `--features a11y` in a private AT-SPI session), each
+update rebuilds and diffs the window's accessibility tree in 0.2 ms
+(about 120 nodes: only the blocks near the view). At 20 KB/s an update
+sends ~23 nodes (the new blocks, the last block and the document); the
+process uses 15.1 % of a core instead of 10.9 %, the difference being
+AccessKit's AT-SPI work on its own thread. At 1 MB/s a screen of new
+blocks arrives per frame and nearly every exposed node is new (47 %).
+
+Release size (`opt-level = "s"`, thin LTO, stripped), measured again
+with the packed store: `bench_minimal` is 1 307 656 bytes and
+`richtext_minimal` (the same app with a `RichText`) 1 781 064 bytes: the
+`text` module, `pulldown-cmark` (no default features), and
+`unicode-segmentation` add 473 KB (487 KB when first measured, with
+`bench_minimal` at 1 276 040 bytes).
+
 
 ## Streaming updates (Unreleased)
 
