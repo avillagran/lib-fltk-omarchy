@@ -227,7 +227,7 @@ use fltk_omarchy::popups::{PopupItem, PopupMenu};
 PopupMenu::open(&*actions_button, vec![
     PopupItem::new(glyph::FOLDER, "Open").shortcut("Enter"),
     PopupItem::new(glyph::SEARCH, "Preview").shortcut("Space").divider(),
-    PopupItem::new(glyph::FILE, "Copy").shortcut("Ctrl+C"),
+    PopupItem::new(glyph::FILE, "Copy").shortcut("Mod+C"),
     PopupItem::new(glyph::FILE, "Show hidden files").checked(true),
     PopupItem::new(glyph::TRASH, "Move to trash").shortcut("Delete").disabled(),
 ], |index| println!("picked {index}"));
@@ -351,7 +351,7 @@ let row = |k: &str, d: &str| (k.to_string(), d.to_string());
 let help = move || vec![
     ("Move".into(), vec![row("Tab", "Next control"), row("Shift+Tab", "Previous control"), row("Ctrl+Tab", "Next tab")]),
     ("Files".into(), vec![row("Enter", "Open"), row("F2", "Rename"), row("Delete", "Move to trash")]),
-    ("Window".into(), vec![row("Ctrl+,", "Preferences"), row("F10", "Actions"), row("F1", "This help")]),
+    ("Window".into(), vec![row("Mod+,", "Preferences"), row("F10", "Actions"), row("F1", "This help")]),
 ];
 let w = win.clone();
 win.shortcut("F1", move || { ShortcutHelp::open(&*w, "Keyboard shortcuts", help()); });

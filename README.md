@@ -7,6 +7,12 @@ the live Omarchy theme, Hyprland window modes and small app helpers
 snapshots). Import as `fltk_omarchy`. License MIT. Version 0.0.10, not on
 crates.io (use the git dependency below).
 
+**Multiplatform**: Linux (Wayland and X11), macOS and Windows. The OS
+specifics live in one `platform` module with a fallback on each OS
+(Omarchy theme files and Hyprland on Linux; a built-in dark/light theme
+following the system on macOS and Windows; `Mod+,` is Ctrl+, or Cmd+,).
+What works where and what was verified: [docs/PLATFORMS.md](docs/PLATFORMS.md).
+
 **Keyboard first**: every app built with it can be used without a mouse,
 with no keyboard code in the app. Tab and Shift+Tab move through the
 controls, arrows act inside the focused one, and menus give focus back when
@@ -43,6 +49,7 @@ limit and a time budget per draw. Pictures, API and measured cost:
   from one validated load ([theme colors](docs/COMPONENTS.md#theme-colors-for-custom-painting)).
 - **Components**: [docs/COMPONENTS.md](docs/COMPONENTS.md) (pictures,
   code, keys). **Keyboard**: [docs/KEYBOARD.md](docs/KEYBOARD.md).
+- **Platforms**: [docs/PLATFORMS.md](docs/PLATFORMS.md).
 - **Capabilities vs QML**: [docs/CAPABILITIES.md](docs/CAPABILITIES.md).
 - **Measured** (same session, 520×400 app with a 100 000-row list, 0.0.2):
   15.0 MB PSS and 70 ms to first frame vs 59.5 MB / 127 ms (QML software)
@@ -59,15 +66,22 @@ cargo run --example shaders      # shapes, gradients, effects, animated CPU shad
 cargo run --release --example playground   # every component in one window, actions logged to build/playground.log
 cargo run --release --features gpu --example gpu_bench -- check build/gpu-check.json   # GPU shader pixel check
 cargo test --offline             # unit + doc + main-thread UI tests
+cargo run --example platform_check   # what the platform layer detected on this OS
+script/x11-check                 # X11 window (isolated Xvfb): move/resize fallback
 ```
 
-Use it from another crate (same fltk pin and features as this crate):
+Use it from another crate (same fltk pin and features as this crate;
+`use-wayland` only on Linux):
 
 ```toml
 [dependencies]
-fltk = { version = "=1.5.23", features = ["use-wayland", "no-images"] }
+fltk = { version = "=1.5.23", features = ["no-images"] }
 lib-fltk-omarchy = { git = "https://github.com/avillagran/lib-fltk-omarchy", tag = "v0.0.10" }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+fltk = { version = "=1.5.23", features = ["use-wayland", "no-images"] }
 ```
 
-Requires the build dependencies of fltk-sys (cmake, a C++ compiler,
-Wayland/X11/pango/cairo development files).
+Requires the build dependencies of fltk-sys: cmake and a C++ compiler
+everywhere, plus Wayland/X11/pango/cairo development files on Linux
+(Xcode command line tools on macOS, MSVC build tools on Windows).

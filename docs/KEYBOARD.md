@@ -22,7 +22,13 @@ and every component follows the same rules.
 5. **Esc never closes an app window.**
 6. **Window-wide keys** keep working wherever focus is:
    `AppWindow::shortcut("F10", ..)`, `Button::shortcut("Ctrl+S")`, and
-   Ctrl+Tab / Ctrl+PageUp / Ctrl+PageDown for a `TabBar`.
+   Ctrl+Tab / Ctrl+PageUp / Ctrl+PageDown for a `TabBar`. `Mod` in a spec
+   is the platform's primary modifier: `"Mod+,"` is Ctrl+, on Linux and
+   Windows and Cmd+, on macOS (`keys::PRIMARY`); `Ctrl` is always the
+   Control key. Menus and the F1 help show specs with `keys::label`. The
+   Ctrl of keyboard panels (toggle, select all, cursor-only moves,
+   click-to-toggle) is the primary modifier too. See
+   [PLATFORMS.md](PLATFORMS.md#shortcuts).
 7. **The focus ring is drawn only while the keyboard is in use**, like
    `:focus-visible` on the web; a mouse click hides it again. The ring is
    the theme's `[controls] focus` state. When the theme's focus looks the

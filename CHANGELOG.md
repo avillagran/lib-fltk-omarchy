@@ -2,6 +2,46 @@
 
 ## Unreleased
 
+- **Multiplatform: Linux (Wayland and X11), macOS and Windows.** All OS
+  code moved into a new `platform` module (`src/platform/`: `linux`,
+  `macos`, `windows`, shared `generic` fallbacks, portable `poll`
+  watcher), with a working fallback on each OS; the rest of the crate is
+  portable. Linux behaviour is unchanged. Guide and verification:
+  docs/PLATFORMS.md.
+  - `Cargo.toml`: fltk's `use-wayland` only on Linux (one fltk-sys build
+    per target, `gpu` unchanged); `libc` only on Unix.
+  - Native window move/resize (Wayland/libdecor) and glass FFI live in
+    `platform::linux`; `native`, `glass` and `hyprland` keep their API.
+    Hyprland IPC is only available on Linux with Hyprland running.
+  - `AppWindow` floating drag/resize: native Wayland → Hyprland IPC → new
+    FLTK fallback that moves/resizes the window itself (X11 window
+    managers, macOS, Windows). Verified under X11 with `script/x11-check`.
+  - Theme: built-in dark (Tokyo Night) or new `theme::FALLBACK_LIGHT_COLORS`
+    following the OS appearance on macOS/Windows (`platform::prefers_dark`,
+    `OMARCHY_FLTK_APPEARANCE`); `theme::set_theme_dir` /
+    `OMARCHY_FLTK_THEME_DIR` load any Omarchy theme directory on any OS.
+    Omarchy paths come from `platform::dirs` per OS.
+  - Live reload: inotify on Linux (unchanged, falls back to polling if
+    inotify is unavailable); 1 s mtime polling elsewhere, which also
+    follows the OS appearance.
+  - Fonts: fontconfig `monospace` on Linux, Menlo on macOS, Consolas on
+    Windows, with the face names each FLTK backend expects
+    (`platform::fonts`).
+  - Shortcuts: `Mod` (also `Primary`, `CmdOrCtrl`) is the primary
+    modifier, Cmd on macOS and Ctrl elsewhere (`keys::PRIMARY`,
+    `keys::primary_held`, `keys::label`). Popup menu hints and the F1
+    help show specs the platform's way. Keyboard panels, Table and Tree
+    use the primary modifier for toggle, select all and click-to-toggle.
+    Examples use `Mod+,` for Preferences.
+  - `native::pixels_per_unit` uses the platform layer: the Wayland
+    output scale on Linux, FLTK's own value (Retina included) on macOS
+    and Windows.
+  - New: `platform::{OS, Os, wayland, prefers_dark, process_cpu_time,
+    dirs, fonts}`; `examples/platform_check`; `script/x11-check`;
+    `.github/workflows/ci.yml` (Linux X11 + Wayland, macOS, Windows,
+    cross-target type check). `tests/ui.rs` skips without a display on
+    Linux and reports, without failing, pixel differences on
+    macOS/Windows (`OMARCHY_FLTK_UI_STRICT=1` makes them fatal).
 - `native::pixels_per_unit(&widget)`: device pixels per FLTK unit including
   the Wayland output scale. fltk-rs' `Window::pixels_per_unit` ignores it on
   Linux (1.0 on a 2× output), which halves the resolution of images sized

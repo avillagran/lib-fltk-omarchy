@@ -28,8 +28,8 @@ classic Omarchy look. Import as `fltk_omarchy`.
    glyphs (`widgets::glyph`).
 8. Use theme colors (`theme::with(|t| t.palette.accent)`), never hard-coded
    hex, so `omarchy-theme-set` restyles the app live.
-9. Preferences and Actions are separate menus: a gear (`Ctrl+,`) and a
-   bolt (`F10`) header action, each opening a `PopupMenu`. Offer
+9. Preferences and Actions are separate menus: a gear (`Mod+,`: Ctrl+, or
+   Cmd+, on macOS) and a bolt (`F10`) header action, each opening a `PopupMenu`. Offer
    `theme::set_corners(..)` in Preferences; use `badge_radius()` for thumbnails.
 10. Keyboard first: every component is usable from the keyboard already
    (Tab/Shift+Tab between controls, arrows inside the focused one, Enter or
@@ -38,7 +38,8 @@ classic Omarchy look. Import as `fltk_omarchy`.
    `focus::scope(&group, |key| ..)`. A custom widget must accept
    `Event::Focus` and draw its ring when `focus::show_ring(w)`. Give every
    action a shortcut (`Button::shortcut`, `AppWindow::shortcut`) and list
-   them in the F1 `ShortcutHelp`.
+   them in the F1 `ShortcutHelp`. Use `Mod+…` for app shortcuts (Cmd on
+   macOS, Ctrl elsewhere); `Ctrl` is always the Control key.
    A canvas that draws several regions (lists, grid, dual pane) uses
    `panel::KeyboardPanel` + `focus::host(&canvas, &[&a, &b])`: one Tab stop
    per region, cursor and selection by stable IDs, no widget per item.
@@ -57,6 +58,14 @@ classic Omarchy look. Import as `fltk_omarchy`.
    showing a window; look at the PNG. Verify keys with
    `focus::press("Tab")`, `press("Down")`, `press("Enter")`… (same path as
    a real key).
+13. Multiplatform (Linux Wayland/X11, macOS, Windows): no OS-specific code
+   (`#[cfg(target_os)]`, FFI, OS paths) outside `src/platform/`, and every
+   platform function has a working fallback on every OS. Paths come from
+   `platform::dirs` (never `$HOME/.config` by hand), the appearance from
+   `platform::prefers_dark()`. Check other OSes with
+   `CARGO_CHECK=1 cargo check --target x86_64-pc-windows-msvc --all-targets`
+   (and `aarch64-apple-darwin`). Guide: docs/PLATFORMS.md. (Exception:
+   Linux-only diagnostic examples such as `glass_check` gate their own FFI.)
 
 ## Minimal app
 
@@ -92,7 +101,10 @@ fn main() {
   the code that draws it.
 - `script/real-window` and `script/bench` open real windows on a hidden
   Hyprland special workspace without taking focus. Do not use synthetic
-  input tools on the user's focused window.
+  input tools on the user's focused window. `script/x11-check` drives an
+  X11 window inside its own Xvfb display only.
+- `.github/workflows/ci.yml` builds and tests on Linux (X11 and Wayland),
+  macOS and Windows; it runs when the owner pushes.
 - Build in this checkout (`target/`), never in /tmp. Versions move 0.0.x;
   bumping the first two numbers needs the owner's approval. No AI
   attribution in commits or docs.
