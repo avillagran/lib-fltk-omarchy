@@ -2,6 +2,46 @@
 
 ## Unreleased
 
+- **Motion everywhere, following the system's Animations setting**
+  (docs/ANIMATION.md).
+  - `anim::enabled()` follows the OS live: Hyprland `animations:enabled`
+    (Omarchy's Animations switch; re-read on `configreloaded` and focus
+    changes from Hyprland's event socket), GNOME `enable-animations`,
+    macOS Reduce motion, Windows animation effects (`platform::animations`).
+    App override `anim::set_enabled(Some(bool) / None)` (`set_enabled(false)`
+    still works), env `OMARCHY_FLTK_ANIM=on|off`; `anim::source()`,
+    `anim::system()`. One blocking watcher thread, no polling.
+  - Automatic layout motion: toolkit rows and columns (`row`, `column`,
+    `section`, containers you `fit` into, every `Flex` of an `AppWindow`
+    at `end`) slide their children when a `fixed` size changes or a child
+    is shown, hidden or added (190 ms OutCubic, o3 `PinnedKeyboardPanel`);
+    appearing children grow from their start edge and fade in;
+    `layout::set_visible` collapses and fades out. Not animated: the first
+    layout, window resizes, direction flips, theme or language changes.
+    Interruptions snap to FLTK's layout with the real `fixed` sizes.
+    Opt out with `FlexExt::animated(false)` / `layout::set_animated`;
+    `layout::animating()`.
+  - New `Sidebar` (`widgets::Sidebar`, `layout::Sidebar`): a rail that
+    expands on hover (350 ms intent, 140 ms leave grace, o3), push or
+    overlay, pinned, keyboard (focus expands, arrows, Enter, Esc), right
+    to left, accessible (tab list with expanded state).
+  - Popups fade in (180 ms) and out (120 ms) with Omarchy's `Style.easeOut`
+    (PopupMenu, Dropdown, SearchableDropdown, Menu, ConfirmDialog,
+    PopupCard, ShortcutHelp, notifications, OperationToast, completion
+    lists); focus comes back at once, the layer stops taking events and is
+    deleted after the fade.
+  - TabBar selection slides (160 ms); `List::from_model` rows make room,
+    arrive, leave and fly when moved, by item ID (o3 thread rows);
+    `Tree` branches open and close with the rows below sliding (200 ms);
+    a new `RichText` message fades in (streaming costs nothing).
+  - `anim::Tween`, `anim::now`, `anim::clock::{freeze, advance, resume}`
+    for tests, `anim::ms` (Omarchy/o3 durations), more `Ease` curves
+    (`InCubic`, `InOutCubic`, `InOutQuart`, `OutQuint`, `OutBack`,
+    `EaseOut` = Omarchy's Bézier), `Anim::value`, `Anim::target`.
+  - `script/motion-bench` (`examples/motion_bench`): sidebar hover expand
+    on a real window, 60 fps, ≈ 1.2 ms CPU per frame, idle unchanged.
+  - Toolkit catalog: "Sidebar" in the 20 languages.
+
 - **Right-to-left layouts.** In Arabic, Hebrew, Persian and Urdu the UI is
   mirrored, live on a locale switch (no window rebuild); docs/I18N.md.
   - `layout::Direction` (= `i18n::Direction`), `layout::direction_of` /

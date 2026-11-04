@@ -155,6 +155,29 @@ fn main() {
     col.fit(&*TabBar::new(&["Home", "Downloads", "Work"], &tab).on_close(|i| println!("close {i}")));
     save(&mut done(win, col), &dir, "tabs");
 
+    // ---- sidebar (collapsed, then expanded as hover or focus leaves it)
+    for (name, open) in [("sidebar", false), ("sidebar-expanded", true)] {
+        let (win, mut col) = frame(600, 230);
+        let view = State::new(0usize);
+        let mut row = layout::row();
+        let side = Sidebar::new(vec![
+            SidebarItem::new(glyph::FOLDER, "Files").badge("12"),
+            SidebarItem::new(glyph::SEARCH, "Search"),
+            SidebarItem::new(glyph::BELL, "Notifications").badge("3"),
+            SidebarItem::new(glyph::SETTINGS, "Settings").footer(),
+        ], &view);
+        row.fit(&*side);
+        let mut content = layout::column();
+        content.fit(&*Label::styled("Files", TextStyle::Title));
+        content.fit(&*Label::new("The content makes room when the rail expands.").tone(Tone::Dim));
+        content.end();
+        row.end();
+        col.fixed(&row, 190);
+        // picture: expanded (pointer resting on it, focus inside, or pinned)
+        if open { side.expand(); }
+        save(&mut done(win, col), &dir, name);
+    }
+
     // ---- dropdown (open)
     let (win, mut col) = frame(600, 210);
     let output = State::new(0usize);

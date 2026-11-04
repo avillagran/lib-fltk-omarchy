@@ -284,6 +284,29 @@ Not measured: other machines, macOS/Windows/X11 (the code is portable;
 the numbers are from Wayland on Linux), physical displays at high refresh
 rates, JSON protocol costs.
 
+## Motion (Unreleased)
+
+`script/motion-bench` (`examples/motion_bench.rs`), 2026-11-04, Asahi
+Linux (M2), Hyprland 0.56.2, release build: a real 900×560 window on the
+hidden workspace `special:omarchy-fltk-bench`, a `Sidebar` beside a
+100 000-row list. The hover goes through the toolkit's own path
+(`Sidebar::hover`: hover intent, then the layout motion), never synthetic
+OS input. 10 expand/collapse cycles, medians
+([motion-bench-2026-11-04.json](motion-bench-2026-11-04.json)):
+
+| Case | Frames | Interval avg / max | CPU while moving |
+|---|---|---|---|
+| Expand 44 → 240 px | 13 | 16.9 / 19.7 ms | 15.2 ms in 226 ms (6.7 % of a core) |
+| Collapse 240 → 44 px | 13 | 16.9 / 18.8 ms | 17.0 ms in 227 ms (7.5 %) |
+| Expand, animations off | 1 | — | 1.8 ms |
+| Idle before / after (5 s each) | — | — | 0.72 / 0.93 ms |
+
+60 fps from the shared timer, about 1.2 ms of CPU per frame (layout of
+the row and a full redraw of the sidebar and the content), and the timer
+stops when the motion ends (`anim::pending() == 0`). The animations
+setting was read from Hyprland (`source: System`). Details:
+[ANIMATION.md](ANIMATION.md#cost).
+
 ## Window size matters
 
 Memory grows with window area for any software-rendered toolkit (two

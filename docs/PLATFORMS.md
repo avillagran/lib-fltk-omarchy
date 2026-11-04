@@ -25,6 +25,7 @@ it behaves exactly as before the platform layer.
 | `native::pixels_per_unit` | FLTK scale × Wayland output scale | FLTK scale | FLTK's value (Retina included) | FLTK's value |
 | Config/state/cache dirs (`platform::dirs`) | XDG | XDG | `~/Library/Application Support`, `~/Library/Caches` | `%APPDATA%`, `%LOCALAPPDATA%` |
 | GPU shaders (`gpu` feature) | yes | yes | builds (OpenGL through FLTK) | builds (OpenGL through FLTK) |
+| Animations on/off (`platform::animations`, `anim`) | Hyprland `animations:enabled` (live: event socket), else GNOME `enable-animations` (`gsettings`) | same | `NSWorkspace.accessibilityDisplayShouldReduceMotion` | `SPI_GETCLIENTAREAANIMATION` |
 
 "FLTK moves/resizes the window" is the portable fallback in `AppWindow`:
 the header drag sets the window position from the pointer's root
@@ -38,6 +39,7 @@ Windows.
 |---|---|
 | `platform::OS`, `Os` | the OS of this build (`Linux`, `MacOs`, `Windows`, `Other`) |
 | `platform::wayland()` | FLTK runs on its native Wayland backend |
+| `platform::animations()` | the OS motion setting (`Some(false)`: reduce motion); read by `anim` on its watcher thread (docs/ANIMATION.md) |
 | `platform::prefers_dark()` | the system appearance: `Some(true)` dark, `Some(false)` light, `None` unknown (Linux: the Omarchy theme decides) |
 | `platform::process_cpu_time()` | this process's CPU time (benchmarks) |
 | `platform::dirs::{home, config, data, state, cache, app_config, app_data, app_state, app_cache}` | per-OS user directories, no dependencies |

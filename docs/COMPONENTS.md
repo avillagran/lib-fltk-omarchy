@@ -12,9 +12,12 @@ widget is deleted.
 
 State changes animate with Omarchy's durations: Button 120 ms,
 ActionButton and rows 60 ms, Toggle 100 ms, ToggleSwitch 120 ms with the
-knob easing, Slider 140 ms (not while dragging). A theme change repaints at
-once. `fltk_omarchy::anim::set_enabled(false)` or
-`OMARCHY_FLTK_ANIMATIONS=0` turns transitions off.
+knob easing, Slider 140 ms (not while dragging). Layout changes slide
+(190 ms), popups fade, the tab selection slides, list and tree rows make
+room, arrive and leave ([ANIMATION.md](ANIMATION.md)). A theme change
+repaints at once. Animations follow the system's Animations setting
+(Hyprland `animations:enabled` on Omarchy); `fltk_omarchy::anim::set_enabled(false)`
+or `OMARCHY_FLTK_ANIM=off` turns them off.
 
 Every component works from the keyboard. Tab and Shift+Tab move between
 controls, arrows act inside the focused one, and menus give focus back when
@@ -279,6 +282,46 @@ included, is scrolled into view (`overflowing()`, `scroll_offset()`,
 **Keys:** Ctrl+Tab / Ctrl+PageDown go to the next tab and Ctrl+Shift+Tab /
 Ctrl+PageUp to the previous one, from anywhere in the window. When the bar
 has focus, Left/Right/Home/End pick a tab and Delete closes it.
+
+## Sidebar
+
+![sidebar](components/sidebar.png)
+![sidebar expanded](components/sidebar-expanded.png)
+
+```rust
+let view = State::new(0usize);
+let mut row = layout::row();
+let side = Sidebar::new(vec![
+    SidebarItem::new(glyph::FOLDER, "Files").badge("12"),
+    SidebarItem::new(glyph::SEARCH, "Search"),
+    SidebarItem::new(glyph::BELL, "Notifications").badge("3"),
+    SidebarItem::new(glyph::SETTINGS, "Settings").footer(),
+], &view);
+row.fit(&*side);
+let mut content = layout::column();
+content.fit(&*Label::styled("Files", TextStyle::Title));
+content.fit(&*Label::new("The content makes room when the rail expands.").tone(Tone::Dim));
+content.end();
+row.end();
+col.fixed(&row, 190);
+```
+
+A rail of icons that expands to show its labels when the pointer rests on
+it (350 ms hover intent) and collapses 140 ms after it leaves, unless
+focus is inside, a menu is open over it or it is pinned
+(`bind_pinned(&state)`, `set_pinned`). The width moves with the layout
+motion (190 ms OutCubic); `.mode(SidebarMode::Overlay)` slides the panel
+over the content instead of pushing it. The second picture is the same
+rail expanded (`side.expand()`, as hover or focus does it).
+
+More: `on_activate(|i| ..)`, `expanded()` (a `State<bool>`),
+`widths(rail, expanded)`, `set_items(..)`, `hover(bool)` (the pointer
+path, for tests), `footer()` items at the bottom, `badge("3")`.
+
+**Keys:** Tab focuses it and it expands; Up/Down/Home/End move, Enter or
+Space picks, Esc collapses (focus stays). Right to left it sits on the
+right with the accent bar on its right edge. Screen readers: a tab list
+named "Sidebar" with its expanded state.
 
 ## Dropdown
 
