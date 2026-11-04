@@ -134,6 +134,10 @@ pub fn system() -> Option<bool> {
 /// calls it; it is cheap to call again.
 pub fn init() {
     GUI.store(true, Ordering::Relaxed);
+    // `OMARCHY_FLTK_ANIM` decides: the system setting is not needed.
+    if env().is_some() {
+        return;
+    }
     if WATCHING.load(Ordering::Relaxed) {
         return;
     }
