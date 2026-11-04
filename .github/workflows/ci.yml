@@ -40,6 +40,26 @@ jobs:
             cargo clippy --locked --target "$t" --all-targets -- -D clippy::correctness -D clippy::suspicious
           done
 
+  msrv:
+    name: MSRV (Rust 1.80; a11y needs 1.85)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.80.0
+      - uses: dtolnay/rust-toolchain@1.85.0
+      - uses: Swatinem/rust-cache@v2
+      - name: system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build \
+            libx11-dev libxext-dev libxft-dev libxinerama-dev libxcursor-dev libxrender-dev libxfixes-dev \
+            libpango1.0-dev libcairo2-dev libgl1-mesa-dev libglu1-mesa-dev \
+            libwayland-dev wayland-protocols libxkbcommon-dev libdbus-1-dev libegl-dev
+      - name: build with 1.80 (default features)
+        run: cargo +1.80.0 build --locked --all-targets
+      - name: build with 1.85 (a11y)
+        run: cargo +1.85.0 build --locked --all-targets --features a11y
+
   linux-x11:
     name: Linux X11 (Xvfb)
     runs-on: ubuntu-latest

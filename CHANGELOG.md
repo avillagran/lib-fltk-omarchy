@@ -42,6 +42,46 @@
   as before; streaming keeps its incremental relayout.
 - `examples/rtl`: the same windows in English and Arabic, switched live
   (`--snapshot DIR`); `richtext_bench --lang ar` streams Arabic.
+- **`edit::TextArea` and `edit::Composer`: multi-line editing and the chat
+  input** (docs/COMPONENTS.md, "TextArea and Composer").
+  - `TextArea`: TextField look, word wrap with the `text` line breaker
+    (CJK, graphemes), auto-grow `.lines(min, max)` then scrolling,
+    placeholder, two-way `bind`, mouse and keyboard selection (word
+    jumps, Home/End per visual line, PageUp/PageDown, double/triple
+    click, drag with edge scrolling, middle-click paste, context menu),
+    undo/redo with word-sized typing groups, grapheme-correct editing,
+    atomic chips carrying data (`insert_chip`, `expanded_text`), input
+    methods through `Fl::compose` (preedit underlined, Enter commits it)
+    with the candidate window at the caret (`fl_set_spot`), Tab leaves
+    (`TabKey` to type tabs), RTL alignment, `read_only`, `on_key`.
+    Drawn by the toolkit, not `fltk::text::TextEditor`: chips, grapheme
+    deletion, undo groups and caret geometry need the text model.
+  - Layout per paragraph; a long paragraph is re-wrapped only until its
+    line breaks meet the old ones, and word widths are cached. Release,
+    720×640 window: 100 KB paste 8 ms (Wayland) / 21 ms (Xvfb), a key with
+    redraw 0.18–0.28 ms in the composer, about 2 ms in a 100 KB document,
+    idle 0.01 % CPU (no caret blink). `script/edit-bench`.
+  - `Composer`: Enter sends (`on_submit`; text and attachments cleared,
+    Ctrl+Z brings the text back), Shift+Enter new line or
+    `SendKey::ModEnter`, Mod+Shift+Enter `on_alternate_submit`, send
+    button (dimmed when empty) → stop button while `busy` (`on_stop`),
+    `.trigger(c, Trigger::WordStart | LineStart, provider)` completions
+    answered now, later or from a thread (`Completions::feed`), stale
+    answers dropped, list at the caret (Up/Down/Enter/Tab/Esc, mouse),
+    accepted items as chips, attachment chips from a `ListModel`
+    (`Attachment::file`), files from drops and `file://` pastes
+    (`on_files`, `edit::parse_files`), `toolbar(|row| ..)`, RTL mirroring.
+  - Accessibility: TextArea → MultilineTextInput with value, caret and
+    selection, SetValue / SetTextSelection / ReplaceSelectedText; the
+    completion list is a ListBox under the input with
+    `Node::active_descendant` (new) on the highlighted option; send and
+    stop buttons and attachment remove buttons are named.
+  - `focus::type_text("日本")` sends committed text through the key path
+    (tests); `script/edit-input-check` sends real X11 keys (CJK and emoji
+    keysyms, a dead key, Shift+Return, BackSpace) in a private Xvfb.
+  - Toolkit strings (20 locales): `Write a message…`, `Send`, `Stop`,
+    `Attach`, `Attachments`, `Remove {name}`, `Suggestions`,
+    `Searching…`, `No results`. AGENTS.md rule 18.
 
 - **Multiplatform: Linux (Wayland and X11), macOS and Windows.** All OS
   code moved into a new `platform` module (`src/platform/`: `linux`,

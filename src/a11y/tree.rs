@@ -513,6 +513,9 @@ fn convert(n: &Node, id: u64, mut kids: Vec<u64>, cx: &mut Ctx) -> ak::Node {
             focus: pos(focus),
         });
     }
+    if let Some(path) = &n.active_descendant {
+        a.set_active_descendant(ak::NodeId(path.iter().fold(id, |p, k| virt(p, *k))));
+    }
     if let Some(k) = &n.shortcut {
         a.set_keyboard_shortcut(k.as_str());
     }

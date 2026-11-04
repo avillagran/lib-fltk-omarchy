@@ -5,6 +5,7 @@
 use fltk::{group::Flex, prelude::*, window::DoubleWindow};
 use fltk_omarchy::focus::press;
 use fltk_omarchy::layout::{self, FlexExt};
+use fltk_omarchy::edit::{Attachment, CompletionItem, Composer, TextArea, Trigger};
 use fltk_omarchy::list::{List, ListRow};
 use fltk_omarchy::overlay::{ConfirmDialog, Dropdown, Menu, MenuItem, Notification, Urgency};
 use fltk_omarchy::popups::{OperationToast, PopupItem, PopupMenu, SearchableDropdown, ShortcutHelp};
@@ -85,6 +86,28 @@ fn main() {
     r.fit(&*NumberField::new(&State::new(42), 0, 100, 1));
     r.close_fitted();
     save(&mut done(win, col), &dir, "text-fields");
+
+    // ---- text area and composer
+    let (win, mut col) = frame(600, 330);
+    let notes = State::new("Notes wrap at the edge of the field and the field grows from 2 to 6 lines, then scrolls.\nCtrl+Z undoes a word at a time.".to_string());
+    col.fit(&*TextArea::new().placeholder("Notes").lines(2, 6).bind(&notes));
+    let draft = State::new(String::new());
+    let composer = Composer::new()
+        .placeholder("Ask anything, @files or /commands…")
+        .bind(&draft)
+        .trigger('@', Trigger::WordStart, |q, reply| {
+            let files = ["src/main.rs", "src/lib.rs", "src/edit/composer.rs", "Cargo.toml"];
+            reply.set(files.iter().filter(|f| f.contains(q.text.as_str())).map(|f| CompletionItem::new(f).icon(glyph::FILE).chip(f)).collect());
+        })
+        .on_submit(|text| println!("send {text}"))
+        .on_files(|paths| println!("attach {paths:?}"));
+    composer.attachments().push(Attachment::new("shot.png", "shot.png").detail("84 KB"));
+    col.fit(&*composer);
+    let mut win = done(win, col);
+    // picture: after typing "Review @src" (the list opens at the caret)
+    let _ = composer.area().take_focus();
+    composer.area().type_text("Review @src");
+    save(&mut win, &dir, "composer");
 
     // ---- toggles
     let (win, mut col) = frame(600, 214);

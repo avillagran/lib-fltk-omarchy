@@ -53,7 +53,16 @@
     "Square corners": "Square corners",
     "Rounded corners": "Rounded corners",
     "{count} items": "{count} items",
-    "{count} items|one": "{count} item"
+    "{count} items|one": "{count} item",
+    "Write a message…": "Write a message…",
+    "Send": "Send",
+    "Stop": "Stop",
+    "Attach": "Attach",
+    "Attachments": "Attachments",
+    "Remove {name}": "Remove {name}",
+    "Suggestions": "Suggestions",
+    "Searching…": "Searching…",
+    "No results": "No results"
   },
   "es": {
     "Cancel": "Cancelar",
@@ -109,7 +118,16 @@
     "Square corners": "Esquinas rectas",
     "Rounded corners": "Esquinas redondeadas",
     "{count} items": "{count} elementos",
-    "{count} items|one": "{count} elemento"
+    "{count} items|one": "{count} elemento",
+    "Write a message…": "Escribe un mensaje…",
+    "Send": "Enviar",
+    "Stop": "Detener",
+    "Attach": "Adjuntar",
+    "Attachments": "Adjuntos",
+    "Remove {name}": "Quitar {name}",
+    "Suggestions": "Sugerencias",
+    "Searching…": "Buscando…",
+    "No results": "Sin resultados"
   },
   "pt": {
     "Cancel": "Cancelar",
@@ -165,7 +183,16 @@
     "Square corners": "Cantos retos",
     "Rounded corners": "Cantos arredondados",
     "{count} items": "{count} itens",
-    "{count} items|one": "{count} item"
+    "{count} items|one": "{count} item",
+    "Write a message…": "Escreva uma mensagem…",
+    "Send": "Enviar",
+    "Stop": "Parar",
+    "Attach": "Anexar",
+    "Attachments": "Anexos",
+    "Remove {name}": "Remover {name}",
+    "Suggestions": "Sugestões",
+    "Searching…": "Pesquisando…",
+    "No results": "Nenhum resultado"
   },
   "fr": {
     "Cancel": "Annuler",
@@ -221,7 +248,16 @@
     "Square corners": "Coins carrés",
     "Rounded corners": "Coins arrondis",
     "{count} items": "{count} éléments",
-    "{count} items|one": "{count} élément"
+    "{count} items|one": "{count} élément",
+    "Write a message…": "Écrivez un message…",
+    "Send": "Envoyer",
+    "Stop": "Arrêter",
+    "Attach": "Joindre",
+    "Attachments": "Pièces jointes",
+    "Remove {name}": "Retirer {name}",
+    "Suggestions": "Suggestions",
+    "Searching…": "Recherche…",
+    "No results": "Aucun résultat"
   },
   "de": {
     "Cancel": "Abbrechen",
@@ -277,7 +313,16 @@
     "Square corners": "Spitze Ecken",
     "Rounded corners": "Abgerundete Ecken",
     "{count} items": "{count} Elemente",
-    "{count} items|one": "{count} Element"
+    "{count} items|one": "{count} Element",
+    "Write a message…": "Nachricht schreiben…",
+    "Send": "Senden",
+    "Stop": "Stoppen",
+    "Attach": "Anhängen",
+    "Attachments": "Anhänge",
+    "Remove {name}": "{name} entfernen",
+    "Suggestions": "Vorschläge",
+    "Searching…": "Suche…",
+    "No results": "Keine Ergebnisse"
   },
   "it": {
     "Cancel": "Annulla",
@@ -333,7 +378,16 @@
     "Square corners": "Angoli vivi",
     "Rounded corners": "Angoli arrotondati",
     "{count} items": "{count} elementi",
-    "{count} items|one": "{count} elemento"
+    "{count} items|one": "{count} elemento",
+    "Write a message…": "Scrivi un messaggio…",
+    "Send": "Invia",
+    "Stop": "Interrompi",
+    "Attach": "Allega",
+    "Attachments": "Allegati",
+    "Remove {name}": "Rimuovi {name}",
+    "Suggestions": "Suggerimenti",
+    "Searching…": "Ricerca…",
+    "No results": "Nessun risultato"
   },
   "nl": {
     "Cancel": "Annuleren",
@@ -389,7 +443,16 @@
     "Square corners": "Rechte hoeken",
     "Rounded corners": "Afgeronde hoeken",
     "{count} items": "{count} items",
-    "{count} items|one": "{count} item"
+    "{count} items|one": "{count} item",
+    "Write a message…": "Schrijf een bericht…",
+    "Send": "Versturen",
+    "Stop": "Stoppen",
+    "Attach": "Bijvoegen",
+    "Attachments": "Bijlagen",
+    "Remove {name}": "{name} verwijderen",
+    "Suggestions": "Suggesties",
+    "Searching…": "Zoeken…",
+    "No results": "Geen resultaten"
   },
   "pl": {
     "Cancel": "Anuluj",
@@ -447,7 +510,16 @@
     "{count} items": "{count} elementu",
     "{count} items|one": "{count} element",
     "{count} items|few": "{count} elementy",
-    "{count} items|many": "{count} elementów"
+    "{count} items|many": "{count} elementów",
+    "Write a message…": "Napisz wiadomość…",
+    "Send": "Wyślij",
+    "Stop": "Zatrzymaj",
+    "Attach": "Załącz",
+    "Attachments": "Załączniki",
+    "Remove {name}": "Usuń {name}",
+    "Suggestions": "Podpowiedzi",
+    "Searching…": "Wyszukiwanie…",
+    "No results": "Brak wyników"
   },
   "ru": {
     "Cancel": "Отмена",
@@ -505,7 +577,16 @@
     "{count} items": "{count} элемента",
     "{count} items|one": "{count} элемент",
     "{count} items|few": "{count} элемента",
-    "{count} items|many": "{count} элементов"
+    "{count} items|many": "{count} элементов",
+    "Write a message…": "Напишите сообщение…",
+    "Send": "Отправить",
+    "Stop": "Остановить",
+    "Attach": "Прикрепить",
+    "Attachments": "Вложения",
+    "Remove {name}": "Удалить {name}",
+    "Suggestions": "Подсказки",
+    "Searching…": "Поиск…",
+    "No results": "Ничего не найдено"
   },
   "uk": {
     "Cancel": "Скасувати",
@@ -563,7 +644,16 @@
     "{count} items": "{count} елемента",
     "{count} items|one": "{count} елемент",
     "{count} items|few": "{count} елементи",
-    "{count} items|many": "{count} елементів"
+    "{count} items|many": "{count} елементів",
+    "Write a message…": "Напишіть повідомлення…",
+    "Send": "Надіслати",
+    "Stop": "Зупинити",
+    "Attach": "Прикріпити",
+    "Attachments": "Вкладення",
+    "Remove {name}": "Видалити {name}",
+    "Suggestions": "Підказки",
+    "Searching…": "Пошук…",
+    "No results": "Нічого не знайдено"
   },
   "ja": {
     "Cancel": "キャンセル",
@@ -618,7 +708,16 @@
     "Follow Omarchy": "Omarchy に合わせる",
     "Square corners": "角を丸めない",
     "Rounded corners": "角を丸める",
-    "{count} items": "{count} 件の項目"
+    "{count} items": "{count} 件の項目",
+    "Write a message…": "メッセージを入力…",
+    "Send": "送信",
+    "Stop": "停止",
+    "Attach": "添付",
+    "Attachments": "添付ファイル",
+    "Remove {name}": "{name} を削除",
+    "Suggestions": "候補",
+    "Searching…": "検索中…",
+    "No results": "結果なし"
   },
   "ko": {
     "Cancel": "취소",
@@ -673,7 +772,16 @@
     "Follow Omarchy": "Omarchy 설정 따르기",
     "Square corners": "각진 모서리",
     "Rounded corners": "둥근 모서리",
-    "{count} items": "항목 {count}개"
+    "{count} items": "항목 {count}개",
+    "Write a message…": "메시지 입력…",
+    "Send": "보내기",
+    "Stop": "중지",
+    "Attach": "첨부",
+    "Attachments": "첨부 파일",
+    "Remove {name}": "{name} 제거",
+    "Suggestions": "제안",
+    "Searching…": "검색 중…",
+    "No results": "결과 없음"
   },
   "zh": {
     "Cancel": "取消",
@@ -728,7 +836,16 @@
     "Follow Omarchy": "跟随 Omarchy",
     "Square corners": "直角",
     "Rounded corners": "圆角",
-    "{count} items": "{count} 个项目"
+    "{count} items": "{count} 个项目",
+    "Write a message…": "输入消息…",
+    "Send": "发送",
+    "Stop": "停止",
+    "Attach": "添加附件",
+    "Attachments": "附件",
+    "Remove {name}": "移除 {name}",
+    "Suggestions": "建议",
+    "Searching…": "正在搜索…",
+    "No results": "无结果"
   },
   "ar": {
     "Cancel": "إلغاء",
@@ -788,7 +905,16 @@
     "{count} items|one": "عنصر واحد",
     "{count} items|two": "عنصران",
     "{count} items|few": "{count} عناصر",
-    "{count} items|many": "{count} عنصرًا"
+    "{count} items|many": "{count} عنصرًا",
+    "Write a message…": "اكتب رسالة…",
+    "Send": "إرسال",
+    "Stop": "إيقاف",
+    "Attach": "إرفاق",
+    "Attachments": "المرفقات",
+    "Remove {name}": "إزالة {name}",
+    "Suggestions": "اقتراحات",
+    "Searching…": "جارٍ البحث…",
+    "No results": "لا توجد نتائج"
   },
   "tr": {
     "Cancel": "İptal",
@@ -844,7 +970,16 @@
     "Square corners": "Keskin köşeler",
     "Rounded corners": "Yuvarlak köşeler",
     "{count} items": "{count} öğe",
-    "{count} items|one": "{count} öğe"
+    "{count} items|one": "{count} öğe",
+    "Write a message…": "Bir mesaj yazın…",
+    "Send": "Gönder",
+    "Stop": "Durdur",
+    "Attach": "Ekle",
+    "Attachments": "Ekler",
+    "Remove {name}": "{name} öğesini kaldır",
+    "Suggestions": "Öneriler",
+    "Searching…": "Aranıyor…",
+    "No results": "Sonuç yok"
   },
   "sv": {
     "Cancel": "Avbryt",
@@ -900,7 +1035,16 @@
     "Square corners": "Raka hörn",
     "Rounded corners": "Rundade hörn",
     "{count} items": "{count} objekt",
-    "{count} items|one": "{count} objekt"
+    "{count} items|one": "{count} objekt",
+    "Write a message…": "Skriv ett meddelande…",
+    "Send": "Skicka",
+    "Stop": "Stoppa",
+    "Attach": "Bifoga",
+    "Attachments": "Bilagor",
+    "Remove {name}": "Ta bort {name}",
+    "Suggestions": "Förslag",
+    "Searching…": "Söker…",
+    "No results": "Inga resultat"
   },
   "da": {
     "Cancel": "Annuller",
@@ -956,7 +1100,16 @@
     "Square corners": "Skarpe hjørner",
     "Rounded corners": "Afrundede hjørner",
     "{count} items": "{count} elementer",
-    "{count} items|one": "{count} element"
+    "{count} items|one": "{count} element",
+    "Write a message…": "Skriv en besked…",
+    "Send": "Send",
+    "Stop": "Stop",
+    "Attach": "Vedhæft",
+    "Attachments": "Vedhæftede filer",
+    "Remove {name}": "Fjern {name}",
+    "Suggestions": "Forslag",
+    "Searching…": "Søger…",
+    "No results": "Ingen resultater"
   },
   "no": {
     "Cancel": "Avbryt",
@@ -1012,7 +1165,16 @@
     "Square corners": "Skarpe hjørner",
     "Rounded corners": "Avrundede hjørner",
     "{count} items": "{count} elementer",
-    "{count} items|one": "{count} element"
+    "{count} items|one": "{count} element",
+    "Write a message…": "Skriv en melding…",
+    "Send": "Send",
+    "Stop": "Stopp",
+    "Attach": "Legg ved",
+    "Attachments": "Vedlegg",
+    "Remove {name}": "Fjern {name}",
+    "Suggestions": "Forslag",
+    "Searching…": "Søker…",
+    "No results": "Ingen resultater"
   },
   "fi": {
     "Cancel": "Peruuta",
@@ -1068,7 +1230,16 @@
     "Square corners": "Terävät kulmat",
     "Rounded corners": "Pyöristetyt kulmat",
     "{count} items": "{count} kohdetta",
-    "{count} items|one": "{count} kohde"
+    "{count} items|one": "{count} kohde",
+    "Write a message…": "Kirjoita viesti…",
+    "Send": "Lähetä",
+    "Stop": "Pysäytä",
+    "Attach": "Liitä",
+    "Attachments": "Liitteet",
+    "Remove {name}": "Poista {name}",
+    "Suggestions": "Ehdotukset",
+    "Searching…": "Haetaan…",
+    "No results": "Ei tuloksia"
   },
   "cs": {
     "Cancel": "Zrušit",
@@ -1125,6 +1296,15 @@
     "Rounded corners": "Zaoblené rohy",
     "{count} items": "{count} položek",
     "{count} items|one": "{count} položka",
-    "{count} items|few": "{count} položky"
+    "{count} items|few": "{count} položky",
+    "Write a message…": "Napište zprávu…",
+    "Send": "Odeslat",
+    "Stop": "Zastavit",
+    "Attach": "Připojit",
+    "Attachments": "Přílohy",
+    "Remove {name}": "Odebrat {name}",
+    "Suggestions": "Návrhy",
+    "Searching…": "Hledání…",
+    "No results": "Žádné výsledky"
   }
 }
