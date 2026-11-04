@@ -31,6 +31,7 @@ pub mod highlight;
 pub mod label;
 pub mod layout;
 pub mod markdown;
+pub(crate) mod store;
 pub mod view;
 
 pub use doc::*;

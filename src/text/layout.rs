@@ -14,6 +14,7 @@
 //! and selection measures offsets left to right (no bidi reordering).
 
 use super::doc::*;
+use super::store::{Shape, ShapeKind};
 use crate::theme::Theme;
 use fltk::enums::Font;
 use std::ops::Range;
@@ -168,13 +169,17 @@ impl Typo {
 
     /// Base font of a block's text.
     pub fn base(&self, b: &Block) -> FontKey {
-        match &b.kind {
-            BlockKind::Heading(l) => FontKey {
+        self.base_of(Shape::of(b))
+    }
+
+    pub(crate) fn base_of(&self, s: Shape) -> FontKey {
+        match s.kind {
+            ShapeKind::Heading(l) => FontKey {
                 bold: true,
-                size: self.heading[(*l as usize).clamp(1, 6) - 1],
+                size: self.heading[(l as usize).clamp(1, 6) - 1],
                 ..Default::default()
             },
-            BlockKind::Code { .. } => FontKey {
+            ShapeKind::Code => FontKey {
                 mono: true,
                 size: self.body,
                 ..Default::default()
@@ -188,23 +193,27 @@ impl Typo {
 
     /// Left edge of the text of `b` (quotes and list nesting).
     pub fn left(&self, b: &Block) -> i32 {
-        b.quote as i32 * self.quote_w + b.indent as i32 * self.list_w
+        self.left_of(Shape::of(b))
+    }
+
+    pub(crate) fn left_of(&self, s: Shape) -> i32 {
+        s.quote as i32 * self.quote_w + s.indent as i32 * self.list_w
     }
 
     /// Space above `b` when it follows `prev`.
     pub fn gap(&self, prev: Option<&Block>, b: &Block) -> i32 {
+        self.gap_of(prev.map(Shape::of), Shape::of(b))
+    }
+
+    pub(crate) fn gap_of(&self, prev: Option<Shape>, b: Shape) -> i32 {
         match prev {
             None => 0,
             Some(p)
-                if p.indent > 0
-                    && b.indent > 0
-                    && !p.is_code()
-                    && !b.is_code()
-                    && b.marker.is_some() =>
+                if p.indent > 0 && b.indent > 0 && !p.is_code() && !b.is_code() && b.marker =>
             {
                 self.item_gap
             }
-            Some(_) if matches!(b.kind, BlockKind::Heading(l) if l <= 2) => self.gap * 2,
+            Some(_) if matches!(b.kind, ShapeKind::Heading(l) if l <= 2) => self.gap * 2,
             Some(_) => self.gap,
         }
     }
@@ -1034,12 +1043,16 @@ fn finish_line(
 /// Height of `b` without laying it out (blocks out of view), from the
 /// average char width of the theme font.
 pub fn estimate(b: &Block, width: i32, ty: &Typo, avg_char: f32) -> i32 {
+    estimate_of(Shape::of(b), b.text(), width, ty, avg_char)
+}
+
+pub(crate) fn estimate_of(s: Shape, text: &str, width: i32, ty: &Typo, avg_char: f32) -> i32 {
     let width = width.max(40);
-    let base = ty.base(b);
+    let base = ty.base_of(s);
     let lh = ty.line_h(base.size);
     let cw = (avg_char * base.size as f32 / ty.body.max(1) as f32).max(1.0);
-    let avail = (width - ty.left(b)) as f32
-        - if b.is_code() {
+    let avail = (width - ty.left_of(s)) as f32
+        - if s.is_code() {
             2.0 * ty.code_pad as f32
         } else {
             0.0
@@ -1050,14 +1063,12 @@ pub fn estimate(b: &Block, width: i32, ty: &Typo, avg_char: f32) -> i32 {
             .map(|l| ((l.chars().count() as f32 / cols).ceil() as i32).max(1))
             .sum()
     };
-    match &b.kind {
-        BlockKind::Rule => ty.gap,
-        BlockKind::Table(t) => t.rows.len() as i32 * (ty.line_h(ty.body) + 2 * ty.cell_pad) + 1,
-        BlockKind::Code { .. } => ty.code_header + lines(b.text()) * lh + ty.code_pad,
-        BlockKind::Heading(l) => {
-            lines(b.text()) * lh + if *l <= 2 { 2 * ty.item_gap + 1 } else { 0 }
-        }
-        BlockKind::Paragraph => lines(b.text()) * lh,
+    match s.kind {
+        ShapeKind::Rule => ty.gap,
+        ShapeKind::Table(rows) => rows as i32 * (ty.line_h(ty.body) + 2 * ty.cell_pad) + 1,
+        ShapeKind::Code => ty.code_header + lines(text) * lh + ty.code_pad,
+        ShapeKind::Heading(l) => lines(text) * lh + if l <= 2 { 2 * ty.item_gap + 1 } else { 0 },
+        ShapeKind::Paragraph => lines(text) * lh,
     }
 }
 
