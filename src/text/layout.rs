@@ -1598,6 +1598,18 @@ mod tests {
     }
 
     #[test]
+    fn bidi_ltr_cell_in_rtl_table_keeps_its_order() {
+        let b = Block::table(&[ColumnAlign::Left, ColumnAlign::Right], &[&["الملف", "الحجم"], &["notes.md", "12 KB"]], true);
+        let l = layout_block(&b, 400, &typo(), &mut FakeMetrics, None);
+        let text = b.text();
+        let cell = l.lines.iter().find(|ln| text[ln.start as usize..ln.end as usize].contains("KB")).expect("cell line");
+        assert!(!cell.rtl, "an LTR cell is laid out left to right");
+        let shown: String = l.frags_of(cell).iter().map(|f| &text[f.start as usize..f.end as usize]).collect();
+        assert_eq!(shown.trim(), "12 KB");
+        assert!(l.frags_of(cell).iter().all(|f| !f.rtl));
+    }
+
+    #[test]
     fn bidi_rtl_table_mirrors_columns() {
         let b = Block::table(
             &[ColumnAlign::Left, ColumnAlign::Right],
