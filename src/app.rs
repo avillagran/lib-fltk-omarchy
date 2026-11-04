@@ -8,6 +8,13 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+/// Flush pending paints, preserving open overlays on custom FLTK windows.
+/// Use this when flushing explicitly outside the normal toolkit event loop.
+pub fn flush() {
+    crate::overlay::prepare_redraw();
+    app::flush();
+}
+
 /// `let app = fltk_omarchy::App::new("dev.me.notes");` … `app.run();`
 pub struct App {
     id: String,

@@ -67,6 +67,7 @@ fn dispatch(ev: Event, win: app::WindowPtr) -> bool {
     // A click, an overlay opened by a key, app code in a callback: the panel
     // focus is reported before the next event is dispatched.
     sync_panels(PanelFocusCause::Other);
+    crate::overlay::prepare_redraw();
     used
 }
 

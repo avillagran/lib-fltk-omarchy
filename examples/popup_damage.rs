@@ -62,6 +62,11 @@ fn main() {
     let (a, b) = (sample(&before), sample(&after));
     println!("open={} before={a:?} after={b:?}", menu.is_open());
     let preserved = menu.is_open() && a == b && b != [17, 97, 47];
+    canvas.redraw();
+    fltk_omarchy::app::flush();
+    win.make_current();
+    let explicit = draw::capture_window(&mut win).unwrap().to_rgb_data();
+    assert_eq!(sample(&explicit), a, "explicit toolkit flush preserves overlays");
     let idle = draws.get();
     settle();
     assert_eq!(draws.get(), idle, "an idle popup must not keep repainting");

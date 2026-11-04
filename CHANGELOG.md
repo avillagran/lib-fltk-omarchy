@@ -7,6 +7,7 @@
   stack only while it is dirty and has an open overlay; no idle timer.
   `examples/popup_damage.rs` checks the mapped framebuffer, release,
   repeated canvas updates, idle paint count and closing cleanup.
+  Explicit flushes outside the event loop use `fltk_omarchy::app::flush`.
 - Shared `scroll::Scroll` pixel motion: full signed wheel magnitude,
   120 ms easing, immediate reversal, bounds and cancellation on external
   navigation. List, Table, Tree and PopupMenu use the same implementation;

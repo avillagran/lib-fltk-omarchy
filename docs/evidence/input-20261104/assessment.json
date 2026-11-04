@@ -53,7 +53,8 @@
       "release handler does not dismiss",
       "canvas updates preserve menu",
       "idle canvas paint count unchanged",
-      "close restores canvas"
+      "close restores canvas",
+      "explicit toolkit app::flush preserves overlay"
     ]
   },
   "tests": {
