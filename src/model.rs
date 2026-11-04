@@ -44,7 +44,6 @@ use std::ops::Range;
 use std::rc::{Rc, Weak};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
-use std::time::Duration;
 
 /// More structural operations than this in one notification become a
 /// reset (still keyed: IDs, cursor and selection survive).
@@ -739,16 +738,14 @@ impl<K: Clone + Eq + Hash + 'static, T: Clone + PartialEq + 'static> ListModel<K
     /// Makes the model equal to a full snapshot (in its order), with the
     /// minimal changes found by key: removals, moves (the longest
     /// increasing subsequence stays put), inserts, and replacements only
-    /// for items that are not `==`. Duplicate keys in the snapshot: the
-    /// first one is kept. Unchanged snapshot: no notification.
+    /// for items that are not `==`. Only the window between the common key
+    /// prefix and suffix is hashed, so a status change or a bump near the
+    /// top of a long list stays cheap. Duplicate keys in the snapshot: one
+    /// is kept. Unchanged snapshot: no notification.
     pub fn sync_from(&self, snapshot: impl IntoIterator<Item = T>) {
-        let mut seen: HashSet<K> = HashSet::new();
         let new: Vec<(K, T)> = snapshot
             .into_iter()
-            .filter_map(|t| {
-                let k = (self.inner.key)(&t);
-                seen.insert(k.clone()).then_some((k, t))
-            })
+            .map(|t| ((self.inner.key)(&t), t))
             .collect();
         let mut changes = Changes::default();
         {
@@ -945,49 +942,85 @@ fn merge(into: &mut Changes, from: Changes) {
     }
 }
 
-/// The diff of `sync_from`, on the data, recording into `ch`.
+/// The diff of `sync_from`, on the data, recording into `ch`. Items in the
+/// common key prefix and suffix are only compared; the window between
+/// them is reconciled by key.
 fn sync_data<K: Clone + Eq + Hash, T: PartialEq>(
     d: &mut Data<K, T>,
-    new: Vec<(K, T)>,
+    mut new: Vec<(K, T)>,
     ch: &mut Changes,
 ) {
-    let target: HashMap<K, usize> = new
-        .iter()
-        .enumerate()
-        .map(|(i, (k, _))| (k.clone(), i))
-        .collect();
-    // Fast path: same keys in the same order (status patches sent as snapshots).
-    if d.items.len() == new.len()
-        && d.items
-            .iter()
-            .zip(new.iter())
-            .all(|(e, (k, _))| e.key == *k)
+    let (old_len, new_len) = (d.items.len(), new.len());
+    let mut p = 0;
+    while p < old_len && p < new_len && d.items[p].key == new[p].0 {
+        p += 1;
+    }
+    let mut s = 0;
+    while s < old_len - p
+        && s < new_len - p
+        && d.items[old_len - 1 - s].key == new[new_len - 1 - s].0
     {
-        for (e, (_, t)) in d.items.iter_mut().zip(new) {
-            if e.item != t {
-                e.item = t;
-                ch.update_id(e.id);
-            }
+        s += 1;
+    }
+    let tail = new.split_off(new_len - s);
+    let mid = new.split_off(p);
+    for (e, (_, t)) in d.items[..p].iter_mut().zip(new) {
+        if e.item != t {
+            e.item = t;
+            ch.update_id(e.id);
         }
-        return;
+    }
+    for (e, (_, t)) in d.items[old_len - s..].iter_mut().zip(tail) {
+        if e.item != t {
+            e.item = t;
+            ch.update_id(e.id);
+        }
+    }
+    if p + s == old_len && mid.is_empty() {
+        return; // same keys in the same order
+    }
+    let window: Vec<Entry<K, T>> = d.items.drain(p..old_len - s).collect();
+    let out = sync_window(d, window, mid, p, ch);
+    let len = out.len();
+    d.items.splice(p..p, out);
+    if d.items.len() == old_len {
+        d.reindex(p..p + len);
+    } else {
+        let n = d.items.len();
+        d.reindex(p..n);
+    }
+}
+
+/// Reconciles the items of a window (starting at index `base`) with the
+/// snapshot's window; returns the window's new entries in order.
+fn sync_window<K: Clone + Eq + Hash, T: PartialEq>(
+    d: &mut Data<K, T>,
+    mut items: Vec<Entry<K, T>>,
+    new: Vec<(K, T)>,
+    base: usize,
+    ch: &mut Changes,
+) -> Vec<Entry<K, T>> {
+    let mut target: HashMap<K, usize> = HashMap::with_capacity(new.len());
+    for (i, (k, _)) in new.iter().enumerate() {
+        target.entry(k.clone()).or_insert(i);
     }
     // 1. Removals, from the end so earlier indices stay valid.
-    let mut i = d.items.len();
+    let mut i = items.len();
     while i > 0 {
         i -= 1;
-        if !target.contains_key(&d.items[i].key) {
+        if !target.contains_key(&items[i].key) {
             let mut start = i;
-            while start > 0 && !target.contains_key(&d.items[start - 1].key) {
+            while start > 0 && !target.contains_key(&items[start - 1].key) {
                 start -= 1;
             }
-            let gone: Vec<Entry<K, T>> = d.items.drain(start..=i).collect();
+            let gone: Vec<Entry<K, T>> = items.drain(start..=i).collect();
             for e in &gone {
                 d.ids.remove(&e.key);
                 d.pos.remove(&e.id);
                 ch.removed.push(e.id);
             }
             ch.op(Change::Removed {
-                at: start,
+                at: base + start,
                 len: gone.len(),
             });
             i = start;
@@ -995,11 +1028,11 @@ fn sync_data<K: Clone + Eq + Hash, T: PartialEq>(
     }
     // 2. Moves: items on the longest increasing subsequence of target
     //    positions stay; every other one moves right after its predecessor.
-    let order: Vec<usize> = d.items.iter().map(|e| target[&e.key]).collect();
+    let order: Vec<usize> = items.iter().map(|e| target[&e.key]).collect();
     let stay = lis_mask(&order);
     let movers = stay.iter().filter(|s| !**s).count();
     if movers > MOVE_LIMIT {
-        d.items.sort_by_key(|e| target[&e.key]);
+        items.sort_by_key(|e| target[&e.key]);
         ch.set_reset();
     } else if movers > 0 {
         let mut sorted = order.clone();
@@ -1013,8 +1046,7 @@ fn sync_data<K: Clone + Eq + Hash, T: PartialEq>(
         moving.sort_unstable();
         for t in moving {
             let rank = sorted.binary_search(&t).expect("target present");
-            let from = d
-                .items
+            let from = items
                 .iter()
                 .position(|e| target[&e.key] == t)
                 .expect("mover present");
@@ -1022,8 +1054,7 @@ fn sync_data<K: Clone + Eq + Hash, T: PartialEq>(
                 0
             } else {
                 let pred = sorted[rank - 1];
-                let p = d
-                    .items
+                let p = items
                     .iter()
                     .position(|e| target[&e.key] == pred)
                     .expect("predecessor present");
@@ -1034,20 +1065,23 @@ fn sync_data<K: Clone + Eq + Hash, T: PartialEq>(
                 }
             };
             if from != to {
-                let e = d.items.remove(from);
-                d.items.insert(to, e);
-                ch.op(Change::Moved { from, to });
+                let e = items.remove(from);
+                items.insert(to, e);
+                ch.op(Change::Moved {
+                    from: base + from,
+                    to: base + to,
+                });
             }
         }
     }
     // 3. Inserts and replacements, in one pass building the final order.
-    let old = std::mem::take(&mut d.items);
-    let mut old = old.into_iter().peekable();
+    //    A key already in the model outside this window, or seen earlier in
+    //    it, is a duplicate in the snapshot: skipped.
+    let mut old = items.into_iter().peekable();
     let mut out: Vec<Entry<K, T>> = Vec::with_capacity(new.len());
     let mut run: Option<(usize, usize)> = None;
-    for (i, (k, t)) in new.into_iter().enumerate() {
-        let existing = old.peek().is_some_and(|e| e.key == k);
-        if existing {
+    for (k, t) in new {
+        if old.peek().is_some_and(|e| e.key == k) {
             if let Some((at, len)) = run.take() {
                 ch.op(Change::Inserted { at, len });
             }
@@ -1057,19 +1091,19 @@ fn sync_data<K: Clone + Eq + Hash, T: PartialEq>(
                 ch.update_id(e.id);
             }
             out.push(e);
-        } else {
+        } else if !d.ids.contains_key(&k) {
+            let at = base + out.len();
             let e = d.new_entry(k, t);
             ch.insert_id(e.id);
             out.push(e);
-            run = Some(run.map_or((i, 1), |(at, len)| (at, len + 1)));
+            run = Some(run.map_or((at, 1), |(a, len)| (a, len + 1)));
         }
     }
     if let Some((at, len)) = run {
         ch.op(Change::Inserted { at, len });
     }
     debug_assert!(old.next().is_none());
-    d.items = out;
-    d.reindex_all();
+    out
 }
 
 /// Marks the elements on one longest strictly increasing subsequence.
@@ -1188,12 +1222,7 @@ impl<K: Send + 'static, T: Send + 'static> Feed<K, T> {
     }
 
     pub fn set_max_rate(&self, hz: f64) {
-        let ns = if hz > 0.0 {
-            Duration::from_secs_f64(1.0 / hz).as_nanos() as u64
-        } else {
-            0
-        };
-        self.slot.sink.min_interval.store(ns, Ordering::Relaxed);
+        self.slot.set_max_rate(hz);
     }
 
     /// Diffs pushed and not applied yet.
@@ -1598,6 +1627,7 @@ mod tests {
                     .collect();
                 let notes = seen.borrow().len();
                 m.sync_from(next.clone());
+                consistent(&m);
                 assert_eq!(m.to_vec(), next, "round {round}: model equals snapshot");
                 let after = keys(&m);
                 // Survivors keep their IDs.
@@ -1653,6 +1683,42 @@ mod tests {
                 }
                 cur = next;
             }
+        }
+    }
+
+    fn consistent(m: &ListModel<u32, It>) {
+        let d = m.inner.data.borrow();
+        assert_eq!(d.ids.len(), d.items.len(), "one key per item");
+        assert_eq!(d.pos.len(), d.items.len(), "one position per item");
+        for (i, e) in d.items.iter().enumerate() {
+            assert_eq!(d.ids.get(&e.key), Some(&e.id));
+            assert_eq!(d.pos.get(&e.id), Some(&i));
+        }
+    }
+
+    #[test]
+    fn sync_from_with_duplicate_keys_keeps_one() {
+        let mut rng = Rng(0xdeadbeef12345);
+        for _ in 0..300 {
+            let n = rng.below(20) as u32;
+            let m = model(&(0..n).collect::<Vec<_>>());
+            let mut snap: Vec<It> = (0..n)
+                .filter(|_| rng.below(4) != 0)
+                .map(|k| it(k, 0))
+                .collect();
+            for _ in 0..rng.below(6) {
+                let k = rng.below(n as u64 + 10) as u32;
+                let at = rng.below(snap.len() as u64 + 1) as usize;
+                snap.insert(at, it(k, 0));
+            }
+            m.sync_from(snap.clone());
+            consistent(&m);
+            let mut want: Vec<u32> = snap.iter().map(|t| t.k).collect();
+            want.sort_unstable();
+            want.dedup();
+            let mut got = keys(&m);
+            got.sort_unstable();
+            assert_eq!(got, want, "every key once");
         }
     }
 

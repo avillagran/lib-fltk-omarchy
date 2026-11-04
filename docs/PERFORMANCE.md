@@ -89,6 +89,95 @@ multi-core shading and the optional GPU path (0.7 % CPU, +35 MB PSS for the
 GL driver), measured in the same session:
 [SHADERS.md](SHADERS.md#gpu-vs-cpu-005).
 
+## Streaming updates (Unreleased)
+
+How much an app pays to show data that changes all the time, with the
+three ways the toolkit offers ([MODELS.md](MODELS.md)). Measured
+2026-11-04 on an AMD Ryzen 9 5900X (x86_64), Linux 7.2.8, Hyprland 0.56.2,
+native Wayland, release build, one session (load average 2–4), 3 runs per
+row, medians. Raw lines: `docs/stream-bench-2026-11-04.jsonl`.
+
+**Workload** (`examples/stream_bench.rs`, run by `script/stream-bench`): an
+o3-like client window with a 2 000-thread list and the open conversation's
+text below it. A background thread produces 30 or 100 events/s: 60 %
+status changes, 25 % new messages (unread count, preview, bump to the top),
+15 % reorders (bump to the top); 40 % of the events hit the 15 first
+(visible) threads. Every event also appends 1 MB/s ÷ rate of text to the
+message (a new message starts past 256 KB). The message view keeps line
+offsets and rescans only what its `Edit` hint says is new.
+
+- **naive**: every event re-sends the whole state (thread list + message
+  text); the UI sets a `State<Vec<Thread>>` and a `State<String>` and
+  redraws a count-based `List` (the pre-model way).
+- **diff**: the same snapshots, reconciled with `ListModel::sync_from` and
+  `State::set_text` (the protocol unchanged, the UI stops rebuilding).
+- **feed**: the producer sends diffs through `model::Feed` and the text
+  through `TextFeed` (the protocol sends changes).
+- **feed@60**: `feed` with `max_rate(60.0)` on both feeds.
+
+**Method**: same as the other benches: launched with `hl.dsp.exec_cmd` on
+the hidden workspace `special:omarchy-fltk-bench silent`, floating; no input
+sent, the user's focus untouched. The process measures itself over 10 s
+after a 1.5 s warm-up: process CPU (`CLOCK_PROCESS_CPUTIME_ID`, producer
+thread included), UI-thread CPU (`CLOCK_THREAD_CPUTIME_ID`), **frame CPU**
+= UI-thread CPU of each loop iteration that painted (apply + paint;
+sleeping is not counted), list rows built, bytes handed to the UI thread,
+notifications, PSS (`Pss + SwapPss`) at the end, and the CPU of the 3 s
+after the stream stops (idle).
+
+### 520×400 window (the size of the other benches)
+
+| Events/s | Mode | Process CPU | UI thread CPU | Frame CPU median / p95 | Paints/s | Rows built/s | To the UI | PSS | Idle after |
+|---|---|---|---|---|---|---|---|---|---|
+| 30 | naive | 3.5 % | 3.0 % | 0.97 / 1.56 ms | 30 | 184 | 16.8 MB/s | 13.9 MB | 0.00 % |
+| 30 | diff | 3.0 % | 2.5 % | 0.65 / 1.54 ms | 30 | 93 | 16.8 MB/s | 12.3 MB | 0.00 % |
+| 30 | feed | 1.9 % | 1.8 % | 0.47 / 1.04 ms | 30 | 93 | 1.0 MB/s | 11.3 MB | 0.00 % |
+| 30 | feed@60 | 2.0 % | 1.8 % | 0.49 / 1.04 ms | 30 | 93 | 1.0 MB/s | 12.8 MB | 0.00 % |
+| 100 | naive | 9.9 % | 8.6 % | 0.89 / 1.17 ms | 100 | 594 | 55.9 MB/s | 12.0 MB | 0.00 % |
+| 100 | diff | 9.1 % | 7.8 % | 0.62 / 1.46 ms | 100 | 327 | 55.9 MB/s | 13.7 MB | 0.00 % |
+| 100 | feed | 6.0 % | 5.8 % | 0.50 / 0.95 ms | 100 | 327 | 1.0 MB/s | 12.9 MB | 0.01 % |
+| 100 | feed@60 | 4.2 % | 4.0 % | 0.41 / 0.89 ms | 60 | 261 | 1.0 MB/s | 13.0 MB | 0.00 % |
+
+### 1200×800 window, 100 events/s
+
+| Mode | Process CPU | UI thread CPU | Frame CPU median / p95 / max | Paints/s | Rows built/s | To the UI | PSS | Idle after |
+|---|---|---|---|---|---|---|---|---|
+| naive | 20.5 % | 18.4 % | 1.71 / 3.47 / 7.31 ms | 100 | 1 528 | 55.9 MB/s | 16.4 MB | 0.00 % |
+| diff | 12.3 % | 11.1 % | 1.14 / 2.01 / 2.61 ms | 100 | 956 | 55.9 MB/s | 16.3 MB | 0.00 % |
+| feed | 10.3 % | 10.1 % | 1.06 / 1.87 / 4.37 ms | 100 | 956 | 1.0 MB/s | 15.6 MB | 0.00 % |
+| feed@60 | 6.9 % | 6.7 % | 0.27 / 0.44 / 0.59 ms | 60 | 661 | 1.0 MB/s | 15.6 MB | 0.00 % |
+
+CPU % is of one core. Process CPU ranges over the 3 runs are in the raw
+file (e.g. 1200×800 naive 15.8–22.8 %, feed@60 6.6–7.2 %).
+
+**Reading**:
+
+- At the larger window, `sync_from` alone (protocol unchanged) cuts the UI
+  thread from 18.4 % to 11.1 % of a core and the worst frame from 7.3 to
+  2.6 ms; diffs through a `Feed` reach 10.1 %; capping the feeds at 60 Hz
+  reaches 6.7 % (−64 % vs naive) with 0.27 ms median frame CPU. At 520×400
+  the same order holds with smaller absolute numbers (8.6 → 4.0 % at
+  100 events/s).
+- Rows built per second fall by 37–45 %: an update to an offscreen thread
+  repaints nothing, one to a visible thread repaints one row. Bumps to the
+  top while the list is at the top shift every visible row (that is a real
+  change on screen), which is why rows are not cut further.
+- The bytes handed to the UI thread fall from 55.9 MB/s (whole snapshots)
+  to the 1 MB/s of actual changes only when the protocol sends diffs
+  (`feed`). `diff` still copies the snapshots; it removes the rebuild,
+  not the transfer.
+- The naive mode here is already virtualized (only visible rows are built)
+  and its "rebuild" is a redraw, so the gap is smaller than for a client
+  that recreates its delegates per snapshot. Protocol (de)serialization
+  (JSON) is not included in any mode.
+- PSS stays within 11–17 MB in every mode (no data copies kept). The CPU
+  of the 3 s after the stream stops is 0.00–0.01 %: feeds and batching add
+  no timer while idle.
+
+Not measured: other machines, macOS/Windows/X11 (the code is portable;
+the numbers are from Wayland on Linux), physical displays at high refresh
+rates, JSON protocol costs.
+
 ## Window size matters
 
 Memory grows with window area for any software-rendered toolkit (two

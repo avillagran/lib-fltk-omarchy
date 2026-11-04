@@ -2,6 +2,45 @@
 
 ## Unreleased
 
+- **Data models** (`model`, docs/MODELS.md): `ListModel<K, T>` keeps items
+  by the app's stable key with model-assigned `ItemId`s. Granular
+  operations (insert, remove, remove_range, move, upsert, patch,
+  patch_with, retain, sort_by, clear) and `apply(Vec<Diff>)`; listeners get
+  `Changes` (inserted/removed/moved ranges in order, updated/inserted/
+  removed IDs, reset, `map_index`). `sync_from(snapshot)` diffs a full
+  snapshot by key: common prefix/suffix only compared, removals, minimal
+  moves along a longest increasing subsequence, inserts, and replacements
+  only for items that are not `==`; unchanged snapshots notify nobody.
+  `bind_panel` keeps a `KeyboardPanel`'s cursor and selection by ID.
+- **Views from models**: `List::from_model`, `Table::from_model` and
+  `Tree::from_model` (flat model + parent key) invalidate only the visible
+  rows whose item changed (fltk damage areas; clipped rows are not built),
+  keep the first visible item in place when rows are inserted or removed
+  above the viewport (`scroll::Scroll::shift` keeps a running wheel
+  animation), and keep selection by key. `invalidations()`,
+  `scroll_offset`/`set_scroll_offset` on the three views,
+  `List::selected_id`. Count-based constructors are unchanged.
+- **Batching**: `state::batch(|| ..)` (re-exported as `batch`) and
+  `ListModel::transaction` notify each State and model once at the end.
+  `task::drain` (the app loop) runs posted jobs inside one batch, so a
+  burst of updates is one notification and one paint.
+- **State**: `set_if_changed`, in-place `modify(|v| -> Option<Edit>)`,
+  `subscribe_edit` / `watch_edit` with the `Edit` hint
+  (`Appended { from }` / `Replaced`, mergeable with `Edit::then`),
+  `State<String>::push_str` and `set_text` (appends when the new text
+  extends the old one), `State<Vec<T>>::push` / `extend`. Listeners read
+  the value in place instead of a clone per notification.
+- **Thread feeds**: `ListModel::feed()` (`model::Feed`: diffs from any
+  thread, applied once per loop iteration, snapshots drop queued diffs,
+  optional `max_rate(hz)` via one fltk timeout), `State::feed()`
+  (`StateFeed`, latest value wins) and `State<String>::text_feed()`
+  (`TextFeed`, chunks joined into one append); `max_rate` on all three.
+  No timer while idle.
+- `examples/stream_bench.rs` + `script/stream-bench`: o3-style load
+  (2 000 threads, ~1 MB/s of text) naive snapshots vs `sync_from` vs
+  `Feed`; results in docs/PERFORMANCE.md (1200×800, 100 events/s: UI
+  thread 18.4 % → 11.1 % with `sync_from`, 6.7 % with feeds at 60 Hz).
+
 - Glassy windows: `glass` follows Omarchy's window transparency
   (Appearance > Windows > Window Opacity: opaque, transparent, glassy) from
   `$XDG_STATE_HOME/omarchy/toggles/hypr`, live through `ThemeWatcher`.

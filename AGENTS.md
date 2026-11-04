@@ -22,7 +22,7 @@ classic Omarchy look. Import as `fltk_omarchy`.
    .on_progress(..).on_done(..).start()`; call `ctx.check()?`/`ctx.sleep()?`
    often so `handle.cancel()` works. `task::post(|| ..)` hands work to the UI thread.
 6. Lists of any size: `List::new(&count, |i| ListRow::new(..))` — never one
-   widget per item.
+   widget per item. Data that changes: rule 13.
 7. Actions go in the header (`win.header().action(glyph::SETTINGS, "Preferences", ..)`);
    preferences go in their own window or section. Icons are Nerd Font
    glyphs (`widgets::glyph`).
@@ -57,6 +57,15 @@ classic Omarchy look. Import as `fltk_omarchy`.
    showing a window; look at the PNG. Verify keys with
    `focus::press("Tab")`, `press("Down")`, `press("Enter")`… (same path as
    a real key).
+13. Collections → `model::ListModel` (`ListModel::new(|t| t.id.clone())`)
+   shown with `List::from_model` / `Table::from_model` / `Tree::from_model`.
+   Protocols send diffs (`patch`, `upsert`, `move_key`, `remove_key`) or,
+   if they still send snapshots, go through `model.sync_from(snapshot)`;
+   never rebuild a `State<Vec<_>>` or a view from a snapshot. Many changes:
+   `model.transaction(..)` / `state::batch(..)`. From threads: `model.feed()`,
+   `state.feed()`, `text.text_feed()` (never touch State from a thread).
+   Streaming text: `push_str` and `subscribe_edit` (`Edit::Appended`).
+   Guide: docs/MODELS.md.
 
 ## Minimal app
 

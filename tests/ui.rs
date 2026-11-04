@@ -1264,6 +1264,15 @@ fn main() {
         std::thread::spawn(move || for _ in 0..1000 { tf.push_str("token ") }).join().map_err(|_| "text thread")?;
         pump_until(|| text.with(|t| t.len()) == 6000);
         check(*edits.borrow() == vec![(6000, fltk_omarchy::state::Edit::Appended { from: 0 })], &format!("1000 chunks, one append: {:?}", edits.borrow()))?;
+        let level = State::new(0u32);
+        let hits = Rc::new(Cell::new(0));
+        let h2 = hits.clone();
+        let _lsub = level.subscribe(move |_| h2.set(h2.get() + 1));
+        let lf = level.feed().max_rate(20.0);
+        let producer = std::thread::spawn(move || for i in 1..=60 { lf.set(i); std::thread::sleep(Duration::from_millis(5)); });
+        pump_until(|| level.get() == 60);
+        producer.join().map_err(|_| "level thread")?;
+        check(level.get() == 60 && hits.get() <= 10, &format!("20 Hz cap: 60 values in {} notifications", hits.get()))?;
 
         // Table and Tree on the same kind of model.
         let panel = KeyboardPanel::new("threads");

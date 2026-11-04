@@ -462,6 +462,11 @@ impl<P: Default> FeedSlot<P> {
         }
     }
 
+    pub(crate) fn set_max_rate(&self, hz: f64) {
+        let ns = if hz > 0.0 { std::time::Duration::from_secs_f64(1.0 / hz).as_nanos() as u64 } else { 0 };
+        self.sink.min_interval.store(ns, Ordering::Relaxed);
+    }
+
     /// UI thread: takes what was pushed so far.
     pub(crate) fn take(&self) -> P {
         // Cleared first: a push after this schedules another drain.
@@ -480,6 +485,17 @@ impl<T: Send + 'static> StateFeed<T> {
     /// Thread-safe. Replaces any value not yet applied.
     pub fn set(&self, value: T) {
         self.slot.push(|p| *p = Some(value));
+    }
+
+    /// Applies at most `hz` times per second (0 = every loop iteration,
+    /// the default); pushes in between wait for one fltk timeout.
+    pub fn max_rate(self, hz: f64) -> Self {
+        self.slot.set_max_rate(hz);
+        self
+    }
+
+    pub fn set_max_rate(&self, hz: f64) {
+        self.slot.set_max_rate(hz);
     }
 
     /// False once the State is gone (pushes are then dropped).
@@ -548,6 +564,17 @@ impl TextFeed {
             p.replace = Some(text);
             p.append.clear();
         });
+    }
+
+    /// Applies at most `hz` times per second (0 = every loop iteration,
+    /// the default); pushes in between wait for one fltk timeout.
+    pub fn max_rate(self, hz: f64) -> Self {
+        self.slot.set_max_rate(hz);
+        self
+    }
+
+    pub fn set_max_rate(&self, hz: f64) {
+        self.slot.set_max_rate(hz);
     }
 
     /// False once the State is gone (pushes are then dropped).

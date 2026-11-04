@@ -43,6 +43,10 @@ limit and a time budget per draw. Pictures, API and measured cost:
   from one validated load ([theme colors](docs/COMPONENTS.md#theme-colors-for-custom-painting)).
 - **Components**: [docs/COMPONENTS.md](docs/COMPONENTS.md) (pictures,
   code, keys). **Keyboard**: [docs/KEYBOARD.md](docs/KEYBOARD.md).
+- **Data that changes**: keyed `ListModel` with granular changes,
+  `sync_from` for snapshot protocols, batching and thread feeds; views
+  redraw only the rows that changed and keep scroll and selection by key
+  ([docs/MODELS.md](docs/MODELS.md)).
 - **Capabilities vs QML**: [docs/CAPABILITIES.md](docs/CAPABILITIES.md).
 - **Measured** (same session, 520×400 app with a 100 000-row list, 0.0.2):
   15.0 MB PSS and 70 ms to first frame vs 59.5 MB / 127 ms (QML software)
