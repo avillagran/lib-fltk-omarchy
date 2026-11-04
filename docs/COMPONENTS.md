@@ -504,7 +504,9 @@ or the wheel hides it until the pointer leaves.
 Any widget gets it with no code: `.tooltip(..)`, `.bind_tooltip(..)`
 (relabels a shown tooltip on a language switch), `set_tooltip` on plain
 fltk widgets, and canvases that change `set_tooltip` per region while the
-pointer moves. `App::new` turns FLTK's own tooltip window off. Right to
+pointer moves. `App::new` turns FLTK's own tooltip window off; an app
+that starts FLTK itself (`fltk::app::App`) gets the same from its first
+`theme::set`. Right to
 left, lines are right-aligned. Omarchy's shared tooltip settings
 (`~/.config/omarchy/tooltips.json`: `shape` theme/square/rounded,
 `borderMode` theme/transparent/custom, `borderColor`) are followed live.

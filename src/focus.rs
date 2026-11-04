@@ -76,6 +76,11 @@ fn ptr<W: WidgetExt>(w: &W) -> usize {
     w.as_widget_ptr() as usize
 }
 
+/// Whether the keyboard router (and its event dispatcher) is installed.
+pub(crate) fn installed() -> bool {
+    INSTALLED.with(|i| i.get())
+}
+
 /// The widget that has keyboard focus (a control, not a window or group).
 pub fn current() -> Option<Widget> {
     let f = app::focus()?;

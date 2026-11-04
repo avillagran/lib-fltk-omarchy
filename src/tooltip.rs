@@ -1,6 +1,7 @@
 //! Omarchy tooltips for every widget, drawn by the toolkit.
 //!
-//! [`crate::App::new`] turns FLTK's own tooltip window off and shows the
+//! [`crate::App::new`] (or, in an app that starts FLTK itself, the first
+//! [`crate::theme::set`]) turns FLTK's own tooltip window off and shows the
 //! tooltip of whatever is under the pointer as an in-window surface, the way
 //! Omarchy's shell does (`ToolTipBase`/`ToolTipSurface`, omarchy#15694):
 //! the `[tooltip]` colors of the theme, its border width, `bodySmall` text
@@ -18,7 +19,8 @@
 //! tooltip goes below the pointer instead of above the whole widget.
 //!
 //! The optional `~/.config/omarchy/tooltips.json` written by Omarchy's
-//! tooltip settings is read live:
+//! tooltip settings is read live (the theme watcher, and a `stat` when a
+//! tooltip shows):
 //! `{"shape":"theme|square|rounded","borderMode":"theme|transparent|custom","borderColor":"#rrggbb"}`.
 //! Missing keys follow the theme; an invalid file keeps the last valid
 //! settings.
@@ -142,7 +144,9 @@ pub fn set_settings(s: Settings) {
 /// Re-reads [`settings_path`]: a missing file means the defaults, an
 /// invalid one keeps the current settings. Returns true on change.
 pub fn reload_settings() -> bool {
-    let next = match std::fs::read_to_string(settings_path()) {
+    let path = settings_path();
+    TIP.with(|t| t.borrow_mut().settings_stamp = Some(stamp(&path)));
+    let next = match std::fs::read_to_string(path) {
         Ok(text) => Settings::parse(&text),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Some(Settings::default()),
         Err(_) => None,
@@ -301,6 +305,8 @@ struct ShownTip {
 struct Tip {
     installed: bool,
     settings: Settings,
+    /// `tooltips.json` as last read (modified time, length).
+    settings_stamp: Option<Stamp>,
     pending: Option<(Target, app::TimeoutHandle)>,
     shown: Option<ShownTip>,
     warm_until: Option<Instant>,
@@ -312,14 +318,39 @@ thread_local! {
     static TIP: RefCell<Tip> = RefCell::new(Tip::default());
 }
 
-/// Installed by [`crate::App::new`]: turns FLTK's tooltip window off and
-/// starts following the pointer (events come from [`crate::focus`]'s
-/// dispatcher). Idempotent.
+type Stamp = Option<(std::time::SystemTime, u64)>;
+
+fn stamp(path: &std::path::Path) -> Stamp {
+    std::fs::metadata(path)
+        .ok()
+        .map(|m| (m.modified().unwrap_or(std::time::UNIX_EPOCH), m.len()))
+}
+
+/// Re-reads `tooltips.json` if it changed since it was read (one `stat`
+/// per shown tooltip): live in apps without the toolkit's theme watcher.
+fn refresh_settings() {
+    let path = settings_path();
+    if TIP.with(|t| t.borrow().settings_stamp.as_ref() != Some(&stamp(&path))) {
+        reload_settings();
+    }
+}
+
+/// Turns FLTK's tooltip window off and starts following the pointer.
+/// Called by [`crate::App::new`] and by the first [`theme::set`] on the
+/// UI thread, so apps that start FLTK themselves (`fltk::app::App`) and
+/// only apply the Omarchy theme get the same tooltips. Events come from
+/// [`crate::focus`]'s dispatcher, or from a pass-through one when the
+/// keyboard router is not installed. Idempotent.
 pub(crate) fn install() {
     if TIP.with(|t| std::mem::replace(&mut t.borrow_mut().installed, true)) {
         return;
     }
     fltk::misc::Tooltip::disable();
+    if !crate::focus::installed() {
+        // SAFETY: `pass_through` hands every event to fltk's own handler
+        // with the same window pointer, unchanged.
+        unsafe { app::event_dispatch(pass_through) };
+    }
     reload_settings();
     theme::on_change(|_| refresh());
     // A shown tooltip whose widget went away, was hidden, relabeled (a
@@ -327,7 +358,22 @@ pub(crate) fn install() {
     app::add_check(|_| check_shown());
 }
 
-/// Whether the toolkit draws tooltips (after [`crate::App::new`]).
+/// [`install`] from [`theme::set`]: only once FLTK runs, on its thread.
+pub(crate) fn auto_install() {
+    if !installed() && app::is_initialized() && app::is_ui_thread() {
+        install();
+    }
+}
+
+fn pass_through(ev: Event, win: app::WindowPtr) -> bool {
+    // SAFETY: `win` comes from fltk for this very event.
+    let used = unsafe { app::handle_raw(ev, win) };
+    track(ev, win);
+    used
+}
+
+/// Whether the toolkit draws tooltips (after [`crate::App::new`] or the
+/// first [`theme::set`]).
 pub fn installed() -> bool {
     TIP.with(|t| t.borrow().installed)
 }
@@ -595,6 +641,7 @@ fn layout_for(target: &Target) -> Option<(i32, i32, i32, i32)> {
 }
 
 fn open(target: Target) -> bool {
+    refresh_settings();
     let Some(rect) = layout_for(&target) else {
         return false;
     };

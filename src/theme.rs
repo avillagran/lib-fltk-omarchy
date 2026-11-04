@@ -742,7 +742,10 @@ pub fn with<R>(f: impl FnOnce(&Theme) -> R) -> R {
 }
 
 /// Makes `theme` active: FLTK colormap, default fonts, every window redrawn.
+/// The first call on the UI thread also installs [`crate::tooltip`].
 pub fn set(theme: Theme) {
+    // Apps that start FLTK themselves get Omarchy tooltips with the theme.
+    crate::tooltip::auto_install();
     GENERATION.with(|g| g.set(g.get() + 1));
     let theme = theme.with_prefs();
     apply_to_fltk(&theme);

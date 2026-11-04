@@ -3,8 +3,9 @@
 ## Unreleased
 
 - **Tooltips are drawn by the toolkit** (`tooltip` module), like Omarchy's
-  shell tooltips (omarchy#15694): `App::new` turns FLTK's tooltip window
-  off and shows the tooltip of the widget under the pointer as an
+  shell tooltips (omarchy#15694): `App::new` — or the first `theme::set`
+  in apps that start FLTK themselves, like Files, which never got the
+  tooltip style before — turns FLTK's tooltip window off and shows the tooltip of the widget under the pointer as an
   in-window surface with the theme's `[tooltip]` colors and border width,
   `bodySmall` text, `controlPaddingX/Y` padding, the theme corner radius
   (follows `theme::set_corners`), plain text wrapped at 360 px, centered
@@ -13,7 +14,9 @@
   while one is up or for 400 ms after (bar `tooltipWarmTimer`), hidden by
   a click, key or wheel. No app changes: `.tooltip()`, `.bind_tooltip()`,
   header actions, plain fltk `set_tooltip` and canvases that change their
-  tooltip per region (Files) all get it. Restyled on every theme reload;
+  tooltip per region (Files) all get it (FLTK's window only followed a
+  change of the widget under the pointer, so one canvas showed at most
+  the first region's tooltip). Restyled on every theme reload;
   bound text relabels a shown tooltip; right-to-left lines are
   right-aligned. Follows `~/.config/omarchy/tooltips.json` live (`shape`,
   `borderMode`, `borderColor`; invalid files keep the last valid
