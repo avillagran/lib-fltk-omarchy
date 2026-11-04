@@ -136,16 +136,14 @@ fn surface(t: &Theme) -> Rgb {
 
 /// Paints the sidebar in `(x, y, w, h)` (`w` between the rail and the
 /// expanded width), mirrored when `rtl`.
-fn paint_rail(s: &Sb, sel: usize, x: i32, y: i32, w: i32, h: i32, rtl: bool, ring: bool, edge: bool) {
+fn paint_rail(s: &Sb, sel: usize, (x, y, w, h): (i32, i32, i32, i32), rtl: bool, ring: bool) {
     theme::with(|t| {
         let m = crate::layout::Mirror::new(rtl, x, w);
         let bg = surface(t);
         paint::fill(x, y, w, h, 0, bg);
         let fg = t.palette.foreground;
-        if edge {
-            // Hairline on the edge facing the content.
-            paint::fill(m.x(x + w - 1, 1), y, 1, h, 0, fg.over(bg, 0.12));
-        }
+        // Hairline on the edge facing the content.
+        paint::fill(m.x(x + w - 1, 1), y, 1, h, 0, fg.over(bg, 0.12));
         // Labels fade in as the rail widens (none at rail width).
         let reveal = if s.wide > s.rail { ((w - s.rail) as f64 / (s.wide - s.rail) as f64).clamp(0.0, 1.0) } else { 1.0 };
         let rh = row_h(t);
@@ -372,8 +370,8 @@ impl Sidebar {
         match mode {
             SidebarMode::Push => {
                 let target = if want { wide } else { rail };
-                if self.inner.w() != target {
-                    if !crate::layout::refit(&self.inner, (target, self.inner.h())) {
+                if self.inner.w() != target && !crate::layout::refit(&self.inner, (target, self.inner.h())) {
+                    {
                         let mut w = self.inner.clone();
                         let h = w.h();
                         w.set_size(target, h);
@@ -423,7 +421,7 @@ impl Sidebar {
             let rtl = crate::layout::is_rtl(&me.inner);
             let x = if rtl { l.x() + l.w() - w } else { l.x() };
             let ring = crate::focus::show_ring(&me.inner);
-            paint_rail(&s, me.selected.get(), x, l.y(), w, l.h(), rtl, ring, true);
+            paint_rail(&s, me.selected.get(), (x, l.y(), w, l.h()), rtl, ring);
             if closing {
                 s.layer = None;
                 drop(s);
@@ -478,7 +476,7 @@ impl Sidebar {
             let s = st.borrow();
             let overlay_open = s.mode == SidebarMode::Overlay && s.layer.is_some();
             let ring = crate::focus::show_ring(w) && !overlay_open;
-            paint_rail(&s, sel.get(), w.x(), w.y(), w.w(), w.h(), crate::layout::is_rtl(w), ring, true);
+            paint_rail(&s, sel.get(), (w.x(), w.y(), w.w(), w.h()), crate::layout::is_rtl(w), ring);
             let _ = &me;
         });
         let me = self.clone();

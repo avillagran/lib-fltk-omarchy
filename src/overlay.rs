@@ -122,7 +122,7 @@ pub(crate) fn close_layer(layer: &Widget) {
     // SAFETY: a Fl_Window is a Fl_Widget.
     let win = layer.top_window().map(|w| unsafe { Widget::from_widget_ptr(w.as_widget_ptr()) });
     LAYERS.with(|layers| layers.borrow_mut().retain(|(l, _)| !l.was_deleted() && l.as_widget_ptr() != layer.as_widget_ptr()));
-    if crate::anim::enabled() && layer.visible_r() {
+    if crate::anim::enabled() && layer.visible() {
         let mut l = layer.clone();
         // From where it is (a popup closed while still fading in).
         let shown = MOTION.with(|m| m.borrow().iter().find(|(x, _, _)| alive_ptr(x) == l.as_widget_ptr() as usize).map(|(_, t, _)| t.value()));

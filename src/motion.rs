@@ -93,8 +93,10 @@ struct Track {
     in_draw: bool,
 }
 
+type Tracks = HashMap<usize, (Flex, Rc<RefCell<Track>>)>;
+
 thread_local! {
-    static TRACKS: RefCell<HashMap<usize, (Flex, Rc<RefCell<Track>>)>> = RefCell::new(HashMap::new());
+    static TRACKS: RefCell<Tracks> = RefCell::new(HashMap::new());
     static PRUNE_AT: Cell<usize> = const { Cell::new(256) };
     // Containers whose subtree does not animate (deletion-tracked).
     static OFF: RefCell<Vec<Widget>> = const { RefCell::new(Vec::new()) };

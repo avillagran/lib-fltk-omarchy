@@ -150,7 +150,7 @@ pub fn checks(run: &mut dyn FnMut(&str, Check)) {
         check(mid < wide && s.side.w() == wide, &format!("resized at {mid}: final width {} (want {wide})", s.side.w()))?;
         check(!layout::animating(), "the resize is not animated")?;
         let gap = s.button.x() - (s.side.x() + s.side.w());
-        check(gap >= 0 && gap <= 16, &format!("content follows: gap {gap}"))?;
+        check((0..=16).contains(&gap), &format!("content follows: gap {gap}"))?;
         delete(s.win);
         Ok(())
     });

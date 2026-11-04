@@ -51,7 +51,9 @@ pub(crate) fn watch_theme(stop: Arc<AtomicBool>, changed: &dyn Fn()) {
     super::poll::watch(stop, changed)
 }
 
-/// No motion setting known: animations stay on.
+/// No motion setting known: animations stay on (other Unixes; macOS and
+/// Windows read theirs).
+#[allow(dead_code)]
 pub(crate) fn animations() -> Option<bool> {
     None
 }

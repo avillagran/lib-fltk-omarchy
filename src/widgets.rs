@@ -1699,10 +1699,8 @@ impl TabBar {
                     let fill = if !sel && hot { Some(t.fill(&t.controls.hover, under)) } else { None };
                     let mx = m.x(x, tw);
                     paint::surface(mx, w.y(), tw, w.h() - 1, t.radius, fill, None);
-                    if sel {
-                        if crate::focus::show_ring(w) {
-                            paint::stroke(mx, w.y(), tw, w.h() - 1, t.radius, t.controls.focus.border_width.max(1), t.border(&t.controls.focus, under));
-                        }
+                    if sel && crate::focus::show_ring(w) {
+                        paint::stroke(mx, w.y(), tw, w.h() - 1, t.radius, t.controls.focus.border_width.max(1), t.border(&t.controls.focus, under));
                     }
                     let pad = t.spacing.control_padding_x;
                     let close_w = if cl.get() { t.font.body + t.spacing.md } else { 0 };

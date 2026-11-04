@@ -208,6 +208,7 @@ pub(crate) fn kick() {
 }
 
 /// Hyprland's `getoption` reply: `{"bool": true}` (0.50+) or `{"int": 1}`.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub(crate) fn parse_hyprland_option(json: &str) -> Option<bool> {
     let v: serde_json::Value = serde_json::from_str(json.trim()).ok()?;
     if let Some(b) = v.get("bool").and_then(|b| b.as_bool()) {
