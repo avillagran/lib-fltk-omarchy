@@ -1029,8 +1029,8 @@ impl RichText {
             };
             let ln = &l.lines[li];
             let end = (off + needle.len()).min(ln.end as usize);
-            let x0 = l.x_of(text, li, off, &mut m);
-            let x1 = l.x_of(text, li, end, &mut m);
+            // All its pieces in mixed-direction text.
+            let (x0, x1) = l.span_x(text, li, off..end, &mut m);
             let by = i.screen_y(k, wy);
             return Some((
                 wx + i.pad + x0.round() as i32,
@@ -1285,7 +1285,8 @@ pub(super) fn draw_block(
     let hair = fg.over(c.under, 0.12);
     // Quote bars (joined to the block above when it is quoted too).
     for q in 0..b.quote {
-        let x = bx + q as i32 * ty.quote_w;
+        // Right-to-left blocks: bars on the right.
+        let x = bx + l.mirror_x(q as i32 * ty.quote_w, 3);
         let up = if c.prev_quote > q { c.gap } else { 0 };
         let color = b
             .quote_tone
@@ -1358,7 +1359,9 @@ pub(super) fn draw_block(
                     let _ = ri;
                     paint::fill(x0, by + ry, l.box_w, 1, 0, hair);
                 }
-                for (cx, _) in g.cols.iter().skip(1) {
+                // Every column edge but the table's left one (columns run
+                // right to left in a right-to-left table).
+                for (cx, _) in g.cols.iter().filter(|(cx, _)| *cx > l.left) {
                     paint::fill(bx + cx, by, 1, l.height - 1, 0, hair);
                 }
                 paint::stroke(x0, by, l.box_w, l.height, 0, 1, hair);
@@ -1366,7 +1369,7 @@ pub(super) fn draw_block(
         }
         BlockKind::Heading(lv) if *lv <= 2 => {
             paint::fill(
-                bx + l.left,
+                bx + l.mirror_x(l.left, l.box_w),
                 by + l.height - ty.item_gap - 1,
                 l.box_w,
                 1,
@@ -1389,7 +1392,7 @@ pub(super) fn draw_block(
         match mk {
             ListMarker::Bullet => {
                 let d = (size / 3).max(4);
-                let cx = mx + ty.list_w / 2 - d / 2;
+                let cx = bx + l.mirror_x(mx - bx + ty.list_w / 2 - d / 2, d);
                 let cy = by + first.y + first.h / 2 - d / 2;
                 draw::set_draw_color(dim.fl());
                 match b.indent {
@@ -1408,11 +1411,12 @@ pub(super) fn draw_block(
                     &s,
                 );
                 draw::set_draw_color(dim.fl());
-                draw::draw_text_n(&s, bx + l.left - 6 - wn.ceil() as i32, base);
+                let wn = wn.ceil() as i32;
+                draw::draw_text_n(&s, bx + l.mirror_x(l.left - 6 - wn, wn), base);
             }
             ListMarker::Task(done) => {
                 let d = (size as f32 * 1.05).round() as i32;
-                let cx = mx + ty.list_w / 2 - d / 2;
+                let cx = bx + l.mirror_x(mx - bx + ty.list_w / 2 - d / 2, d);
                 let cy = by + first.y + (first.h - d) / 2;
                 if done {
                     paint::fill(cx, cy, d, d, 3, p.accent);
