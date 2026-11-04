@@ -13,7 +13,12 @@
 //!     move |row, col| if col == 0 { files[row].0.to_string() } else { format!("{} B", files[row].1) })
 //!     .on_sort(|col, ascending| println!("sort by {col}, ascending: {ascending}"));
 //! ```
+//!
+//! With a [`ListModel`], [`Table::from_model`] and [`Tree::from_model`]
+//! bind the panel to the model and redraw only the rows that changed (see
+//! [`crate::model`]).
 
+use crate::model::{Changes, Invalidations, ListModel, RowSlots};
 use crate::panel::{ItemId, KeyboardPanel};
 use crate::paint;
 use crate::theme;
@@ -21,6 +26,7 @@ use crate::widgets::glyph;
 use fltk::{app, draw, enums::*, prelude::*, widget::Widget};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
+use std::hash::Hash;
 use std::rc::{Rc, Weak};
 
 const BAR: i32 = 4;
@@ -116,6 +122,8 @@ struct TState {
     resizing: Option<(usize, i32, i32)>,
     last_cursor: Option<ItemId>,
     drawn: usize,
+    slots: RowSlots,
+    inval: Invalidations,
 }
 
 /// Virtual table: header (click to sort, drag a column edge to resize) and
@@ -147,6 +155,8 @@ impl Table {
             resizing: None,
             last_cursor: None,
             drawn: 0,
+            slots: RowSlots::default(),
+            inval: Invalidations::default(),
         }));
         let s2 = st.clone();
         widget.draw(move |w| table_draw(w, &s2));
@@ -192,6 +202,96 @@ impl Table {
 
     pub fn scroll_offset(&self) -> i64 {
         self.st.borrow().top
+    }
+
+    /// Scrolls to an offset in pixels (clamped when drawn).
+    pub fn set_scroll_offset(&self, px: i64) {
+        let mut s = self.st.borrow_mut();
+        s.top = px.max(0);
+        let top = s.top;
+        s.motion.jump(top);
+        drop(s);
+        self.widget.clone().redraw();
+    }
+
+    /// A table showing a [`ListModel`]: binds `panel` to it (cursor and
+    /// selection by ID) and builds cells from items with `cell(item,
+    /// column)`. A change redraws only the visible rows whose item changed
+    /// or moved; inserts above the viewport keep what is on screen.
+    pub fn from_model<K, T>(panel: &KeyboardPanel, model: &ListModel<K, T>, columns: Vec<Column>, cell: impl Fn(&T, usize) -> String + 'static) -> Table
+    where
+        K: Clone + Eq + Hash + 'static,
+        T: Clone + PartialEq + 'static,
+    {
+        model.bind_panel(panel);
+        let m = model.clone();
+        let table = Table::new(panel, columns, move |row, col| m.with_at(row, |t| cell(t, col)).unwrap_or_default());
+        let weak = Rc::downgrade(&table.st);
+        let mut w = table.widget.clone();
+        model.listen(move |m, changes| {
+            let Some(st) = weak.upgrade().filter(|_| !w.was_deleted()) else { return false };
+            let (a, b) = (m.clone(), m.clone());
+            let hh = header_h();
+            let mut s = st.borrow_mut();
+            let s = &mut *s;
+            refit_rows(&mut w, hh, &mut s.slots, &mut s.top, &mut s.motion, &mut s.hover, &mut s.inval, m.len(), changes, &move |i| a.id_at(i), &move |id| b.index_of(id));
+            true
+        });
+        table
+    }
+
+    /// How model changes were redrawn so far (model tables; tests, benchmarks).
+    pub fn invalidations(&self) -> Invalidations {
+        self.st.borrow().inval
+    }
+}
+
+/// Shared by model-backed Table and List-like views: anchors `top`, moves
+/// the hover with the content and invalidates only the changed row slots
+/// of the body (which starts `body_y` px below the widget top).
+#[allow(clippy::too_many_arguments)]
+fn refit_rows(
+    w: &mut Widget,
+    body_y: i32,
+    slots: &mut RowSlots,
+    top: &mut i64,
+    motion: &mut crate::scroll::Scroll,
+    hover: &mut Option<usize>,
+    inval: &mut Invalidations,
+    len: usize,
+    changes: &Changes,
+    id_at: &dyn Fn(usize) -> Option<ItemId>,
+    index_of: &dyn Fn(ItemId) -> Option<usize>,
+) {
+    let rh = row_height();
+    let body_h = w.h() - body_y;
+    let old = *top;
+    let r = crate::model::refit(slots, old, rh, body_h, len, changes, id_at, index_of);
+    if r.top != old {
+        *hover = hover.and_then(|h| usize::try_from(h as i64 + (r.top - old) / rh as i64).ok()).filter(|h| *h < len);
+        motion.shift(r.top - old);
+        *top = r.top;
+    }
+    if r.full {
+        inval.full += 1;
+        w.redraw();
+        return;
+    }
+    if r.slots.is_empty() {
+        inval.none += 1;
+    }
+    inval.rows += r.slots.len();
+    let off = r.top.rem_euclid(rh as i64) as i32;
+    let (y0, y1) = (w.y() + body_y, w.y() + w.h());
+    for k in r.slots {
+        let y = (y0 + k as i32 * rh - off).max(y0);
+        let bottom = (y0 + (k as i32 + 1) * rh - off).min(y1);
+        if bottom > y {
+            w.set_damage_area(Damage::User1, w.x(), y, w.w(), bottom - y);
+        }
+    }
+    if r.bar {
+        w.set_damage_area(Damage::User1, w.x() + w.w() - BAR, y0, BAR, body_h);
     }
 }
 
@@ -254,11 +354,15 @@ fn table_draw(w: &mut Widget, st: &Rc<RefCell<TState>>) {
         let first = (s.top / rh as i64) as usize;
         let visible = (body_h / rh + 2) as usize;
         let cursor = s.panel.cursor();
+        s.slots.begin(s.top, visible);
         for k in 0..visible {
             let idx = first + k;
-            if idx >= n { break; }
+            if idx >= n { s.slots.drawn(k, None); continue; }
             let Some(id) = s.panel.id_at(idx) else { break };
             let ry = by + (idx as i64 * rh as i64 - s.top) as i32;
+            // Partial redraws (one changed row) draw only the rows in the damaged area.
+            if !draw::not_clipped(w.x(), ry, w.w(), rh) { continue; }
+            s.slots.drawn(k, Some(id));
             let rw = w.w() - BAR - 4;
             draw_row_bg(t, w.x(), ry, rw, rh, s.panel.is_selected(id), cursor == Some(id), s.hover == Some(idx), ring);
             for (ci, (c, (cx, cw))) in s.cols.iter().zip(cols.iter()).enumerate() {
@@ -396,6 +500,13 @@ struct Visible {
 
 type ChildrenFn = Box<dyn Fn(Option<ItemId>) -> Vec<TreeNode>>;
 
+/// Parent/children index of a model-backed tree (rebuilt on structural changes).
+#[derive(Default)]
+struct TreeIndex {
+    children: HashMap<Option<ItemId>, Vec<ItemId>>,
+    parent: HashMap<ItemId, Option<ItemId>>,
+}
+
 struct TrState {
     panel: KeyboardPanel,
     children: ChildrenFn,
@@ -409,6 +520,8 @@ struct TrState {
     hover: Option<usize>,
     last_cursor: Option<ItemId>,
     drawn: usize,
+    slots: RowSlots,
+    inval: Invalidations,
 }
 
 /// Virtual tree: `children(None)` gives the roots, `children(Some(id))`
@@ -439,6 +552,8 @@ impl Tree {
             hover: None,
             last_cursor: None,
             drawn: 0,
+            slots: RowSlots::default(),
+            inval: Invalidations::default(),
         }));
         let tree = Tree { widget, st };
         tree.refresh();
@@ -550,6 +665,166 @@ impl Tree {
         self.st.borrow().drawn
     }
 
+    pub fn scroll_offset(&self) -> i64 {
+        self.st.borrow().top
+    }
+
+    /// Scrolls to an offset in pixels (clamped when drawn).
+    pub fn set_scroll_offset(&self, px: i64) {
+        let mut s = self.st.borrow_mut();
+        s.top = px.max(0);
+        let top = s.top;
+        s.motion.jump(top);
+        drop(s);
+        self.widget.clone().redraw();
+    }
+
+    /// How model changes were redrawn so far (model trees; tests, benchmarks).
+    pub fn invalidations(&self) -> Invalidations {
+        self.st.borrow().inval
+    }
+
+    /// A tree over a flat [`ListModel`]: `parent(item)` gives the key of
+    /// an item's parent (None, or a key not in the model: a root), `node`
+    /// its row (`TreeNode::id` is set to the model's ID; mark parents with
+    /// `.branch()`). Children keep the model's order. An update that keeps
+    /// an item's parent and shape redraws only its row; anything else
+    /// rebuilds the visible rows, keeping the first visible item in place,
+    /// the expanded nodes, the cursor and the selection.
+    pub fn from_model<K, T>(panel: &KeyboardPanel, model: &ListModel<K, T>, node: impl Fn(&T) -> TreeNode + 'static, parent: impl Fn(&T) -> Option<K> + 'static) -> Tree
+    where
+        K: Clone + Eq + Hash + 'static,
+        T: Clone + PartialEq + 'static,
+    {
+        let node = Rc::new(node);
+        let parent = Rc::new(parent);
+        let index: Rc<RefCell<Option<TreeIndex>>> = Rc::default();
+        let parent_id = {
+            let parent = parent.clone();
+            Rc::new(move |m: &ListModel<K, T>, id: ItemId, t: &T| parent(t).and_then(|k| m.id_of(&k)).filter(|p| *p != id))
+        };
+        let children = {
+            let (m, node, index, parent_id) = (model.clone(), node.clone(), index.clone(), parent_id.clone());
+            move |p: Option<ItemId>| -> Vec<TreeNode> {
+                if index.borrow().is_none() {
+                    let mut ix = TreeIndex::default();
+                    let ids: Vec<ItemId> = (0..m.len()).filter_map(|i| m.id_at(i)).collect();
+                    for id in ids {
+                        let par = m.with_id(id, |t| parent_id(&m, id, t)).flatten();
+                        ix.children.entry(par).or_default().push(id);
+                        ix.parent.insert(id, par);
+                    }
+                    *index.borrow_mut() = Some(ix);
+                }
+                let ix = index.borrow();
+                let kids = ix.as_ref().and_then(|ix| ix.children.get(&p));
+                kids.map(|ids| ids.iter().filter_map(|&id| m.with_id(id, |t| TreeNode { id, ..node(t) })).collect()).unwrap_or_default()
+            }
+        };
+        let tree = Tree::new(panel, children);
+        let weak = Rc::downgrade(&tree.st);
+        let w = tree.widget.clone();
+        model.listen(move |m, changes| {
+            let Some(st) = weak.upgrade().filter(|_| !w.was_deleted()) else { return false };
+            let me = Tree { widget: w.clone(), st };
+            let mut rebuild = changes.is_structural() || !changes.removed().is_empty();
+            let mut patched = Vec::new();
+            if !rebuild {
+                let ix = index.borrow();
+                for &id in changes.updated() {
+                    let now = m.with_id(id, |t| (parent_id(m, id, t), TreeNode { id, ..node(t) }));
+                    match (ix.as_ref().and_then(|ix| ix.parent.get(&id)), now) {
+                        (Some(old), Some((par, n))) if *old == par => patched.push(n),
+                        _ => {
+                            rebuild = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            if rebuild || !me.patch_nodes(patched) {
+                *index.borrow_mut() = None;
+                me.refresh_anchored();
+            }
+            true
+        });
+        tree
+    }
+
+    /// Replaces cached nodes in place and redraws their visible rows.
+    /// False when a node changed shape (expander) and the rows must be rebuilt.
+    fn patch_nodes(&self, nodes: Vec<TreeNode>) -> bool {
+        let rh = row_height();
+        let mut damage = Vec::new();
+        {
+            let mut guard = self.st.borrow_mut();
+            let s = &mut *guard;
+            let (rows, index) = (s.rows.clone(), s.index.clone());
+            let mut rows = rows.borrow_mut();
+            for n in nodes {
+                let row = index.borrow().get(&n.id).copied();
+                if let Some(r) = row {
+                    let v = &mut rows[r];
+                    if v.node.has_children != n.has_children {
+                        return false;
+                    }
+                    if let Some(kids) = s.cache.get_mut(&v.parent) {
+                        if let Some(k) = kids.iter_mut().find(|k| k.id == n.id) {
+                            *k = n.clone();
+                        }
+                    }
+                    v.node = n;
+                    let y = self.widget.y() + (r as i64 * rh as i64 - s.top) as i32;
+                    if y + rh > self.widget.y() && y < self.widget.y() + self.widget.h() {
+                        damage.push(y);
+                    }
+                } else {
+                    // Under a collapsed node: only the cache (seen on expand).
+                    for kids in s.cache.values_mut() {
+                        if let Some(k) = kids.iter_mut().find(|k| k.id == n.id) {
+                            if k.has_children != n.has_children {
+                                return false;
+                            }
+                            *k = n.clone();
+                        }
+                    }
+                }
+            }
+            if damage.is_empty() {
+                s.inval.none += 1;
+            }
+            s.inval.rows += damage.len();
+        }
+        let mut w = self.widget.clone();
+        for y in damage {
+            let top = y.max(w.y());
+            let bottom = (y + rh).min(w.y() + w.h());
+            w.set_damage_area(Damage::User1, w.x(), top, w.w(), bottom - top);
+        }
+        true
+    }
+
+    /// `refresh`, keeping the first visible item where it is on screen.
+    fn refresh_anchored(&self) {
+        let rh = row_height() as i64;
+        let (top, anchor) = {
+            let s = self.st.borrow();
+            (s.top, s.slots.anchor(s.top))
+        };
+        self.refresh();
+        let mut s = self.st.borrow_mut();
+        s.slots.invalidate();
+        s.inval.full += 1;
+        if top > 0 {
+            let at = anchor.and_then(|id| s.index.borrow().get(&id).copied());
+            if let Some(i) = at {
+                let new_top = i as i64 * rh + top.rem_euclid(rh);
+                s.motion.shift(new_top - top);
+                s.top = new_top;
+            }
+        }
+    }
+
     fn edge(&self, k: Key) -> bool {
         let panel = self.st.borrow().panel.clone();
         let Some(i) = panel.cursor_index() else { return false };
@@ -606,10 +881,14 @@ fn tree_draw(w: &mut Widget, st: &Rc<RefCell<TrState>>) {
         let visible = (w.h() / rh + 2) as usize;
         let ind = indent();
         let pad = t.spacing.md;
+        s.slots.begin(s.top, visible);
         for k in 0..visible {
             let idx = first + k;
-            let Some(v) = rows.get(idx) else { break };
+            let Some(v) = rows.get(idx) else { s.slots.drawn(k, None); continue };
             let ry = w.y() + (idx as i64 * rh as i64 - s.top) as i32;
+            // Partial redraws (one changed row) draw only the rows in the damaged area.
+            if !draw::not_clipped(w.x(), ry, w.w(), rh) { continue; }
+            s.slots.drawn(k, Some(v.node.id));
             let rw = w.w() - BAR - 4;
             draw_row_bg(t, w.x(), ry, rw, rh, s.panel.is_selected(v.node.id), cursor == Some(v.node.id), s.hover == Some(idx), ring);
             let mut x = w.x() + pad + v.depth as i32 * ind;

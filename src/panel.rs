@@ -43,7 +43,7 @@
 use fltk::{enums::{Key, Shortcut}, prelude::*, widget::Widget};
 use std::cell::RefCell;
 use std::collections::BTreeSet;
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 
 /// A stable item identity chosen by the app (an inode, a hash of the raw
 /// name, a row key). Selection and cursor survive reordering and refresh.
@@ -84,6 +84,18 @@ struct Inner {
     anchor: Option<ItemId>,
     selection: BTreeSet<ItemId>,
     host: Option<Widget>,
+}
+
+/// A panel reference that does not keep it alive (model bindings).
+pub(crate) struct WeakPanel {
+    inner: Weak<RefCell<Inner>>,
+    cbs: Weak<RefCell<Callbacks>>,
+}
+
+impl WeakPanel {
+    pub(crate) fn upgrade(&self) -> Option<KeyboardPanel> {
+        Some(KeyboardPanel { inner: self.inner.upgrade()?, cbs: self.cbs.upgrade()? })
+    }
 }
 
 /// One focusable region with a cursor and an ID selection. Cloning shares it.
@@ -164,6 +176,37 @@ impl KeyboardPanel {
             i.source = Some(src);
         }
         self.changed();
+    }
+
+    /// [`KeyboardPanel::set_items`]; with `quiet`, the host redraws and
+    /// `on_change` runs only when the cursor, anchor or selection lost an
+    /// item (models re-bind after every structural change).
+    pub(crate) fn set_items_with(&self, len: usize, id_at: impl Fn(usize) -> ItemId + 'static, index_of: impl Fn(ItemId) -> Option<usize> + 'static, quiet: bool) {
+        let lost = {
+            let mut i = self.inner.borrow_mut();
+            let src = Source { len, id_at: Box::new(id_at), index_of: Box::new(index_of) };
+            let alive = |id: &ItemId| (src.index_of)(*id).is_some_and(|x| x < len);
+            let before = i.selection.len();
+            i.selection.retain(alive);
+            let mut lost = i.selection.len() != before;
+            if i.cursor.is_some_and(|c| !alive(&c)) {
+                i.cursor = None;
+                lost = true;
+            }
+            if i.anchor.is_some_and(|c| !alive(&c)) {
+                i.anchor = None;
+                lost = true;
+            }
+            i.source = Some(src);
+            lost
+        };
+        if lost || !quiet {
+            self.changed();
+        }
+    }
+
+    pub(crate) fn downgrade(&self) -> WeakPanel {
+        WeakPanel { inner: Rc::downgrade(&self.inner), cbs: Rc::downgrade(&self.cbs) }
     }
 
     pub fn len(&self) -> usize {
