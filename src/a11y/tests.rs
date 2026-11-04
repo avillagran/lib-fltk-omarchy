@@ -219,7 +219,7 @@ fn consumer_accepts_full_and_incremental_updates() {
     let (nodes, focus) = build(0, false);
     let full = ak::TreeUpdate {
         nodes,
-        tree: Some(ak::Tree::new(ak::NodeId(1))),
+        tree: Some(ak::TreeInfo::new(ak::NodeId(1))),
         tree_id: ak::TreeId::ROOT,
         focus: ak::NodeId(focus.unwrap()),
     };
@@ -263,15 +263,15 @@ fn consumer_accepts_full_and_incremental_updates() {
 
 struct NoChanges;
 impl accesskit_consumer::TreeChangeHandler for NoChanges {
-    fn node_added(&mut self, _: &accesskit_consumer::Node) {}
-    fn node_updated(&mut self, _: &accesskit_consumer::Node, _: &accesskit_consumer::Node) {}
+    fn node_added(&mut self, _: &accesskit_consumer::NodeRef) {}
+    fn node_updated(&mut self, _: &accesskit_consumer::NodeRef, _: &accesskit_consumer::NodeRef) {}
     fn focus_moved(
         &mut self,
-        _: Option<&accesskit_consumer::Node>,
-        _: Option<&accesskit_consumer::Node>,
+        _: Option<&accesskit_consumer::NodeRef>,
+        _: Option<&accesskit_consumer::NodeRef>,
     ) {
     }
-    fn node_removed(&mut self, _: &accesskit_consumer::Node) {}
+    fn node_removed(&mut self, _: &accesskit_consumer::NodeRef) {}
 }
 
 #[test]

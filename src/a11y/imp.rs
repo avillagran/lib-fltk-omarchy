@@ -357,7 +357,7 @@ fn sync(s: &mut WinState) {
         if gen != *seen {
             *seen = gen;
             *sent = built.nodes.iter().cloned().collect();
-            let mut t = ak::Tree::new(ak::NodeId(built.root));
+            let mut t = ak::TreeInfo::new(ak::NodeId(built.root));
             t.toolkit_name = Some("lib-fltk-omarchy".into());
             t.toolkit_version = Some(env!("CARGO_PKG_VERSION").into());
             return ak::TreeUpdate {

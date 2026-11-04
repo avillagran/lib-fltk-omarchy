@@ -21,25 +21,28 @@ libc = "0.2"
 serde_json = "1"
 # Only with the `gpu` feature (MIT OR Apache-2.0 OR Zlib).
 glow = { version = "0.16", optional = true }
-# Only with the `a11y` feature (all MIT OR Apache-2.0). Versions are the
-# newest whose rust-version fits this crate's MSRV (1.80; accesskit 0.24+
-# needs 1.85).
-accesskit = { version = "=0.23.0", optional = true }
+# Only with the `a11y` feature (all MIT OR Apache-2.0). This feature needs
+# Rust 1.85 (the rest of the crate keeps 1.80): accesskit_unix 0.19, the
+# last release on 1.80, waits for AT-SPI's `ScreenReaderEnabled`, which
+# at-spi2-core 2.62 no longer has, so apps never became accessible on
+# current Linux. accesskit_unix 0.22+ follows `IsEnabled` and needs 1.85.
+# These are the newest releases whose rust-version is 1.85.
+accesskit = { version = "=0.25.0", optional = true }
 
 [target.'cfg(any(target_os = "linux", target_os = "freebsd", target_os = "openbsd", target_os = "netbsd", target_os = "dragonfly"))'.dependencies]
-accesskit_unix = { version = "=0.19.1", optional = true }
+accesskit_unix = { version = "=0.23.0", optional = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-accesskit_windows = { version = "=0.31.1", optional = true }
+accesskit_windows = { version = "=0.35.0", optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-accesskit_macos = { version = "=0.24.1", optional = true }
+accesskit_macos = { version = "=0.27.0", optional = true }
 
 [dev-dependencies]
 # Validates the trees the `a11y` tests generate with AccessKit's own
 # consumer (it panics on inconsistent updates, as the platform adapters do).
-accesskit_consumer = "=0.33.1"
-accesskit = "=0.23.0"
+accesskit_consumer = "=0.39.0"
+accesskit = "=0.25.0"
 
 [features]
 default = []
@@ -71,3 +74,7 @@ debug = "line-tables-only"
 [[example]]
 name = "gpu_bench"
 required-features = ["gpu"]
+
+[[example]]
+name = "a11y_check"
+required-features = ["a11y"]

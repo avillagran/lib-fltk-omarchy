@@ -1354,10 +1354,10 @@ impl Consumer {
     fn feed(&mut self, updates: Vec<accesskit::TreeUpdate>) -> usize {
         struct Nop;
         impl accesskit_consumer::TreeChangeHandler for Nop {
-            fn node_added(&mut self, _: &accesskit_consumer::Node) {}
-            fn node_updated(&mut self, _: &accesskit_consumer::Node, _: &accesskit_consumer::Node) {}
-            fn focus_moved(&mut self, _: Option<&accesskit_consumer::Node>, _: Option<&accesskit_consumer::Node>) {}
-            fn node_removed(&mut self, _: &accesskit_consumer::Node) {}
+            fn node_added(&mut self, _: &accesskit_consumer::NodeRef) {}
+            fn node_updated(&mut self, _: &accesskit_consumer::NodeRef, _: &accesskit_consumer::NodeRef) {}
+            fn focus_moved(&mut self, _: Option<&accesskit_consumer::NodeRef>, _: Option<&accesskit_consumer::NodeRef>) {}
+            fn node_removed(&mut self, _: &accesskit_consumer::NodeRef) {}
         }
         let mut sent = 0;
         for u in updates {
