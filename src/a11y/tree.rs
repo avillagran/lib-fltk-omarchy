@@ -285,6 +285,8 @@ fn role_of(r: Role) -> ak::Role {
         Role::Heading => A::Heading,
         Role::Paragraph => A::Paragraph,
         Role::Document => A::Document,
+        Role::Code => A::Code,
+        Role::Table => A::Table,
         Role::Image => A::Image,
         Role::ComboBox => A::ComboBox,
         Role::ListBox => A::ListBox,
@@ -344,7 +346,45 @@ fn live_of(l: Live) -> ak::Live {
     }
 }
 
+/// True when `n` or a virtual child below it is an explicit text run.
+fn has_runs(n: &Node) -> bool {
+    n.children.iter().any(|c| c.run || has_runs(c))
+}
+
+/// One text run: its characters and word starts for the AT.
+fn run_node(text: &str, bounds: Option<(i32, i32, i32, i32)>) -> ak::Node {
+    let mut r = ak::Node::new(ak::Role::TextRun);
+    r.set_value(text);
+    let lens: Vec<u8> = text.chars().map(|c| c.len_utf8() as u8).collect();
+    let mut words = Vec::new();
+    let mut prev_space = true;
+    for (ci, c) in text.chars().enumerate() {
+        let space = c.is_whitespace();
+        if prev_space && !space && ci <= u8::MAX as usize {
+            words.push(ci as u8);
+        }
+        prev_space = space;
+    }
+    let n = lens.len();
+    r.set_character_lengths(lens);
+    if !words.is_empty() && n <= u8::MAX as usize {
+        r.set_word_starts(words);
+    }
+    if let Some((x, y, w, h)) = bounds {
+        r.set_bounds(ak::Rect::new(
+            x as f64,
+            y as f64,
+            (x + w.max(0)) as f64,
+            (y + h.max(0)) as f64,
+        ));
+    }
+    r
+}
+
 fn convert(n: &Node, id: u64, mut kids: Vec<u64>, cx: &mut Ctx) -> ak::Node {
+    if n.run {
+        return run_node(n.value.as_deref().unwrap_or(""), n.bounds);
+    }
     let mut a = ak::Node::new(role_of(n.role));
     if let Some(name) = &n.name {
         if n.role == Role::Label {
@@ -417,7 +457,9 @@ fn convert(n: &Node, id: u64, mut kids: Vec<u64>, cx: &mut Ctx) -> ak::Node {
         a.set_level(l);
     }
     if let Some((p, of)) = n.position {
-        a.set_position_in_set(p);
+        // AccessKit: zero-based, and the set size belongs to the container
+        // (kept on the item too for `snapshot`).
+        a.set_position_in_set(p - 1);
         a.set_size_of_set(of);
     }
     if let Some(r) = n.row_index {
@@ -425,6 +467,11 @@ fn convert(n: &Node, id: u64, mut kids: Vec<u64>, cx: &mut Ctx) -> ak::Node {
     }
     if let Some(c) = n.column_index {
         a.set_column_index(c);
+    }
+    if n.position.is_none() {
+        if let Some((_, of)) = n.children.iter().find_map(|c| c.position) {
+            a.set_size_of_set(of);
+        }
     }
     if let Some((r, c)) = n.counts {
         a.set_row_count(r);
@@ -438,12 +485,33 @@ fn convert(n: &Node, id: u64, mut kids: Vec<u64>, cx: &mut Ctx) -> ak::Node {
         });
     }
     if let Some((x, y, w, h)) = n.bounds {
+        // A scrolled node's own transform applies to its bounds too.
+        let dy = n.scroll.map_or(0.0, |(y, _)| y);
         a.set_bounds(ak::Rect::new(
             x as f64,
-            y as f64,
+            y as f64 + dy,
             (x + w.max(0)) as f64,
-            (y + h.max(0)) as f64,
+            (y + h.max(0)) as f64 + dy,
         ));
+    }
+    if let Some((y, max)) = n.scroll {
+        a.set_transform(ak::Affine::translate((0.0, -y)));
+        a.set_scroll_y(y);
+        a.set_scroll_y_min(0.0);
+        a.set_scroll_y_max(max);
+    }
+    if let Some(u) = &n.url {
+        a.set_url(u.as_str());
+    }
+    if let Some((anchor, focus)) = &n.run_selection {
+        let pos = |(path, c): &(Vec<u64>, usize)| ak::TextPosition {
+            node: ak::NodeId(path.iter().fold(id, |p, k| virt(p, *k))),
+            character_index: *c,
+        };
+        a.set_text_selection(ak::TextSelection {
+            anchor: pos(anchor),
+            focus: pos(focus),
+        });
     }
     if let Some(k) = &n.shortcut {
         a.set_keyboard_shortcut(k.as_str());
@@ -457,7 +525,7 @@ fn convert(n: &Node, id: u64, mut kids: Vec<u64>, cx: &mut Ctx) -> ak::Node {
         a.add_action(ak::Action::Focus);
     }
     // Text: one run per line, so the AT gets characters, words and the caret.
-    if is_text(n.role) {
+    if is_text(n.role) && !has_runs(n) {
         let text = shown_value
             .clone()
             .or_else(|| {
@@ -481,30 +549,7 @@ fn convert(n: &Node, id: u64, mut kids: Vec<u64>, cx: &mut Ctx) -> ak::Node {
             if !cx.ids.insert(rid) {
                 continue;
             }
-            let mut r = ak::Node::new(ak::Role::TextRun);
-            r.set_value(*line);
-            let lens: Vec<u8> = line.chars().map(|c| c.len_utf8() as u8).collect();
-            let mut words = Vec::new();
-            let mut prev_space = true;
-            for (ci, c) in line.chars().enumerate() {
-                let space = c.is_whitespace();
-                if prev_space && !space && ci <= u8::MAX as usize {
-                    words.push(ci as u8);
-                }
-                prev_space = space;
-            }
-            r.set_character_lengths(lens);
-            if !words.is_empty() && line.chars().count() <= u8::MAX as usize {
-                r.set_word_starts(words);
-            }
-            if let Some((x, y, w, h)) = n.bounds {
-                r.set_bounds(ak::Rect::new(
-                    x as f64,
-                    y as f64,
-                    (x + w.max(0)) as f64,
-                    (y + h.max(0)) as f64,
-                ));
-            }
+            let r = run_node(line, n.bounds);
             starts.push((rid, at, line.chars().count()));
             at += line.chars().count();
             runs.push((rid, r));
@@ -920,7 +965,7 @@ pub(crate) fn snapshot(win: &Widget) -> String {
             st.push("modal".into());
         }
         if let (Some(p), Some(of)) = (n.position_in_set(), n.size_of_set()) {
-            st.push(format!("{p} of {of}"));
+            st.push(format!("{} of {of}", p + 1));
         }
         if let (Some(r), Some(c)) = (n.row_count(), n.column_count()) {
             st.push(format!("{r}x{c}"));

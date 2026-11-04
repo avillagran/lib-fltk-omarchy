@@ -67,6 +67,11 @@ pub enum Role {
     Paragraph,
     /// A read-only rich document (chat transcript, markdown view).
     Document,
+    /// A block of code (preformatted text).
+    Code,
+    /// A static table of data (rows: [`Role::Row`], cells: [`Role::Cell`]
+    /// or [`Role::ColumnHeader`]). Interactive tables are [`Role::Grid`].
+    Table,
     Image,
     ComboBox,
     /// A list whose items can be selected (items: [`Role::ListBoxOption`]).
@@ -162,6 +167,14 @@ pub enum Value {
         anchor: usize,
         focus: usize,
     },
+    /// A selection over text runs of virtual children (a rich document):
+    /// for each end, the keys from the widget's node down to the node that
+    /// holds the runs ([`Node::text_run`]), and the character in the text
+    /// of those runs.
+    TextRange {
+        anchor: (Vec<u64>, usize),
+        focus: (Vec<u64>, usize),
+    },
 }
 
 /// An action request from the assistive technology, delivered on the UI
@@ -221,6 +234,11 @@ pub struct Node {
     pub(crate) actions: u16,
     pub(crate) shortcut: Option<String>,
     pub(crate) text_selection: Option<(usize, usize)>,
+    pub(crate) run_selection: Option<RunSelection>,
+    pub(crate) url: Option<String>,
+    pub(crate) scroll: Option<(f64, f64)>,
+    /// A text run (made by [`Node::text_run`]); its text is `value`.
+    pub(crate) run: bool,
     pub(crate) children: Vec<Node>,
     pub(crate) key: u64,
     pub(crate) focused: bool,
@@ -388,6 +406,54 @@ impl Node {
         self
     }
 
+    /// Selection over text runs of virtual children (rich documents): for
+    /// each end, the keys from this node down to a run made with
+    /// [`text_run`](Self::text_run), and the character in that run.
+    pub fn text_selection_in(
+        &mut self,
+        anchor: (&[u64], usize),
+        focus: (&[u64], usize),
+    ) -> &mut Self {
+        self.run_selection = Some(((anchor.0.to_vec(), anchor.1), (focus.0.to_vec(), focus.1)));
+        self
+    }
+
+    /// The link target of a [`Role::Link`] (read by the AT, AT-SPI
+    /// Hyperlink).
+    pub fn url(&mut self, url: &str) -> &mut Self {
+        self.url = (!url.is_empty()).then(|| url.to_string());
+        self
+    }
+
+    /// A scrolled view: its children's bounds are in content coordinates
+    /// (as if scrolled to the top), and the AT gets the offset `y` of
+    /// `0..=max`. Scrolling then changes only this node.
+    pub fn scroll(&mut self, y: f64, max: f64) -> &mut Self {
+        self.scroll = Some((y, max.max(0.0)));
+        self
+    }
+
+    /// Adds one line of this node's text as a text run (character, word
+    /// and line navigation, caret and selection for the AT), with its
+    /// window rectangle when known. Text nodes ([`Role::Document`],
+    /// [`Role::Paragraph`], inputs) without explicit runs anywhere below
+    /// them get one run per line of their value (or name) automatically.
+    pub fn text_run(
+        &mut self,
+        key: u64,
+        text: &str,
+        bounds: Option<(i32, i32, i32, i32)>,
+    ) -> &mut Self {
+        self.children.push(Node {
+            key,
+            run: true,
+            value: Some(text.to_string()),
+            bounds,
+            ..Node::default()
+        });
+        self
+    }
+
     /// Adds a virtual child (a list row, a tab, a menu entry) identified by
     /// a stable `key` among its siblings (an item ID, an index).
     pub fn child(&mut self, key: u64, f: impl FnOnce(&mut Node)) -> &mut Self {
@@ -436,6 +502,10 @@ impl Node {
         self.actions & action.bit() != 0
     }
 }
+
+/// Ends of a selection over virtual text runs: the key path from the node
+/// to the run and the character in the run.
+pub(crate) type RunSelection = ((Vec<u64>, usize), (Vec<u64>, usize));
 
 /// Implemented by custom widgets that want an accessible node (a rich
 /// text view, a canvas with regions). Register it with [`register`].

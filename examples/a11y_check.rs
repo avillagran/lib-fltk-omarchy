@@ -1,13 +1,15 @@
 //! Real-window accessibility scenario for `script/a11y-check`: a small
-//! settings window read through AT-SPI (no screen reader, no synthetic
-//! input). Prints one line per app-side event so the script can check that
-//! an AT action reached the same code as a click. Quits after `secs`.
+//! settings window and a rich text transcript read through AT-SPI (no
+//! screen reader, no synthetic input). Prints one line per app-side event
+//! so the script can check that an AT action reached the same code as a
+//! click. Quits after `secs`.
 //!   a11y_check [secs]
 use fltk::app;
 use fltk_omarchy::a11y::AccessibleExt;
 use fltk_omarchy::layout::{self, FlexExt};
 use fltk_omarchy::list::{List, ListRow};
 use fltk_omarchy::overlay::Dropdown;
+use fltk_omarchy::text::RichText;
 use fltk_omarchy::widgets::*;
 use fltk_omarchy::{App, AppWindow, State};
 
@@ -17,7 +19,7 @@ fn main() {
         .and_then(|s| s.parse().ok())
         .unwrap_or(30.0);
     let app = App::new("dev.omarchy.fltk.a11y");
-    let mut win = AppWindow::new("a11y check", 480, 560);
+    let mut win = AppWindow::new("a11y check", 480, 860);
     win.header().action(glyph::SETTINGS, "Preferences", || {
         println!("event preferences")
     });
@@ -47,6 +49,13 @@ fn main() {
     body.fit(&*List::new(&count, |i| {
         ListRow::new(&format!("Song {i}")).detail("3:30")
     }));
+    let rt = RichText::new()
+        .on_link(|url| println!("event link {url}"))
+        .accessible_name("Transcript");
+    rt.set_markdown(
+        "# Release notes\n\nThe **parser** streams Markdown. Read [the docs](https://example.com/docs).\n\n- first item\n- second item\n\n```rust\nfn main() {}\n```\n",
+    );
+    body.fit(&*rt);
     win.end();
     win.show();
     println!("event shown");

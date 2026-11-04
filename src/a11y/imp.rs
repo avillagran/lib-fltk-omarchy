@@ -452,27 +452,35 @@ fn run_actions(list: &[WinState]) -> bool {
     ran
 }
 
-/// A selection over text runs, in characters of the whole text.
+/// A selection over text runs, in characters of the text of the node
+/// that holds the runs: `Selection` when that is the widget's own node,
+/// `TextRange` (with the key path of each holder) for virtual children.
 fn text_selection(list: &[WinState], sel: &ak::TextSelection) -> Option<Value> {
-    let offset = |p: &ak::TextPosition| -> Option<usize> {
+    let place = |p: &ak::TextPosition| -> Option<(Vec<u64>, usize)> {
         for s in list {
-            let Some((_, owner)) = s.sent.iter().find(|(_, n)| n.children().contains(&p.node))
+            let Some((owner, node)) = s.sent.iter().find(|(_, n)| n.children().contains(&p.node))
             else {
                 continue;
             };
             let mut at = 0;
-            for c in owner.children() {
+            for c in node.children() {
                 if *c == p.node {
-                    return Some(at + p.character_index);
+                    let path = s.routes.get(&owner.0).map(|r| r.path.clone()).unwrap_or_default();
+                    return Some((path, at + p.character_index));
                 }
                 at += s.sent.get(c).map_or(0, |n| n.character_lengths().len());
             }
         }
         None
     };
-    Some(Value::Selection {
-        anchor: offset(&sel.anchor)?,
-        focus: offset(&sel.focus)?,
+    let (anchor, focus) = (place(&sel.anchor)?, place(&sel.focus)?);
+    Some(if anchor.0.is_empty() && focus.0.is_empty() {
+        Value::Selection {
+            anchor: anchor.1,
+            focus: focus.1,
+        }
+    } else {
+        Value::TextRange { anchor, focus }
     })
 }
 

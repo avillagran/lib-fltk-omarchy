@@ -53,6 +53,8 @@ impl RichLabel {
             link: Rc::default(),
         };
         l.install();
+        #[cfg(feature = "a11y")]
+        l.describe();
         l.set_markdown(md);
         l
     }
@@ -195,6 +197,63 @@ impl RichLabel {
         });
     }
 
+    /// Screen readers: a Label with its text, and a Link child per link
+    /// (Click opens it, like Enter).
+    #[cfg(feature = "a11y")]
+    fn describe(&self) {
+        use crate::a11y::{self, Action, Role};
+        let (d, w) = (self.data.clone(), self.inner.clone());
+        a11y::describe(&self.inner, move |n| {
+            let Ok(d) = d.try_borrow() else { return };
+            let text = d.block.text();
+            n.role(Role::Label).name(text);
+            let lay = d.cache.as_ref().map(|(_, _, l)| l);
+            let by = w.y() + lay.map_or(0, |l| (w.h() - l.height).max(0) / 2);
+            let mut first = true;
+            for (bytes, runs, url) in link_groups(&d.block) {
+                n.child(runs.start as u64, |c| {
+                    c.role(Role::Link)
+                        .name(&text[bytes.clone()])
+                        .url(&url)
+                        .action(Action::Click)
+                        .focusable();
+                    let rect = lay.and_then(|l| {
+                        let ln = l.lines.iter().find(|ln| ln.end as usize > bytes.start)?;
+                        let fr = l.frags_of(ln);
+                        let a = fr.iter().find(|f| runs.contains(&(f.run as usize)))?;
+                        let z = fr.iter().rev().find(|f| runs.contains(&(f.run as usize)))?;
+                        Some((w.x() + ln.x + a.x as i32, by + ln.y, (z.x + z.w - a.x).ceil() as i32, ln.h))
+                    });
+                    if let Some((x, y, ww, h)) = rect {
+                        c.bounds(x, y, ww, h);
+                    }
+                    // Enter opens the first link.
+                    if first && crate::focus::is_focused(&w) {
+                        c.focused();
+                    }
+                });
+                first = false;
+            }
+        });
+        let (d, link, w) = (self.data.clone(), self.link.clone(), self.inner.clone());
+        a11y::on_action(&self.inner, move |r| {
+            let Some(run) = r.key().map(|k| k as usize) else {
+                return false;
+            };
+            match r.action {
+                Action::Click => {
+                    let url = d.borrow().block.content.runs().get(run).and_then(|r| r.style.link.clone());
+                    if let (Some(url), Some(f)) = (url, link.borrow_mut().as_mut()) {
+                        f(&url);
+                    }
+                    true
+                }
+                Action::Focus => w.clone().take_focus().is_ok(),
+                _ => false,
+            }
+        });
+    }
+
     /// Base text color (runs with their own role keep it).
     pub fn color(self, role: ColorRole) -> Self {
         self.data.borrow_mut().color = Some(role);
@@ -258,6 +317,26 @@ impl RichLabel {
         crate::state::bind_widget(&self.inner, s, true, move |v| me.set_markdown(v));
         self
     }
+}
+
+/// Links of a block: byte range, run range and URL of each (runs of one
+/// link joined).
+#[cfg(feature = "a11y")]
+fn link_groups(b: &Block) -> Vec<(std::ops::Range<usize>, std::ops::Range<usize>, std::sync::Arc<str>)> {
+    let mut out: Vec<(std::ops::Range<usize>, std::ops::Range<usize>, std::sync::Arc<str>)> = Vec::new();
+    let mut prev: Option<&std::sync::Arc<str>> = None;
+    for (ri, r) in b.content.runs().iter().enumerate() {
+        match (&r.style.link, out.last_mut()) {
+            (Some(u), Some(last)) if prev == Some(u) => {
+                last.0.end = r.range.end;
+                last.1.end = ri + 1;
+            }
+            (Some(u), _) => out.push((r.range.clone(), ri..ri + 1, u.clone())),
+            _ => {}
+        }
+        prev = r.style.link.as_ref();
+    }
+    out
 }
 
 fn ensure(d: &mut Data, width: i32, m: &mut dyn Metrics) {

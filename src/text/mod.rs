@@ -19,7 +19,13 @@
 //! tail of the last message; blocks that did not change keep their layout;
 //! the block that grew keeps the lines before the change; only blocks in
 //! view (plus half a view around) are laid out, the others use a height
-//! estimate. Nothing runs while idle.
+//! estimate. Nothing runs while idle. Blocks are stored packed (about
+//! 1.5 bytes per byte of dense Markdown, see `store`); only the blocks
+//! near the view exist as [`Block`]s with a layout.
+//!
+//! With the `a11y` feature a `RichText` is a Document for screen readers:
+//! the blocks near the view as Paragraph, Heading, List/ListItem, Code and
+//! Table nodes with their text and Link children (docs/ACCESSIBILITY.md).
 //!
 //! Limitations: no bidi reordering (each fragment is shaped by FLTK/Pango,
 //! so an Arabic run reads right to left, but lines fill left to right and

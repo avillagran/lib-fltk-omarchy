@@ -18,6 +18,10 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use unicode_segmentation::UnicodeSegmentation;
 
+#[cfg(feature = "a11y")]
+#[path = "access.rs"]
+mod access;
+
 const BAR: i32 = 4;
 
 /// A place in the document: block index and byte offset in its text.
@@ -107,6 +111,34 @@ impl Heights {
 
 // ---------------------------------------------------------------- state
 
+/// Hashes block indices (keys of the hot map) with one multiply.
+#[derive(Default, Clone, Copy)]
+struct BuildIndexHasher;
+
+#[derive(Default)]
+struct IndexHasher(u64);
+
+impl std::hash::Hasher for IndexHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+    fn write(&mut self, bytes: &[u8]) {
+        for b in bytes {
+            self.0 = (self.0.rotate_left(5) ^ *b as u64).wrapping_mul(0x517c_c1b7_2722_0a95);
+        }
+    }
+    fn write_usize(&mut self, n: usize) {
+        self.0 = (n as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15);
+    }
+}
+
+impl std::hash::BuildHasher for BuildIndexHasher {
+    type Hasher = IndexHasher;
+    fn build_hasher(&self) -> IndexHasher {
+        IndexHasher::default()
+    }
+}
+
 /// A block near the view: materialized from the store, with its layout.
 struct Hot {
     block: Block,
@@ -141,7 +173,7 @@ pub(super) struct Inner {
     store: Store,
     /// Blocks near the view (laid out, or about to be): at most about
     /// `LIVE_MAX`, keyed by block index.
-    hot: HashMap<usize, Box<Hot>>,
+    hot: HashMap<usize, Box<Hot>, BuildIndexHasher>,
     /// Gap above + height of each block.
     heights: Heights,
     width: i32,
@@ -174,7 +206,7 @@ impl Inner {
     fn new() -> Inner {
         Inner {
             store: Store::default(),
-            hot: HashMap::new(),
+            hot: HashMap::default(),
             heights: Heights::default(),
             width: 0,
             typo: theme::with(Typo::from_theme),
@@ -749,6 +781,8 @@ impl RichText {
         });
         let (inn, link) = (self.inner.clone(), self.link.clone());
         w.handle(move |w, ev| handle(w, &inn, &link, ev));
+        #[cfg(feature = "a11y")]
+        access::install(self);
     }
 
     // ------------------------------------------------------------ builders
@@ -1907,6 +1941,12 @@ fn activate_focus(w: &mut Widget, inn: &Rc<RefCell<Inner>>, link: &LinkFn) -> bo
     if let Some(code) = code {
         app::copy(&code);
         inn.borrow_mut().copied = Some((t.block(), Instant::now()));
+        let mut ww = w.clone();
+        app::add_timeout3(1.6, move |_| {
+            if !ww.was_deleted() {
+                ww.redraw()
+            }
+        });
     } else if let (Some(url), Some(f)) = (url, link.borrow_mut().as_mut()) {
         f(&url);
     }

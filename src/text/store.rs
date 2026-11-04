@@ -57,8 +57,8 @@ impl CRun {
 }
 
 fn color_code(c: Option<ColorRole>) -> u32 {
-    c.and_then(|c| ColorRole::ALL.iter().position(|x| *x == c))
-        .map_or(0, |i| i as u32 + 1)
+    // `ColorRole::ALL` is in declaration order.
+    c.map_or(0, |c| c as u32 + 1)
 }
 
 fn color_of(code: u32) -> Option<ColorRole> {
@@ -430,11 +430,6 @@ impl Store {
         }
     }
 
-    #[cfg_attr(not(feature = "a11y"), allow(dead_code))]
-    pub fn is_code(&self, i: usize) -> bool {
-        self.metas[i].kind() == K_CODE
-    }
-
     /// URL of the link of run `run` of block `i`.
     pub fn link(&self, i: usize, run: usize) -> Option<&str> {
         let mut k = 0;
@@ -462,13 +457,27 @@ impl Store {
             bits: header(b) | if wide { F_WIDE } else { 0 },
         };
         self.text.push_str(text);
-        let (words, urls) = encode_runs(b.content.runs());
-        for (w, r) in words.iter().zip(b.content.runs()) {
+        // Same words as `encode_runs`, without its two vectors.
+        let mut urls: Vec<&str> = Vec::new();
+        let mut prev: Option<&str> = None;
+        let runs = b.content.runs();
+        self.runs.reserve(runs.len() * if wide { 2 } else { 1 });
+        for r in runs {
+            let mut w = flag_bits(&r.style);
+            let link = r.style.link.as_deref();
+            if let Some(u) = link {
+                w |= LINK;
+                if prev != Some(u) {
+                    w |= LINK_START;
+                    urls.push(u);
+                }
+            }
+            prev = link;
             if wide {
-                self.runs.push(*w);
+                self.runs.push(w);
                 self.runs.push(off(r.range.end));
             } else {
-                self.runs.push(*w | (r.range.end as u32) << END_SHIFT);
+                self.runs.push(w | (r.range.end as u32) << END_SHIFT);
             }
         }
         if !urls.is_empty() {
@@ -617,18 +626,19 @@ impl Store {
         (self.metas[i].kind() == K_TABLE).then(|| self.aux(i).table())
     }
 
-    /// The links of block `i`: byte range, first run, URL.
+    /// The links of block `i`: byte range, run range, URL.
     #[cfg_attr(not(feature = "a11y"), allow(dead_code))]
-    pub fn links(&self, i: usize) -> Vec<(Range<usize>, usize, &str)> {
+    pub fn links(&self, i: usize) -> Vec<(Range<usize>, Range<usize>, &str)> {
         let aux = self.aux(i);
-        let mut out: Vec<(Range<usize>, usize, &str)> = Vec::new();
+        let mut out: Vec<(Range<usize>, Range<usize>, &str)> = Vec::new();
         let mut start = 0usize;
         for (ri, c) in self.runs(i).enumerate() {
             if c.link_start() {
-                out.push((start..c.end, ri, aux.url(out.len()).unwrap_or("")));
+                out.push((start..c.end, ri..ri + 1, aux.url(out.len()).unwrap_or("")));
             } else if c.link() {
                 if let Some(l) = out.last_mut() {
                     l.0.end = c.end;
+                    l.1.end = ri + 1;
                 }
             }
             start = c.end;
@@ -683,6 +693,9 @@ mod tests {
         assert!(!s.same(p, &other));
         let links: Vec<&str> = s.links(p).iter().map(|l| l.2).collect();
         assert_eq!(links, ["https://a.dev", "https://b.dev"]);
+        let (range, runs, _) = &s.links(p)[0];
+        assert_eq!(&blocks[p].text()[range.clone()], "a link");
+        assert_eq!(s.link(p, runs.start), Some("https://a.dev"));
         // Truncate and push again: the same bytes.
         let before = s.bytes();
         s.truncate(2);
@@ -731,5 +744,8 @@ mod tests {
             s.len()
         );
         assert_eq!(std::mem::size_of::<Meta>(), 16);
+        for (i, c) in ColorRole::ALL.iter().enumerate() {
+            assert_eq!(color_of(color_code(Some(*c))), Some(*c), "{i}");
+        }
     }
 }

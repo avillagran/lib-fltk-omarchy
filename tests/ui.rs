@@ -2132,4 +2132,114 @@ fn a11y_checks(run: &mut dyn FnMut(&str, Check)) {
         fltk::window::DoubleWindow::delete((*win).clone());
         Ok(())
     });
+    run("a11y: rich text is a document of the blocks near the view (roles, links, code, tables, stream, scroll)", &|shots| {
+        let opened = Rc::new(RefCell::new(Vec::<String>::new()));
+        let mut win = AppWindow::new("Chat", 560, 460);
+        let mut body = win.body();
+        let o = opened.clone();
+        let rt = RichText::new().stick_to_bottom(true).on_link(move |u| o.borrow_mut().push(u.into())).accessible_name("Conversation");
+        let o2 = opened.clone();
+        let mut row = layout::row();
+        row.fit(&*RichLabel::new("Saved **3 files** — [undo](app://undo)").on_link(move |u| o2.borrow_mut().push(u.into())));
+        row.close_fitted();
+        let _ = &mut body;
+        win.end();
+        for k in 0..2000 {
+            rt.append_markdown(&format!("Message {k} with a [link](https://x.dev/{k})."));
+        }
+        rt.append_markdown("# Title\n\nSome **bold** text and [docs](https://docs.dev).\n\n1. one\n2. two\n3. three\n\n- [x] done\n\n```rust\nfn main() {}\n```\n\n| a | b |\n|---|---|\n| 1 | 2 |\n");
+        win.snapshot(shots.join("a11y-richtext.png")).map_err(|e| e.to_string())?;
+        let rec = testing::record(&*win);
+        rec.sync();
+        let mut consumer = Consumer(None);
+        let full = consumer.feed(rec.take());
+        let snap = a11y::snapshot(&*win).unwrap();
+        std::fs::write(shots.join("a11y-richtext.txt"), &snap).map_err(|e| e.to_string())?;
+        for want in [
+            "Document \"Conversation\"", "Heading \"Title\" [level 1]", "Paragraph \"Some bold text and docs.\"", "Link \"docs\"",
+            "ListItem \"two\" [2 of 3, level 1]", "ListItem \"done\" [checked, 1 of 1, level 1]", "Code \"fn main() {}\" [desc \"rust\"]",
+            "Button \"Copy\"", "Table [2x2]", "ColumnHeader \"a\"", "Cell \"2\"", "Label = \"Saved 3 files — undo\"", "Link \"undo\"",
+        ] {
+            check(snap.contains(want), &format!("tree has {want:?}:\n{snap}"))?;
+        }
+        let paras = snap.lines().filter(|l| l.contains("Paragraph \"Message")).count();
+        check(paras > 0 && paras < 60, &format!("only the blocks near the view: {paras} of 2000 messages"))?;
+        let docs = rec.find(R::Link, "docs").ok_or("docs link")?;
+        check(rec.node(docs).and_then(|n| n.url().map(str::to_string)).as_deref() == Some("https://docs.dev"), "link URL")?;
+        // The document reads as text (AccessKit's text ranges over the runs below it).
+        {
+            let tree = consumer.0.as_ref().ok_or("tree")?;
+            let state = tree.state();
+            fn find<'a>(n: accesskit_consumer::NodeRef<'a>, role: R) -> Option<accesskit_consumer::NodeRef<'a>> {
+                if n.role() == role { return Some(n); }
+                n.children().find_map(|c| find(c, role))
+            }
+            let doc = find(state.root(), R::Document).ok_or("document node")?;
+            check(doc.supports_text_ranges(), "document supports text ranges")?;
+            let text = doc.document_range().text();
+            check(text.contains("Some bold text and docs.") && text.contains("fn main() {}") && !text.contains("Message 0 "), &format!("document text {:?}", &text[text.len().saturating_sub(200)..]))?;
+            let heading = find(doc, R::Heading).ok_or("heading")?;
+            check(heading.bounding_box().is_some_and(|b| b.y0 >= 0.0 && b.y1 <= 460.0), &format!("heading on screen: {:?}", heading.bounding_box()))?;
+        }
+        // Click on a link opens it as Enter would; on the copy button it copies.
+        rec.act(docs, A::Click, None);
+        check(opened.borrow().last().map(String::as_str) == Some("https://docs.dev"), &format!("AT click opens the link: {:?}", opened.borrow()))?;
+        rec.act(rec.find(R::Link, "undo").ok_or("label link")?, A::Click, None);
+        check(opened.borrow().last().map(String::as_str) == Some("app://undo"), "AT click on a RichLabel link")?;
+        rec.act(rec.find(R::Button, "Copy").ok_or("copy")?, A::Click, None);
+        consumer.feed(rec.take());
+        // Streaming into the last message updates only that block's nodes.
+        rt.append_markdown("Streaming");
+        win.snapshot(shots.join("a11y-richtext.png")).map_err(|e| e.to_string())?;
+        rec.sync();
+        consumer.feed(rec.take());
+        rt.push_markdown(" more words");
+        win.snapshot(shots.join("a11y-richtext.png")).map_err(|e| e.to_string())?;
+        rec.sync();
+        let ups = rec.take();
+        let changed: Vec<String> = ups.iter().flat_map(|u| u.nodes.iter().map(|(_, n)| format!("{:?} {:?}", n.role(), n.label().or(n.value())))).collect();
+        check(changed.iter().any(|c| c.contains("Streaming more words")), &format!("stream update: {changed:?}"))?;
+        let sent = consumer.feed(ups);
+        check(sent <= 8 && sent * 10 < full, &format!("a streamed token sends {sent} nodes (full tree {full}): {changed:?}"))?;
+        // Scrolling moves the document node, not every block.
+        let mut w = (*rt).clone();
+        let _ = w.take_focus();
+        press("Up");
+        win.snapshot(shots.join("a11y-richtext.png")).map_err(|e| e.to_string())?;
+        rec.sync();
+        let ups = rec.take();
+        let moved: Vec<String> = ups.iter().flat_map(|u| u.nodes.iter().map(|(_, n)| format!("{:?}", n.role()))).collect();
+        check(moved.iter().filter(|r| *r == "Paragraph").count() <= 4, &format!("a scroll resends few blocks: {moved:?}"))?;
+        consumer.feed(ups);
+        // ScrollIntoView on a block above the view scrolls to it.
+        let top = rt.scroll_offset();
+        let first = snap.lines().find(|l| l.contains("Paragraph \"Message")).ok_or("a message")?;
+        let name = first.trim().trim_start_matches("Paragraph ").trim_matches('"').to_string();
+        rec.act(rec.find(R::Paragraph, &name).ok_or("first message")?, A::ScrollIntoView, None);
+        check(rt.scroll_offset() < top, &format!("ScrollIntoView scrolled up: {top} -> {}", rt.scroll_offset()))?;
+        // Tab to a link: the AT focus follows it.
+        rt.scroll_to_bottom();
+        win.snapshot(shots.join("a11y-richtext.png")).map_err(|e| e.to_string())?;
+        let _ = w.take_focus();
+        press("Tab");
+        rec.sync();
+        consumer.feed(rec.take());
+        let f = consumer.focus_label();
+        check(f.as_deref() == rt.focused_link().map(|u| if u.contains("docs") { "docs".to_string() } else { "link".to_string() }).as_deref() || f.as_deref() == Some("Copy"), &format!("focus on the Tab target: {f:?} ({:?})", rt.focused_link()))?;
+        // Selection: the AT sees it on the document and can set it.
+        rt.select_all();
+        win.snapshot(shots.join("a11y-richtext.png")).map_err(|e| e.to_string())?;
+        rec.sync();
+        consumer.feed(rec.take());
+        let doc = rec.find(R::Document, "Conversation").ok_or("doc")?;
+        check(rec.node(doc).is_some_and(|n| n.text_selection().is_some()), "selection on the document")?;
+        let para = rec.find(R::Paragraph, "Some bold text and docs.").ok_or("para")?;
+        let run = rec.node(para).and_then(|n| n.children().iter().copied().find(|c| rec.node(*c).is_some_and(|r| r.role() == R::TextRun))).ok_or("run")?;
+        let pos = |c| accesskit::TextPosition { node: run, character_index: c };
+        rec.act(doc, A::SetTextSelection, Some(ActionData::SetTextSelection(accesskit::TextSelection { anchor: pos(5), focus: pos(9) })));
+        check(rt.selected_text() == "bold", &format!("AT selection: {:?}", rt.selected_text()))?;
+        consumer.feed(rec.take());
+        fltk::window::DoubleWindow::delete((*win).clone());
+        Ok(())
+    });
 }
