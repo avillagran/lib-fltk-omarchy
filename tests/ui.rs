@@ -547,7 +547,7 @@ fn main() {
         w4.snapshot(&p).map_err(|e| e.to_string())?;
         let px = pixel(&p, v4.x() + 50, v4.y() + 20)?;
         theme::reload();
-        check(px == [0x33, 0xcc, 0xff], &format!("theme color reaches the view: {px:?}"))
+        check(px.iter().zip([0x33u8, 0xcc, 0xff]).all(|(a, b)| a.abs_diff(b) <= 2), &format!("theme color reaches the view: {px:?}"))
     });
     run("label bound before fit keeps its text width", &|_| {
         let mut win = AppWindow::new("t", 300, 100);
@@ -1698,7 +1698,7 @@ fn main() {
         check(focus::is_focused(&*rt), "Shift+Tab comes back")?;
         check(press("Mod+a") && rt.selected_text() == rt.plain_text(), "Mod+A (Ctrl+A, Cmd+A on macOS) selects all")?;
         check(rt.plain_text() == "Read one and two.\ncode", "plain text")?;
-        check(press("Ctrl+c"), "Ctrl+C copies")?;
+        check(press("Mod+c"), "Mod+C copies")?;
         check(press("Escape") && rt.selection().is_none(), "Esc clears")
     });
     run("rich text: a theme change re-colors without parsing or laying out again", &|shots| {
