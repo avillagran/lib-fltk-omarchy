@@ -63,6 +63,8 @@ fn dispatch(ev: Event, win: app::WindowPtr) -> bool {
     let used = if ev == Event::KeyDown { route_key(win) } else { None };
     // SAFETY: `win` comes from fltk for this very event.
     let used = used.unwrap_or_else(|| unsafe { app::handle_raw(ev, win) });
+    // Pointer moves, clicks and keys show and hide tooltips.
+    crate::tooltip::track(ev, win);
     // A click, an overlay opened by a key, app code in a callback: the panel
     // focus is reported before the next event is dispatched.
     sync_panels(PanelFocusCause::Other);
@@ -72,6 +74,11 @@ fn dispatch(ev: Event, win: app::WindowPtr) -> bool {
 
 fn ptr<W: WidgetExt>(w: &W) -> usize {
     w.as_widget_ptr() as usize
+}
+
+/// Whether the keyboard router (and its event dispatcher) is installed.
+pub(crate) fn installed() -> bool {
+    INSTALLED.with(|i| i.get())
 }
 
 /// The widget that has keyboard focus (a control, not a window or group).
@@ -714,6 +721,22 @@ pub fn visible_in_window<W: WidgetExt>(w: &W) -> bool {
         p = g.parent();
     }
     true
+}
+
+/// Moves the pointer to window coordinates `(x, y)` of `window` (no
+/// button held) through fltk's normal event path: hover states and
+/// tooltips follow it (tests, scripted tours).
+pub fn hover_at<W: WindowExt>(window: &W, x: i32, y: i32) {
+    let win = window.as_widget_ptr() as app::WindowPtr;
+    // SAFETY: fltk's event globals are plain data, used on the UI thread.
+    unsafe {
+        FL_E_X = x;
+        FL_E_Y = y;
+        FL_E_X_ROOT = window.x() + x;
+        FL_E_Y_ROOT = window.y() + y;
+        FL_E_STATE = 0;
+    }
+    dispatch(Event::Move, win);
 }
 
 /// Sends a left click (press + release) at window coordinates `(x, y)` of

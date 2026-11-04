@@ -1,5 +1,5 @@
 //! Application runtime: fltk init on the UI thread, Omarchy theme applied
-//! and watched live (inotify on Linux, polling elsewhere), Omarchy-style tooltips, and the event loop
+//! and watched live (inotify on Linux, polling elsewhere), Omarchy tooltips ([`crate::tooltip`]), and the event loop
 //! that also runs work posted from background tasks.
 
 use crate::{task, theme};
@@ -35,8 +35,11 @@ impl App {
         crate::a11y::install();
         app::set_option(app::Option::ShowScaling, false);
         theme::set(theme::Theme::load());
+        // FLTK's own tooltip window stays styled for code that turns it
+        // back on; the toolkit draws tooltips itself ([`crate::tooltip`]).
         style_tooltips(&theme::current());
         theme::on_change(style_tooltips);
+        crate::tooltip::install();
         App { id: id.to_string(), _fltk: fltk, watcher: Some(ThemeWatcher::start()) }
     }
 
@@ -138,6 +141,7 @@ fn watch_loop(stop: Arc<AtomicBool>) {
         task::post(|| {
             theme::reload();
             crate::glass::reload();
+            crate::tooltip::reload_settings();
         });
     });
 }

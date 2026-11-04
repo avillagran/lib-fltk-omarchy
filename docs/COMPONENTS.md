@@ -480,6 +480,43 @@ Notification::show(&*win, glyph::WIFI, "Connected", "", Urgency::Low);
 Low hides after 5 s, Normal after 8 s, Critical stays until dismissed.
 **Keys:** Tab reaches a notification; Enter, Space, Delete or Esc dismiss it.
 
+## Tooltip
+
+![tooltip](components/tooltip.png)
+
+```rust
+let prefs = win.header().action(glyph::SETTINGS, "Preferences", || {}); // the tooltip
+win.header().action("\u{f0241}", "Actions", || {});
+body.fit(&*Button::new("Save").bordered().tooltip("Save the note"));
+// nothing else: hovering shows it (the picture: `tooltip::show(&*prefs)`)
+```
+
+Every tooltip is an Omarchy tooltip (omarchy-shell's `ToolTipSurface`),
+drawn by the toolkit inside the window: `[tooltip]` colors and border
+width of the theme, `bodySmall` text in the theme font, 10/6 padding, the
+theme corner radius (it follows `theme::set_corners`), plain text wrapped
+at 360 px. It is centered above the item, below it when there is no room
+(header actions), and stays inside the window; over a large widget (a
+canvas) it goes below the pointer. It shows after 400 ms; while one is up,
+and for 400 ms after it hides, the next one shows at once. A click, a key
+or the wheel hides it until the pointer leaves.
+
+Any widget gets it with no code: `.tooltip(..)`, `.bind_tooltip(..)`
+(relabels a shown tooltip on a language switch), `set_tooltip` on plain
+fltk widgets, and canvases that change `set_tooltip` per region while the
+pointer moves. `App::new` turns FLTK's own tooltip window off; an app
+that starts FLTK itself (`fltk::app::App`) gets the same from its first
+`theme::set`. Right to
+left, lines are right-aligned. Omarchy's shared tooltip settings
+(`~/.config/omarchy/tooltips.json`: `shape` theme/square/rounded,
+`borderMode` theme/transparent/custom, `borderColor`) are followed live.
+The tooltip stays the widget's accessible description; the surface itself
+is hidden from screen readers.
+
+`tooltip::show(&w)` / `tooltip::hide()` (a keyboard shortcut, tests),
+`tooltip::shown()` (text and rectangle), `tooltip::settings()` /
+`set_settings(..)`.
+
 ## OperationToast
 
 ![operation toast](components/operation-toast.png)
@@ -742,7 +779,7 @@ with an area limit and a time budget, and shape hit-testing: all in
 | notifications | `overlay::Notification` | `show(&win, glyph, summary, body, Urgency::..)`, `count()` |
 | operations tray | `popups::OperationToast` | `show(&win, title)`, `.on_pause()`, `.on_cancel()`, `set_progress`, `set_detail`, `focus()`, `close()` |
 | F1 help | `popups::ShortcutHelp` | `open(&win, title, sections)` |
-| PanelToolTip | fltk tooltips | styled globally; `.tooltip()` / `set_tooltip` |
+| PanelToolTip | `tooltip` | automatic for `.tooltip()` / `.bind_tooltip()` / `set_tooltip`; `show(&w)`, `hide()`, `shown()`, `settings()`, `set_settings(..)` |
 | custom visuals | `gfx::View`, `gfx::Path`, `gfx::Paint`, `gfx::sl` | `View::new(w, h).paint(\|c, u\| ..)` / `.shader(sl::Shader)` / `.animate(Rate::Display)` / `.hit_shape(Hit::Fill(path))` / `.on_click(f)` — [SHADERS.md](SHADERS.md) |
 | window | `AppWindow` | `new`, `header().action(..)`, `body()`, `end()`, `show()`, `set_mode()`, `shortcut()`, `snapshot()` |
 

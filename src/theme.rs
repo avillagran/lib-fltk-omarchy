@@ -44,7 +44,13 @@ impl Rgb {
         Rgb((mix(self.r(), bg.r()) << 16) | (mix(self.g(), bg.g()) << 8) | mix(self.b(), bg.b()))
     }
 
+    /// As an FLTK color. Pure black is FLTK's `Color::Black`: the raw RGB
+    /// value 0 would be colormap entry 0, the foreground the theme sets
+    /// (a black theme background would paint in the text color).
     pub fn fl(self) -> Color {
+        if self.0 & 0xff_ffff == 0 {
+            return Color::Black;
+        }
         Color::from_rgb(self.r(), self.g(), self.b())
     }
 
@@ -736,7 +742,10 @@ pub fn with<R>(f: impl FnOnce(&Theme) -> R) -> R {
 }
 
 /// Makes `theme` active: FLTK colormap, default fonts, every window redrawn.
+/// The first call on the UI thread also installs [`crate::tooltip`].
 pub fn set(theme: Theme) {
+    // Apps that start FLTK themselves get Omarchy tooltips with the theme.
+    crate::tooltip::auto_install();
     GENERATION.with(|g| g.set(g.get() + 1));
     let theme = theme.with_prefs();
     apply_to_fltk(&theme);

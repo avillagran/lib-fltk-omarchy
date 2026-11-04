@@ -27,6 +27,7 @@ pub(crate) fn theme_paths() -> Vec<PathBuf> {
         theme.join("shell.toml"),
         theme.join("alacritty.toml"),
         crate::theme::user_shell_toml(),
+        crate::tooltip::settings_path(),
         toggles.join("window-opaque.lua"),
         toggles.join("window-glassy.lua"),
     ]
