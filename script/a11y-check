@@ -26,7 +26,7 @@ gdbus call --session --dest org.a11y.Bus --object-path /org/a11y/bus \
 /usr/lib/at-spi2-registryd >/dev/null 2>&1 &
 REG=$!
 sleep 0.5
-"$BIN" 40 >"$OUT/app.log" 2>&1 &
+OMARCHY_FLTK_A11Y_DEBUG=1 "$BIN" 40 >"$OUT/app.log" 2>&1 &
 APP=$!
 python3 -I "$ROOT/script/a11y_atspi.py" "$OUT/app.log" || true
 kill "$APP" "$REG" 2>/dev/null || true

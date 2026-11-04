@@ -41,6 +41,7 @@ thread_local! {
     static INSERTS: Cell<u32> = const { Cell::new(0) };
     static INSTALLED: Cell<bool> = const { Cell::new(false) };
     static ADAPTERS_OFF: Cell<bool> = const { Cell::new(false) };
+    static DEBUG: Cell<bool> = const { Cell::new(false) };
     static WINDOWS: RefCell<Vec<WinState>> = const { RefCell::new(Vec::new()) };
     static DIRTY: Cell<bool> = const { Cell::new(false) };
     static LAST_FOCUS: Cell<usize> = const { Cell::new(0) };
@@ -244,6 +245,7 @@ pub(crate) fn install() {
     let off = std::env::var("OMARCHY_FLTK_A11Y")
         .is_ok_and(|v| matches!(v.trim(), "0" | "off" | "false" | "no"));
     ADAPTERS_OFF.with(|o| o.set(off));
+    DEBUG.with(|d| d.set(std::env::var_os("OMARCHY_FLTK_A11Y_DEBUG").is_some()));
     app::add_check(|_| check());
 }
 
@@ -351,12 +353,21 @@ fn sync(s: &mut WinState) {
         // Read inside the factory: the adapter holds its lock, so a
         // concurrent (re)activation is either seen here or comes after.
         let gen = shared.generation.load(Ordering::SeqCst);
+        let t0 = std::time::Instant::now();
         let built = tree::build(win);
+        let debug = DEBUG.with(|d| d.get());
         *routes = built.routes;
         let focus = ak::NodeId(built.focus);
         if gen != *seen {
             *seen = gen;
             *sent = built.nodes.iter().cloned().collect();
+            if debug {
+                eprintln!(
+                    "a11y: full tree {} nodes in {} us",
+                    built.nodes.len(),
+                    t0.elapsed().as_micros()
+                );
+            }
             let mut t = ak::TreeInfo::new(ak::NodeId(built.root));
             t.toolkit_name = Some("lib-fltk-omarchy".into());
             t.toolkit_version = Some(env!("CARGO_PKG_VERSION").into());
@@ -376,6 +387,14 @@ fn sync(s: &mut WinState) {
             next.insert(id, n);
         }
         *sent = next;
+        if debug {
+            eprintln!(
+                "a11y: update {} of {} nodes in {} us",
+                changed.len(),
+                sent.len(),
+                t0.elapsed().as_micros()
+            );
+        }
         ak::TreeUpdate {
             nodes: changed,
             tree: None,

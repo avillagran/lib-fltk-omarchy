@@ -35,7 +35,7 @@ pub(crate) enum Adapter {
 /// Activation callbacks shared by the adapters: no tree is built here (the
 /// UI thread builds it at its next loop turn); the generation tells the
 /// next update to be a full tree.
-struct Activate(Arc<Activation>);
+pub(crate) struct Activate(Arc<Activation>);
 
 impl ak::ActivationHandler for Activate {
     fn request_initial_tree(&mut self) -> Option<ak::TreeUpdate> {
@@ -46,8 +46,22 @@ impl ak::ActivationHandler for Activate {
     }
 }
 
+#[cfg(any(
+    target_os = "linux",
+    target_os = "freebsd",
+    target_os = "openbsd",
+    target_os = "netbsd",
+    target_os = "dragonfly"
+))]
 struct Deactivate(Arc<Activation>);
 
+#[cfg(any(
+    target_os = "linux",
+    target_os = "freebsd",
+    target_os = "openbsd",
+    target_os = "netbsd",
+    target_os = "dragonfly"
+))]
 impl ak::DeactivationHandler for Deactivate {
     fn deactivate_accessibility(&mut self) {
         self.0.active.store(false, Ordering::SeqCst);
@@ -83,7 +97,7 @@ impl Adapter {
         return windows::Subclass::new(win, Activate(shared)).map(Adapter::Windows);
         #[cfg(target_os = "macos")]
         {
-            use fltk::prelude::WindowExt;
+            use fltk::prelude::WidgetExt;
             let win = win.as_window()?;
             let handle = win.raw_handle();
             if handle.is_null() {
@@ -92,7 +106,7 @@ impl Adapter {
             // SAFETY: `handle` is the live NSWindow of a shown fltk window.
             let a = unsafe {
                 accesskit_macos::SubclassingAdapter::for_window(
-                    handle as *mut std::ffi::c_void,
+                    handle,
                     Activate(shared),
                     Actions,
                 )
@@ -192,7 +206,7 @@ mod windows {
     //! HWND when it shows the window, so the subclass is installed here.
     use super::*;
     use accesskit_windows::{HWND, LPARAM, LRESULT, WPARAM};
-    use fltk::prelude::WindowExt;
+    use fltk::prelude::WidgetExt;
     use std::collections::HashMap;
 
     const GWLP_WNDPROC: i32 = -4;
@@ -274,7 +288,7 @@ mod windows {
             let adapter = accesskit_windows::Adapter::new(hwnd, false, Actions);
             // SAFETY: `hwnd` is the live window of this thread; the previous
             // procedure is kept and called for every message.
-            let prev = unsafe { SetWindowLongPtrW(hwnd, GWLP_WNDPROC, proc as usize as isize) };
+            let prev = unsafe { SetWindowLongPtrW(hwnd, GWLP_WNDPROC, proc as *const () as isize) };
             if prev == 0 {
                 return None;
             }
