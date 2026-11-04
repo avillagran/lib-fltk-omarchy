@@ -22,6 +22,7 @@ it behaves exactly as before the platform layer.
 | `Mode::Floating` header drag / corner resize | compositor (`xdg_toplevel.move/resize` via libdecor) | Hyprland IPC, else FLTK moves/resizes the window | FLTK moves/resizes the window | FLTK moves/resizes the window |
 | `Mode::Floating` at map | Hyprland IPC | Hyprland IPC | the OS window is already floating | same |
 | Glassy windows (`glass`) | translucent surfaces, Hyprland blurs | opaque | opaque | opaque |
+| `native::pixels_per_unit` | FLTK scale × Wayland output scale | FLTK scale | FLTK's value (Retina included) | FLTK's value |
 | Config/state/cache dirs (`platform::dirs`) | XDG | XDG | `~/Library/Application Support`, `~/Library/Caches` | `%APPDATA%`, `%LOCALAPPDATA%` |
 | GPU shaders (`gpu` feature) | yes | yes | builds (OpenGL through FLTK) | builds (OpenGL through FLTK) |
 
@@ -129,7 +130,7 @@ CARGO_CHECK=1 cargo check --target aarch64-apple-darwin --all-targets --features
 - `script/real-window`, `examples/glass_check` and the bench scripts are
   Linux + Hyprland tools.
 
-## What was verified (2026-11-04, branch of 0.0.10)
+## What was verified (2026-11-04, on main a967007)
 
 On Linux (Omarchy, Hyprland 0.56.2):
 
@@ -138,11 +139,16 @@ On Linux (Omarchy, Hyprland 0.56.2):
 | `cargo test` with a Wayland display | 41 unit, 31 UI, 9 doc: pass |
 | `cargo test` under Xvfb (X11 backend) | 41 unit, 31 UI, 9 doc: pass |
 | `cargo test --features gpu` (Wayland) | 41 unit, 31 UI, 10 doc: pass |
-| `script/real-window` (real Wayland window, hidden workspace) | pass: Wayland backend, input, task cancel, live theme reload through inotify, Hyprland floating, 0.0016 s CPU over 3 s idle |
+| `script/real-window` (real Wayland window, hidden workspace) | pass: Wayland backend, input, task cancel, live theme reload through inotify, Hyprland floating, 0.0012 s CPU over 3 s idle |
 | `examples/glass_check` with Glassy on (real Wayland window) | pass: surfaces alpha 166 (0.65), text alpha 255, opaque region restored |
 | `examples/popup_damage` under Xvfb (X11) | pass |
 | `script/x11-check` (X11, no Wayland, no Hyprland) | pass: header drag moved the window by (150, 80); corner drag resized 420×300 → 480×340 |
-| `CARGO_CHECK=1 cargo check/clippy --all-targets` (with and without `gpu`) for `x86_64-pc-windows-msvc`, `x86_64-pc-windows-gnu`, `x86_64-apple-darwin`, `aarch64-apple-darwin` | pass, no new warnings |
+| `CARGO_CHECK=1 cargo check/clippy --all-targets` (with and without `gpu`) for `x86_64-pc-windows-msvc`, `x86_64-pc-windows-gnu`, `x86_64-apple-darwin`, `aarch64-apple-darwin` | pass, no warnings |
+| `tests/ui.rs` without any display | skipped with a message, exit 0 |
+| `examples/docs_shots`, main vs this change, same machine | 23 of 23 pictures byte-identical |
+| Files (`~/Work/files` copy with this crate as its vendored toolkit) | `cargo check --workspace --all-targets` pass; `cargo test --workspace` 1629 passed, 0 failed |
+| clippy, Linux, `--all-targets --features gpu` | same warnings per file as main; none in new code |
+| `examples/bench_minimal` release size | 1 275 208 → 1 280 968 bytes (+5 760, +0.45 %) |
 
 Not verified locally: building FLTK's C++ and linking for macOS and
 Windows (no Apple SDK or MinGW/MSVC toolchain on the Linux machine), and

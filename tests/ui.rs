@@ -1340,6 +1340,10 @@ fn main() {
         std::fs::write(dir.join("colors.toml"), COLORS_B).unwrap();
         check(theme::set_theme_dir(Some(dir.clone())) && theme::current().palette.accent == theme::Rgb(0x33ccff), "set_theme_dir applies it")?;
         check(theme::theme_dir() == dir, "theme_dir reports it")?;
+        // The watcher follows the new directory (inotify on Linux, polling elsewhere).
+        std::fs::write(dir.join("colors.toml"), COLORS_A.replace("#e68e0d", "#123456")).unwrap();
+        pump_until(|| theme::current().palette.accent == theme::Rgb(0x123456));
+        check(theme::current().palette.accent == theme::Rgb(0x123456), "an edit in the new directory is followed live")?;
         check(theme::set_theme_dir(None) && theme::current().palette.accent == theme::Rgb(0xe68e0d), "None goes back to the Omarchy theme")
     });
     drop(app);

@@ -346,6 +346,7 @@ blue = "#7aa2f7"
 magenta = "#bb9af7"
 cyan = "#7dcfff"
 "##;
+
 /// Light counterpart of [`FALLBACK_COLORS`] (Tokyo Night Day), used when
 /// the OS asks for light windows and no theme files exist.
 pub const FALLBACK_LIGHT_COLORS: &str = r##"

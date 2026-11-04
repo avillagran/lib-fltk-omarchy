@@ -340,7 +340,8 @@ pub(super) fn watch_theme(stop: Arc<AtomicBool>, changed: &dyn Fn()) {
     let state = crate::theme::omarchy_state_dir();
     let user = crate::theme::user_shell_toml();
     add(&state);
-    let mut theme_wd = add(&crate::theme::theme_dir());
+    let mut theme_path = crate::theme::theme_dir();
+    let mut theme_wd = add(&theme_path);
     if let Some(dir) = user.parent() {
         add(dir);
     }
@@ -388,12 +389,20 @@ pub(super) fn watch_theme(stop: Arc<AtomicBool>, changed: &dyn Fn()) {
                 }
             }
         }
+        // `theme::set_theme_dir` may point somewhere else now: watch it.
+        let now = crate::theme::theme_dir();
+        if now != theme_path {
+            unsafe { libc::inotify_rm_watch(fd, theme_wd) };
+            theme_wd = add(&now);
+            theme_path = now;
+        }
         if let Some(t0) = pending {
             if t0.elapsed() >= Duration::from_millis(150) {
                 pending = None;
                 // The theme directory may have been replaced: watch the new one.
                 unsafe { libc::inotify_rm_watch(fd, theme_wd) };
-                theme_wd = add(&crate::theme::theme_dir());
+                theme_path = crate::theme::theme_dir();
+                theme_wd = add(&theme_path);
                 if toggles_wd < 0 {
                     toggles_wd = add(&toggles);
                 }
