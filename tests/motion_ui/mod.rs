@@ -27,8 +27,15 @@ fn shot(win: &AppWindow, dir: &Path, name: &str) -> Result<PathBuf, String> {
     Ok(p)
 }
 
+/// Same pixels, within 2 levels per channel: Windows' GDI blit rounds
+/// blended (veiled, transparent) colors by one.
 fn same(a: &Path, b: &Path) -> Result<bool, String> {
-    Ok(png_rgb(a)?.raw == png_rgb(b)?.raw)
+    let (a, b) = (png_rgb(a)?, png_rgb(b)?);
+    Ok(close(&a.raw, &b.raw))
+}
+
+fn close(a: &[u8], b: &[u8]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).all(|(x, y)| x.abs_diff(*y) <= 2)
 }
 
 /// Same pixels from row `y0` down.
@@ -36,7 +43,7 @@ fn same_from(a: &Path, b: &Path, y0: i32) -> Result<bool, String> {
     let (a, b) = (png_rgb(a)?, png_rgb(b)?);
     let line = a.w * a.depth + 1;
     let from = (y0.max(0) as usize * line).min(a.raw.len());
-    Ok(a.raw.len() == b.raw.len() && a.raw[from..] == b.raw[from..])
+    Ok(a.raw.len() == b.raw.len() && close(&a.raw[from..], &b.raw[from..]))
 }
 
 fn ms(n: u64) {
