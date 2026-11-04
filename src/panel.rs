@@ -36,6 +36,9 @@
 //! | Ctrl+A | select everything |
 //! | Enter | `on_activate(cursor)` |
 //!
+//! Ctrl in this table is the platform's primary modifier
+//! ([`crate::keys::PRIMARY`]): Cmd on macOS, Ctrl elsewhere.
+//!
 //! At an edge (Up on the first row, Left on the first column…) the key goes
 //! to `on_edge`, then to the arrow scopes and window shortcuts. `on_key`
 //! sees every key first and can take it.
@@ -448,10 +451,12 @@ impl KeyboardPanel {
                 return true;
             }
         }
-        if mods.intersects(Shortcut::Alt | Shortcut::Meta) {
+        // Ctrl here is the platform's primary modifier (Cmd on macOS).
+        let primary = crate::keys::PRIMARY;
+        if mods.intersects((Shortcut::Alt | Shortcut::Ctrl | Shortcut::Meta).difference(primary)) {
             return false;
         }
-        let ctrl = mods.contains(Shortcut::Ctrl);
+        let ctrl = mods.contains(primary);
         let shift = mods.contains(Shortcut::Shift);
         let len = self.len();
         if ctrl && !shift && k == Key::from_char('a') {
@@ -548,9 +553,9 @@ mod tests {
         p.handle_key(Key::Down, Shortcut::Shift);
         p.handle_key(Key::Down, Shortcut::Shift);
         assert_eq!(p.selection(), vec![114, 121, 128]);
-        p.handle_key(Key::Down, Shortcut::Ctrl); // cursor only
+        p.handle_key(Key::Down, crate::keys::PRIMARY); // cursor only
         assert_eq!((p.cursor_index(), p.selection_len()), (Some(5), 3));
-        p.handle_key(Key::from_char(' '), Shortcut::Ctrl);
+        p.handle_key(Key::from_char(' '), crate::keys::PRIMARY);
         assert_eq!(p.selection(), vec![114, 121, 128, 135]);
         p.handle_key(Key::End, N);
         assert_eq!(p.selection(), vec![163]);
@@ -558,9 +563,9 @@ mod tests {
         assert!(!p.handle_key(Key::Left, N), "Left is an edge in a list");
         p.invert_selection();
         assert_eq!(p.selection_len(), 9);
-        p.handle_key(Key::from_char('a'), Shortcut::Ctrl);
+        p.handle_key(Key::from_char('a'), crate::keys::PRIMARY);
         assert_eq!(p.selection_len(), 10);
-        assert!(!p.handle_key(Key::Tab, Shortcut::Ctrl), "Ctrl+Tab is not a panel key");
+        assert!(!p.handle_key(Key::Tab, crate::keys::PRIMARY), "Ctrl+Tab is not a panel key");
     }
 
     #[test]

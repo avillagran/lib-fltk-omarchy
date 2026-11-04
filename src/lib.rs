@@ -10,6 +10,7 @@ pub mod list;
 pub mod native;
 pub mod overlay;
 pub mod paint;
+pub mod platform;
 pub mod panel;
 pub mod png;
 pub mod popups;

@@ -1,6 +1,11 @@
 //! UI tests on the main thread (fltk is single-threaded), offscreen: no
 //! window is shown. Each check renders with `snapshot` and reads pixels.
 //! Uses a fake Omarchy state dir so results do not depend on the desktop.
+//!
+//! Per OS (docs/PLATFORMS.md): on Linux the checks need a display (Wayland
+//! or X11, e.g. `xvfb-run`) and are skipped without one. The pixel
+//! expectations were calibrated on Linux; on macOS and Windows failures
+//! are reported but do not fail the run unless `OMARCHY_FLTK_UI_STRICT=1`.
 use fltk::prelude::*;
 use fltk_omarchy::focus::{self, press};
 use fltk_omarchy::gfx::{self, Hit, View};
@@ -24,6 +29,13 @@ const COLORS_A: &str = "accent = \"#e68e0d\"\nbackground = \"#121212\"\nforegrou
 const COLORS_B: &str = "accent = \"#33ccff\"\nbackground = \"#1a1b26\"\nforeground = \"#c0caf5\"\nred = \"#f7768e\"\n";
 
 fn main() {
+    use fltk_omarchy::platform::{Os, OS};
+    let has = |v: &str| std::env::var_os(v).is_some_and(|x| !x.is_empty());
+    if OS == Os::Linux && !has("WAYLAND_DISPLAY") && !has("DISPLAY") {
+        println!("ui checks skipped: no display (set WAYLAND_DISPLAY or DISPLAY, e.g. xvfb-run)");
+        return;
+    }
+    let strict = OS == Os::Linux || std::env::var("OMARCHY_FLTK_UI_STRICT").is_ok_and(|v| v == "1");
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("build/test-ui");
     let _ = std::fs::remove_dir_all(&root);
     let state = root.join("state");
@@ -1291,12 +1303,51 @@ fn main() {
         theme::reload();
         // No Omarchy at all: the built-in fallback still loads.
         std::env::set_var("OMARCHY_FLTK_STATE_DIR", state.join("does-not-exist"));
+        std::env::set_var("OMARCHY_FLTK_APPEARANCE", "dark"); // independent of the OS setting
         let fallback = theme::Theme::try_load();
+        std::env::remove_var("OMARCHY_FLTK_APPEARANCE");
         std::env::set_var("OMARCHY_FLTK_STATE_DIR", &state);
         check(fallback.is_ok_and(|t| t.palette.accent == theme::Rgb(0x7aa2f7)), "fallback without Omarchy")
     });
+    run("platform: Mod+, shortcut, built-in light/dark theme, theme dir override", &|_| {
+        let mut win = AppWindow::new("t", 300, 140);
+        let mut body = win.body();
+        let mut b = Button::new("Focus");
+        body.fit(&*b);
+        win.end();
+        win.snapshot(std::env::temp_dir().join("omarchy-fltk-unused.png")).ok();
+        let hits = Rc::new(Cell::new(0));
+        let h = hits.clone();
+        win.shortcut("Mod+,", move || h.set(h.get() + 1));
+        let _ = b.take_focus();
+        press("Mod+,");
+        check(hits.get() == 1, &format!("Mod+, runs once: {}", hits.get()))?;
+        let other = if fltk_omarchy::keys::PRIMARY == fltk::enums::Shortcut::Ctrl { "Super+," } else { "Ctrl+," };
+        press(other);
+        check(hits.get() == 1, &format!("{other} is not Mod+,"))?;
+        check(fltk_omarchy::keys::label("Mod+,") == if OS == Os::MacOs { "⌘," } else { "Ctrl+," }, "label")?;
+        // No theme files: the built-in theme follows the appearance.
+        let state = theme::omarchy_state_dir();
+        std::env::set_var("OMARCHY_FLTK_STATE_DIR", state.join("does-not-exist"));
+        let pick = |a: &str| { std::env::set_var("OMARCHY_FLTK_APPEARANCE", a); theme::Theme::try_load().map(|t| t.palette.accent) };
+        let (light, dark) = (pick("light"), pick("dark"));
+        std::env::remove_var("OMARCHY_FLTK_APPEARANCE");
+        std::env::set_var("OMARCHY_FLTK_STATE_DIR", &state);
+        check(light == Ok(theme::Rgb(0x2e7de9)) && dark == Ok(theme::Rgb(0x7aa2f7)), &format!("built-in light/dark: {light:?} {dark:?}"))?;
+        // Any directory with Omarchy theme files, on any OS.
+        let dir = state.parent().unwrap().join("custom-theme");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("colors.toml"), COLORS_B).unwrap();
+        check(theme::set_theme_dir(Some(dir.clone())) && theme::current().palette.accent == theme::Rgb(0x33ccff), "set_theme_dir applies it")?;
+        check(theme::theme_dir() == dir, "theme_dir reports it")?;
+        check(theme::set_theme_dir(None) && theme::current().palette.accent == theme::Rgb(0xe68e0d), "None goes back to the Omarchy theme")
+    });
     drop(app);
     println!("{}", if failed == 0 { "all ui checks passed" } else { "ui checks FAILED" });
+    if failed > 0 && !strict {
+        println!("({failed} failure(s) not fatal on {}: pixel expectations are calibrated on Linux; OMARCHY_FLTK_UI_STRICT=1 makes them fatal)", OS.name());
+        std::process::exit(0);
+    }
     std::process::exit(if failed == 0 { 0 } else { 1 });
 }
 

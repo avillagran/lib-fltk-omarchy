@@ -23,7 +23,9 @@ fn s(t: &theme::Theme, px: f64) -> i32 {
 pub struct PopupItem {
     pub icon: String,
     pub label: String,
-    /// Shortcut hint shown dimmed on the right ("Ctrl+C").
+    /// Shortcut hint shown dimmed on the right ("Ctrl+C"), as given to
+    /// [`PopupItem::shortcut`]: specs with `Mod` are shown the platform's
+    /// way ([`crate::keys::label`]).
     pub shortcut: String,
     pub enabled: bool,
     /// Shows "✓" on the right (radio/check entries).
@@ -36,7 +38,7 @@ impl PopupItem {
     pub fn new(icon: &str, label: &str) -> PopupItem {
         PopupItem { icon: icon.into(), label: label.into(), shortcut: String::new(), enabled: true, checked: false, divider: false }
     }
-    pub fn shortcut(mut self, s: &str) -> Self { self.shortcut = s.into(); self }
+    pub fn shortcut(mut self, s: &str) -> Self { self.shortcut = crate::keys::label(s); self }
     pub fn checked(mut self, on: bool) -> Self { self.checked = on; self }
     pub fn disabled(mut self) -> Self { self.enabled = false; self }
     pub fn divider(mut self) -> Self { self.divider = true; self }
@@ -612,8 +614,12 @@ fn open_search(trigger: &mut Widget, options: &Rc<Vec<(String, String)>>, value:
 pub struct ShortcutHelp;
 
 impl ShortcutHelp {
-    /// `sections`: (title, [(keys, description)]).
+    /// `sections`: (title, [(keys, description)]). Keys with `Mod` are
+    /// shown the platform's way ([`crate::keys::label`]: "Ctrl+," on Linux
+    /// and Windows, "⌘," on macOS).
     pub fn open<A: WidgetExt>(anchor: &A, title: &str, sections: Vec<(String, Vec<(String, String)>)>) -> ShortcutHelpHandle {
+        let sections: Vec<(String, Vec<(String, String)>)> =
+            sections.into_iter().map(|(s, rows)| (s, rows.into_iter().map(|(k, d)| (crate::keys::label(&k), d)).collect())).collect();
         let none = || ShortcutHelpHandle { scroll: Rc::default(), extent: Rc::default() };
         let Some(mut layer) = open_layer(anchor, None, true) else { return none() };
         let scroll = Rc::new(Cell::new(0i32));

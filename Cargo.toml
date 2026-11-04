@@ -16,11 +16,19 @@ readme = "README.md"
 name = "fltk_omarchy"
 
 [dependencies]
-fltk = { version = "=1.5.23", features = ["use-wayland", "no-images"] }
-libc = "0.2"
+fltk = { version = "=1.5.23", features = ["no-images"] }
 serde_json = "1"
 # Only with the `gpu` feature (MIT OR Apache-2.0 OR Zlib).
 glow = { version = "0.16", optional = true }
+
+# Linux: FLTK's hybrid Wayland + X11 backend (one fltk-sys build; features
+# of the same dependency are merged per target). macOS and Windows use
+# FLTK's Cocoa and WinAPI backends. See docs/PLATFORMS.md.
+[target.'cfg(target_os = "linux")'.dependencies]
+fltk = { version = "=1.5.23", features = ["use-wayland", "no-images"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 [features]
 default = []

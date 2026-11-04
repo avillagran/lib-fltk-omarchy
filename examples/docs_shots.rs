@@ -175,7 +175,7 @@ fn main() {
     PopupMenu::open(&*actions, vec![
         PopupItem::new(glyph::FOLDER, "Open").shortcut("Enter"),
         PopupItem::new(glyph::SEARCH, "Preview").shortcut("Space").divider(),
-        PopupItem::new(glyph::FILE, "Copy").shortcut("Ctrl+C"),
+        PopupItem::new(glyph::FILE, "Copy").shortcut("Mod+C"),
         PopupItem::new(glyph::FILE, "Show hidden files").checked(true),
         PopupItem::new(glyph::TRASH, "Move to trash").shortcut("Delete").disabled(),
     ], |i| println!("picked {i}"));
@@ -239,7 +239,7 @@ fn main() {
     ShortcutHelp::open(&win, "Keyboard shortcuts", vec![
         ("Move".into(), vec![row("Tab", "Next control"), row("Shift+Tab", "Previous control"), row("Ctrl+Tab", "Next tab")]),
         ("Files".into(), vec![row("Enter", "Open"), row("F2", "Rename"), row("Delete", "Move to trash")]),
-        ("Window".into(), vec![row("Ctrl+,", "Preferences"), row("F10", "Actions"), row("F1", "This help")]),
+        ("Window".into(), vec![row("Mod+,", "Preferences"), row("F10", "Actions"), row("F1", "This help")]),
     ]);
     save(&mut win, &dir, "shortcut-help");
 

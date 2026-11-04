@@ -345,7 +345,7 @@ fn table_handle(w: &mut Widget, ev: Event, st: &Rc<RefCell<TState>>) -> bool {
             }
             let (row, panel) = { let s = st.borrow(); (row_at(&s), s.panel.clone()) };
             if let Some(id) = row.and_then(|r| panel.id_at(r)) {
-                panel.click(id, app::is_event_ctrl(), app::is_event_shift());
+                panel.click(id, crate::keys::primary_held(), app::is_event_shift());
                 if app::event_clicks() {
                     panel.activate(id);
                 }
@@ -680,7 +680,7 @@ fn tree_handle(w: &mut Widget, ev: Event, st: &Rc<RefCell<TrState>>) -> bool {
                 panel.focus();
                 return true;
             }
-            panel.click(v.node.id, app::is_event_ctrl(), app::is_event_shift());
+            panel.click(v.node.id, crate::keys::primary_held(), app::is_event_shift());
             if app::event_clicks() {
                 if v.node.has_children { tree.toggle(v.node.id) } else { panel.activate(v.node.id) }
             }
