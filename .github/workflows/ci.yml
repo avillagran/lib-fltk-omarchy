@@ -121,9 +121,10 @@ jobs:
         run: cargo clippy --locked --all-targets -- -D clippy::correctness -D clippy::suspicious
       - name: build
         run: cargo build --locked --all-targets
-      # UI pixel checks are calibrated on Linux: failures are reported, not
-      # fatal, here (tests/ui.rs; OMARCHY_FLTK_UI_STRICT=1 makes them fatal).
       - name: tests
+        env:
+          # Every UI check passes here too: pixel differences fail the run.
+          OMARCHY_FLTK_UI_STRICT: "1"
         run: cargo test --locked
       - name: gpu feature
         run: cargo build --locked --all-targets --features gpu
@@ -146,6 +147,9 @@ jobs:
       - name: build
         run: cargo build --locked --all-targets
       - name: tests
+        env:
+          # Every UI check passes here too: pixel differences fail the run.
+          OMARCHY_FLTK_UI_STRICT: "1"
         run: cargo test --locked
       - name: gpu feature
         run: cargo build --locked --all-targets --features gpu

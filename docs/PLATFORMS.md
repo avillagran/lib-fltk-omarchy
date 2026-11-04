@@ -119,8 +119,9 @@ CARGO_CHECK=1 cargo check --target aarch64-apple-darwin --all-targets --features
 
 - `cargo test` runs unit, doc and UI tests. `tests/ui.rs` needs a display
   on Linux (Wayland or X11, e.g. `xvfb-run`) and is skipped without one.
-  Its pixel expectations are calibrated on Linux; on macOS and Windows
-  failures are printed but not fatal unless `OMARCHY_FLTK_UI_STRICT=1`.
+  Its pixel expectations hold on every OS; run locally on macOS and
+  Windows, failures are printed but not fatal unless
+  `OMARCHY_FLTK_UI_STRICT=1` (CI sets it).
 - `script/x11-check` runs `examples/platform_check` in an isolated Xvfb
   display with FLTK's X11 backend and drags its header and corner with
   XTest (only on that Xvfb display): the window must follow through the
@@ -129,6 +130,17 @@ CARGO_CHECK=1 cargo check --target aarch64-apple-darwin --all-targets --features
   Wayland, Hyprland, appearance, font, dirs, primary modifier) on any OS.
 - `script/real-window`, `examples/glass_check` and the bench scripts are
   Linux + Hyprland tools.
+
+## CI (GitHub Actions, 2026-11-04)
+
+`.github/workflows/ci.yml` passes on every job: Linux X11 (Xvfb), Linux
+Wayland (headless sway: FLTK 1.5.23 crashed in its `output_done` callback
+under weston 14 `--backend=headless`), macOS (arm64), Windows (MSVC) and the
+cross-target type check. Unit, doc and every UI check pass on all of them,
+strict on macOS and Windows, with and without `gpu` and `a11y`. The first
+real runs found: FLTK's C++ event statics need the MSVC name mangling on
+Windows (`platform::fl_abi`), tests must press `Mod+…` (Cmd on macOS),
+Windows' GDI blit is ±1 per channel, Menlo/Consolas bold adds less ink.
 
 ## What was verified (2026-11-04, on main a967007)
 
