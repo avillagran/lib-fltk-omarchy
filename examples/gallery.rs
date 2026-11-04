@@ -3,6 +3,7 @@
 //!   cargo run --example gallery
 //!   cargo run --example gallery -- --snapshot build/shots/gallery.png
 //!   cargo run --example gallery -- --locale ar --snapshot build/shots/gallery-ar.png
+use fltk_omarchy::edit::{CompletionItem, Composer, Trigger};
 use fltk_omarchy::layout::{self, FlexExt};
 use fltk_omarchy::popups::{PopupItem, PopupMenu};
 use fltk_omarchy::text::RichText;
@@ -19,7 +20,7 @@ fn main() {
         i18n::set_locale(l);
     }
 
-    let mut win = AppWindow::new("Omarchy components", 560, 820);
+    let mut win = AppWindow::new("Omarchy components", 560, 940);
     let mut body = win.body();
     // Strings from the toolkit catalog follow the language live; the
     // gallery's own labels have no catalog and stay in English.
@@ -78,6 +79,14 @@ fn main() {
     let volume = State::new(0.64);
     body_slider(&mut sec, &volume);
     sec.close_fitted();
+
+    // Chat input: grows with the text; `$` opens completions at the caret.
+    body.fit(&*Label::section("Composer"));
+    let draft = State::new(String::new());
+    let skills = ["review", "refactor", "explain"];
+    body.fit(&*Composer::new().bind(&draft).trigger('$', Trigger::WordStart, move |q, reply| {
+        reply.set(skills.iter().filter(|s| s.starts_with(q.text.as_str())).map(|s| CompletionItem::new(s).icon(glyph::PLAY)).collect());
+    }).on_submit(|text| println!("send {text}")));
 
     let mut sec = layout::section();
     sec.fit(&*Label::section("Toggles"));

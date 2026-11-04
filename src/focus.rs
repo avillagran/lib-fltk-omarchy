@@ -676,6 +676,36 @@ pub fn press(spec: &str) -> bool {
     used
 }
 
+thread_local! {
+    static TYPED: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Sends `text` as one key event carrying that text (what FLTK delivers
+/// for a committed input-method string or a compose result: "é", "日本",
+/// "👍"), through the same path as [`press`]. The focused control gets it
+/// via `Fl::compose`. Returns true when something used it.
+pub fn type_text(text: &str) -> bool {
+    let window = current().and_then(|f| f.top_window()).map(|w| w.as_widget_ptr())
+        .or_else(|| app::first_window().map(|w| w.as_widget_ptr()));
+    let Some(window) = window else { return false };
+    TYPED.with(|t| {
+        let mut t = t.borrow_mut();
+        t.clear();
+        t.extend_from_slice(text.as_bytes());
+        t.push(0);
+        // SAFETY: fltk's event globals are plain data, used on the UI thread;
+        // the buffer lives in this thread's storage until the next call.
+        unsafe {
+            FL_E_KEYSYM = text.chars().next().map_or(0, |c| if (c as u32) < 0x7f { c as i32 } else { 0 });
+            FL_E_ORIGINAL_KEYSYM = FL_E_KEYSYM;
+            FL_E_STATE = 0;
+            FL_E_TEXT = t.as_mut_ptr() as *mut c_char;
+            FL_E_LENGTH = text.len() as i32;
+        }
+    });
+    dispatch(Event::KeyDown, window as app::WindowPtr)
+}
+
 /// True when `w` and its groups are visible inside its window (the window
 /// itself may be unmapped, e.g. offscreen tests). Window-wide shortcuts of a
 /// component use it so hidden pages do not react.

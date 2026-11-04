@@ -225,6 +225,7 @@ pub struct Node {
     pub(crate) key: u64,
     pub(crate) focused: bool,
     pub(crate) leaf: bool,
+    pub(crate) active_descendant: Option<Vec<u64>>,
 }
 
 impl Node {
@@ -404,6 +405,15 @@ impl Node {
     /// (the cursor row of a list, the highlighted menu entry).
     pub fn focused(&mut self) -> &mut Self {
         self.focused = true;
+        self
+    }
+
+    /// The virtual descendant (keys from this node down, see
+    /// [`Node::child`]) that is active while this node keeps the keyboard:
+    /// the highlighted entry of a completion list under a text input
+    /// (`aria-activedescendant`).
+    pub fn active_descendant(&mut self, path: &[u64]) -> &mut Self {
+        self.active_descendant = (!path.is_empty()).then(|| path.to_vec());
         self
     }
 
