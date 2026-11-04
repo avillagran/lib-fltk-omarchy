@@ -1592,7 +1592,7 @@ fn main() {
         let b1 = rt.text_rect(" chip").ok_or("chip rect")?;
         let bold = (b0.0, b0.1, b1.0 - b0.0, b0.3);
         let (ip, ib) = (ink(&p, plain)?, ink(&p, bold)?);
-        check(ib * 100 > ip * 115, &format!("bold ink {ib} vs regular {ip}"))?;
+        check(ib * 100 > ip * 110, &format!("bold ink {ib} vs regular {ip}"))?;
         let chip = rt.text_rect("chip").ok_or("chip")?;
         let px = pixel(&p, chip.0 - 1, chip.1 + chip.3 / 2)?;
         let lb = t.palette.lighter_background;

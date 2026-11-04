@@ -607,28 +607,9 @@ pub(crate) fn give_back(layer: &Widget, window: Option<Widget>) {
 
 // ------------------------------------------------------------ key injection
 
-extern "C" {
-    #[link_name = "_ZN2Fl8e_keysymE"]
-    static mut FL_E_KEYSYM: i32;
-    #[link_name = "_ZN2Fl17e_original_keysymE"]
-    static mut FL_E_ORIGINAL_KEYSYM: i32;
-    #[link_name = "_ZN2Fl7e_stateE"]
-    static mut FL_E_STATE: i32;
-    #[link_name = "_ZN2Fl6e_textE"]
-    static mut FL_E_TEXT: *mut c_char;
-    #[link_name = "_ZN2Fl8e_lengthE"]
-    static mut FL_E_LENGTH: i32;
-    #[link_name = "_ZN2Fl3e_xE"]
-    static mut FL_E_X: i32;
-    #[link_name = "_ZN2Fl3e_yE"]
-    static mut FL_E_Y: i32;
-    #[link_name = "_ZN2Fl8e_x_rootE"]
-    static mut FL_E_X_ROOT: i32;
-    #[link_name = "_ZN2Fl8e_y_rootE"]
-    static mut FL_E_Y_ROOT: i32;
-    #[link_name = "_ZN2Fl8e_clicksE"]
-    static mut FL_E_CLICKS: i32;
-}
+use crate::platform::fl_abi::{
+    FL_E_CLICKS, FL_E_KEYSYM, FL_E_LENGTH, FL_E_ORIGINAL_KEYSYM, FL_E_STATE, FL_E_TEXT, FL_E_X, FL_E_X_ROOT, FL_E_Y, FL_E_Y_ROOT,
+};
 
 thread_local! {
     static TEXT: RefCell<[u8; 8]> = const { RefCell::new([0; 8]) };

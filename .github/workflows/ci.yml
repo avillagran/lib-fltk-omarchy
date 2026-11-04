@@ -55,7 +55,8 @@ jobs:
           sudo apt-get install -y cmake ninja-build xvfb libxtst6 \
             libx11-dev libxext-dev libxft-dev libxinerama-dev libxcursor-dev libxrender-dev libxfixes-dev \
             libpango1.0-dev libcairo2-dev libgl1-mesa-dev libglu1-mesa-dev \
-            libwayland-dev wayland-protocols libxkbcommon-dev libdbus-1-dev libegl-dev
+            libwayland-dev wayland-protocols libxkbcommon-dev libdbus-1-dev libegl-dev \
+            fonts-dejavu-core gdb
       - name: clippy
         run: cargo clippy --locked --all-targets -- -D clippy::correctness -D clippy::suspicious
       - name: build
@@ -86,7 +87,8 @@ jobs:
           sudo apt-get install -y cmake ninja-build weston \
             libx11-dev libxext-dev libxft-dev libxinerama-dev libxcursor-dev libxrender-dev libxfixes-dev \
             libpango1.0-dev libcairo2-dev libgl1-mesa-dev libglu1-mesa-dev \
-            libwayland-dev wayland-protocols libxkbcommon-dev libdbus-1-dev libegl-dev
+            libwayland-dev wayland-protocols libxkbcommon-dev libdbus-1-dev libegl-dev \
+            fonts-dejavu-core gdb
       - name: build
         run: cargo build --locked --all-targets
       - name: tests on a headless Wayland compositor
@@ -94,7 +96,12 @@ jobs:
           export XDG_RUNTIME_DIR="$(mktemp -d)"; chmod 700 "$XDG_RUNTIME_DIR"
           weston --backend=headless --socket=wayland-ci --idle-time=0 &
           for _ in $(seq 1 50); do [ -S "$XDG_RUNTIME_DIR/wayland-ci" ] && break; sleep 0.1; done
-          env -u DISPLAY WAYLAND_DISPLAY=wayland-ci cargo test --locked
+          env -u DISPLAY WAYLAND_DISPLAY=wayland-ci cargo test --locked || {
+            # A crash in a native window path: print where, then fail.
+            ui=$(ls -t target/debug/deps/ui-* | grep -v '\.d$' | head -1)
+            env -u DISPLAY WAYLAND_DISPLAY=wayland-ci gdb -batch -ex run -ex bt -ex 'thread apply all bt 8' "$ui" || true
+            exit 1
+          }
 
   macos:
     name: macOS
