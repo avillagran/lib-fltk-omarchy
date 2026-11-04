@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+- **Tooltips are drawn by the toolkit** (`tooltip` module), like Omarchy's
+  shell tooltips (omarchy#15694): `App::new` turns FLTK's tooltip window
+  off and shows the tooltip of the widget under the pointer as an
+  in-window surface with the theme's `[tooltip]` colors and border width,
+  `bodySmall` text, `controlPaddingX/Y` padding, the theme corner radius
+  (follows `theme::set_corners`), plain text wrapped at 360 px, centered
+  above the item (below when there is no room, below the pointer on large
+  widgets), kept inside the window. 400 ms delay, the next one at once
+  while one is up or for 400 ms after (bar `tooltipWarmTimer`), hidden by
+  a click, key or wheel. No app changes: `.tooltip()`, `.bind_tooltip()`,
+  header actions, plain fltk `set_tooltip` and canvases that change their
+  tooltip per region (Files) all get it. Restyled on every theme reload;
+  bound text relabels a shown tooltip; right-to-left lines are
+  right-aligned. Follows `~/.config/omarchy/tooltips.json` live (`shape`,
+  `borderMode`, `borderColor`; invalid files keep the last valid
+  settings; `OMARCHY_FLTK_TOOLTIPS` overrides the path). API:
+  `tooltip::show`, `hide`, `shown`, `settings`, `set_settings`,
+  `reload_settings`, `place`, `wrap`; `focus::hover_at` moves the pointer
+  in tests. The tooltip stays the accessible description; the surface is
+  hidden from screen readers.
+- **Fix: pure black theme colors.** `Rgb(0x000000).fl()` was FLTK color
+  0, the colormap entry the theme sets to the foreground: themes with a
+  black background (vantablack) painted tooltips, windows and fills in the
+  text color. It is now `Color::Black`.
+
 - **Right-to-left layouts.** In Arabic, Hebrew, Persian and Urdu the UI is
   mirrored, live on a locale switch (no window rebuild); docs/I18N.md.
   - `layout::Direction` (= `i18n::Direction`), `layout::direction_of` /

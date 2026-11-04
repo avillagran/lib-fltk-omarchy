@@ -44,7 +44,13 @@ impl Rgb {
         Rgb((mix(self.r(), bg.r()) << 16) | (mix(self.g(), bg.g()) << 8) | mix(self.b(), bg.b()))
     }
 
+    /// As an FLTK color. Pure black is FLTK's `Color::Black`: the raw RGB
+    /// value 0 would be colormap entry 0, the foreground the theme sets
+    /// (a black theme background would paint in the text color).
     pub fn fl(self) -> Color {
+        if self.0 & 0xff_ffff == 0 {
+            return Color::Black;
+        }
         Color::from_rgb(self.r(), self.g(), self.b())
     }
 

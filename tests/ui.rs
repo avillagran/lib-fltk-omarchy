@@ -28,6 +28,7 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 mod edit_ui;
+mod tooltip_ui;
 
 const COLORS_A: &str = "accent = \"#e68e0d\"\nbackground = \"#121212\"\nforeground = \"#bebebe\"\nred = \"#d35f5f\"\n";
 const COLORS_B: &str = "accent = \"#33ccff\"\nbackground = \"#1a1b26\"\nforeground = \"#c0caf5\"\nred = \"#f7768e\"\n";
@@ -48,6 +49,7 @@ fn main() {
     std::fs::write(state.join("theme.name"), "A").unwrap();
     std::env::set_var("OMARCHY_FLTK_STATE_DIR", &state);
     std::env::set_var("OMARCHY_FLTK_USER_SHELL", root.join("no-user-shell.toml"));
+    std::env::set_var("OMARCHY_FLTK_TOOLTIPS", root.join("tooltips.json"));
     // Hyprland values are read live; pin them by hiding the socket.
     std::env::remove_var("HYPRLAND_INSTANCE_SIGNATURE");
 
@@ -1979,6 +1981,7 @@ fn main() {
         let blocks = [Block::paragraph("x").push("y", &Style::plain().color(ColorRole::Red))];
         check(blocks[0].content.runs().len() == 2, "builder runs")
     });
+    tooltip_ui::checks(&mut run, COLORS_A, COLORS_B);
     edit_ui::checks(&mut run);
     #[cfg(feature = "a11y")]
     a11y_checks(&mut run);

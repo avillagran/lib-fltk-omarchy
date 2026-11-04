@@ -298,6 +298,20 @@ fn main() {
     w.snapshot(dir.join("app-window.png")).unwrap();
     println!("{}", dir.join("app-window.png").display());
 
+    // ---- tooltips: nothing to call, every tooltip is drawn by the toolkit
+    let mut win = AppWindow::new("Notes", 600, 160);
+    let prefs = win.header().action(glyph::SETTINGS, "Preferences", || {});
+    win.header().action("\u{f0241}", "Actions", || {});
+    let mut body = win.body();
+    body.fit(&*Button::new("Save").bordered().tooltip("Save the note"));
+    win.end();
+    // picture: the pointer rests on the gear for 400 ms
+    win.snapshot(dir.join("tooltip.png")).unwrap(); // lays the window out
+    fltk_omarchy::tooltip::show(&*prefs);
+    win.snapshot(dir.join("tooltip.png")).unwrap();
+    fltk_omarchy::tooltip::hide();
+    println!("{}", dir.join("tooltip.png").display());
+
     // ---- i18n: one window, bound to the toolkit catalog, in Arabic and Japanese
     for loc in ["ar", "ja"] {
         i18n::set_locale(loc);

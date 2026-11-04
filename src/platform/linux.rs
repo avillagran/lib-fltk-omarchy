@@ -345,6 +345,12 @@ pub(super) fn watch_theme(stop: Arc<AtomicBool>, changed: &dyn Fn()) {
     if let Some(dir) = user.parent() {
         add(dir);
     }
+    // Omarchy's shared tooltip settings (`tooltips.json`), usually the same
+    // directory as the user's shell.toml.
+    let tooltips = crate::tooltip::settings_path();
+    if let Some(dir) = tooltips.parent().filter(|d| Some(*d) != user.parent()) {
+        add(dir);
+    }
     // Omarchy's window transparency toggles (Glassy windows). The directory
     // only exists once a toggle was set, so its parents are watched too.
     let toggles = crate::glass::toggles_dir();
@@ -377,7 +383,7 @@ pub(super) fn watch_theme(stop: Arc<AtomicBool>, changed: &dyn Fn()) {
                         .to_string();
                     let relevant = matches!(
                         name.as_str(),
-                        "theme" | "theme.name" | "colors.toml" | "shell.toml"
+                        "theme" | "theme.name" | "colors.toml" | "shell.toml" | "tooltips.json"
                     ) || ev.wd == theme_wd
                         || ev.wd == toggles_wd
                         || (toggle_parents.contains(&ev.wd)
