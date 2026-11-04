@@ -75,7 +75,7 @@ jobs:
         run: env -u WAYLAND_DISPLAY xvfb-run -a -s "-screen 0 1280x800x24" cargo test --locked --features a11y
 
   linux-wayland:
-    name: Linux Wayland (headless Weston)
+    name: Linux Wayland (headless sway)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -84,7 +84,7 @@ jobs:
       - name: system packages
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake ninja-build weston \
+          sudo apt-get install -y cmake ninja-build sway \
             libx11-dev libxext-dev libxft-dev libxinerama-dev libxcursor-dev libxrender-dev libxfixes-dev \
             libpango1.0-dev libcairo2-dev libgl1-mesa-dev libglu1-mesa-dev \
             libwayland-dev wayland-protocols libxkbcommon-dev libdbus-1-dev libegl-dev \
@@ -94,12 +94,17 @@ jobs:
       - name: tests on a headless Wayland compositor
         run: |
           export XDG_RUNTIME_DIR="$(mktemp -d)"; chmod 700 "$XDG_RUNTIME_DIR"
-          weston --backend=headless --socket=wayland-ci --idle-time=0 &
-          for _ in $(seq 1 50); do [ -S "$XDG_RUNTIME_DIR/wayland-ci" ] && break; sleep 0.1; done
-          env -u DISPLAY WAYLAND_DISPLAY=wayland-ci cargo test --locked || {
+          # wlroots headless (like Hyprland). FLTK 1.5.23 crashed in its
+          # output_done callback under weston 14 --backend=headless.
+          env -u DISPLAY WLR_BACKENDS=headless WLR_RENDERER=pixman WLR_LIBINPUT_NO_DEVICES=1 \
+            WLR_HEADLESS_OUTPUTS=1 sway -c /dev/null &
+          for _ in $(seq 1 100); do ls "$XDG_RUNTIME_DIR"/wayland-* >/dev/null 2>&1 && break; sleep 0.1; done
+          export WAYLAND_DISPLAY="$(basename "$(ls "$XDG_RUNTIME_DIR"/wayland-? | head -1)")"
+          echo "compositor socket: $WAYLAND_DISPLAY"
+          env -u DISPLAY cargo test --locked || {
             # A crash in a native window path: print where, then fail.
             ui=$(ls -t target/debug/deps/ui-* | grep -v '\.d$' | head -1)
-            env -u DISPLAY WAYLAND_DISPLAY=wayland-ci gdb -batch -ex run -ex bt -ex 'thread apply all bt 8' "$ui" || true
+            env -u DISPLAY gdb -batch -ex run -ex bt -ex 'thread apply all bt 8' "$ui" || true
             exit 1
           }
 

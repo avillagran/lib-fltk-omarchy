@@ -38,7 +38,7 @@ extern "C" {
     pub(crate) static mut FL_E_ORIGINAL_KEYSYM: i32;
     #[link_name = "?e_state@Fl@@2HA"]
     pub(crate) static mut FL_E_STATE: i32;
-    #[cfg_attr(target_pointer_width = "64", link_name = "?e_text@Fl@@2PEADA")]
+    #[cfg_attr(target_pointer_width = "64", link_name = "?e_text@Fl@@2PEADEA")]
     #[cfg_attr(target_pointer_width = "32", link_name = "?e_text@Fl@@2PADA")]
     pub(crate) static mut FL_E_TEXT: *mut c_char;
     #[link_name = "?e_length@Fl@@2HA"]
