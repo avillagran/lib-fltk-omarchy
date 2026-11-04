@@ -1987,6 +1987,8 @@ fn main() {
     a11y_checks(&mut run);
     #[cfg(feature = "a11y")]
     edit_ui::a11y_checks(&mut run);
+    #[cfg(feature = "a11y")]
+    motion_ui::a11y_checks(&mut run);
     drop(app);
     println!("{}", if failed == 0 { "all ui checks passed" } else { "ui checks FAILED" });
     if failed > 0 && !strict {

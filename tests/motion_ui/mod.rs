@@ -531,3 +531,31 @@ fn theme_wide(s: &Sidebar) -> i32 {
     let _ = s;
     240.max(fltk_omarchy::theme::current().font.body * 20)
 }
+
+/// Screen readers: the sidebar is a tab list with its expanded state.
+#[cfg(feature = "a11y")]
+pub fn a11y_checks(run: &mut dyn FnMut(&str, Check)) {
+    run(
+        "a11y: sidebar is a tab list with its expanded state and selected item",
+        &|shots| {
+            anim::set_enabled(false);
+            let s = shell(SidebarMode::Push);
+            shot(&s.win, shots, "a11y-sidebar.png")?;
+            let snap = fltk_omarchy::a11y::snapshot(&*s.win).ok_or("no tree")?;
+            let collapsed = snap
+                .lines()
+                .any(|l| l.contains("TabList \"Sidebar\"") && l.contains("collapsed"));
+            let files = snap.lines().any(|l| {
+                l.contains("Tab \"Files\"") && l.contains("selected") && l.contains("1 of 3")
+            });
+            s.side.expand();
+            shot(&s.win, shots, "a11y-sidebar-open.png")?;
+            let snap2 = fltk_omarchy::a11y::snapshot(&*s.win).ok_or("no tree")?;
+            let expanded = snap2
+                .lines()
+                .any(|l| l.contains("TabList \"Sidebar\"") && l.contains("expanded"));
+            delete(s.win);
+            check(collapsed && files && expanded, &format!("collapsed {collapsed}, Files selected {files}, expanded {expanded}:\n{snap}\n{snap2}"))
+        },
+    );
+}
