@@ -9,6 +9,7 @@ use fltk_omarchy::list::{List, ListRow};
 use fltk_omarchy::overlay::{ConfirmDialog, Dropdown, Menu, MenuItem, Notification, Urgency};
 use fltk_omarchy::popups::{OperationToast, PopupItem, PopupMenu, SearchableDropdown, ShortcutHelp};
 use fltk_omarchy::panel::KeyboardPanel;
+use fltk_omarchy::text::{RichLabel, RichText};
 use fltk_omarchy::paint;
 use std::rc::Rc;
 use fltk_omarchy::widgets::{glyph, *};
@@ -164,6 +165,19 @@ fn main() {
     col.fit(&*list);
     col.fixed(&*list, 250);
     save(&mut done(win, col), &dir, "list");
+
+    // ---- rich text (Markdown, chat streaming)
+    let (win, mut col) = frame(600, 400);
+    col.fit(&*RichLabel::new("Agent reply, **streaming** — see [the docs](https://example.com)"));
+    let chat = RichText::new().stick_to_bottom(true).on_link(|url| println!("open {url}"));
+    col.fit(&*chat);
+    col.fixed(&*chat, 330);
+    chat.append_markdown("Use `push_markdown` to **stream** tokens into the *last* message:\n\n\
+        - [x] only the open tail is parsed again\n- [ ] the view sticks to the bottom\n\n\
+        ```rust\nchat.push_markdown(\"more tokens…\"); // O(tail)\n```\n\n\
+        | Messages | Blocks laid out |\n|---|--:|\n| 5 000 | ~40 |\n\n> Links: https://example.com");
+    chat.push_markdown(" and [docs](https://example.com/docs).");
+    save(&mut done(win, col), &dir, "rich-text");
 
     // ---- popup menu (header Actions menu / context menu)
     let (win, col) = frame(600, 260);

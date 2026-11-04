@@ -57,6 +57,14 @@ classic Omarchy look. Import as `fltk_omarchy`.
    showing a window; look at the PNG. Verify keys with
    `focus::press("Tab")`, `press("Down")`, `press("Enter")`… (same path as
    a real key).
+13. Chat, Markdown and any long or streamed text → `text::RichText`, never
+   a widget per message or a rebuilt label. `append_markdown(md)` adds a
+   message, `push_markdown(more)` streams into the last one (O(tail)),
+   `.stick_to_bottom(true)` follows the end, `view.sender()` streams from a
+   worker thread (`Send`, at most 60 updates/s). Blocks built in code use
+   `text::Block` + `text::Style` with `ColorRole`s, never hex. One line of
+   inline Markdown (headers, rows, toasts) → `text::RichLabel`. Tests find
+   words with `view.text_rect("word")`.
 
 ## Minimal app
 

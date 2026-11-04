@@ -89,6 +89,49 @@ multi-core shading and the optional GPU path (0.7 % CPU, +35 MB PSS for the
 GL driver), measured in the same session:
 [SHADERS.md](SHADERS.md#gpu-vs-cpu-005).
 
+## Rich text streaming (Unreleased)
+
+Measured 2026-11-04 on an AMD Ryzen 9 5900X (x86_64), Hyprland 0.56.2,
+release build, with `script/richtext-bench` (`examples/richtext_bench.rs`):
+an 800×900 floating window on the hidden workspace
+`special:omarchy-fltk-richtext`, the process measuring itself (utime +
+stime and `Pss + SwapPss` from `/proc/self`). The transcript is 5 000
+messages (1.6 MB of Markdown with lists, tables, code blocks and links,
+27 501 blocks); the last message then receives Markdown for 10 s. Phases:
+settle 1.5 s, idle 3 s, stream 10 s, idle 3 s. Medians of 3 runs (single
+runs for the 20 KB/s rows; the paint / push split of the 1 MB/s rows comes
+from one more run with `RichText::paint_stats`); CPU is % of one core.
+
+| Case | Parse 5 000 msgs | Idle CPU | Stream CPU | of which paint | of which push (parse + apply) | Push avg / max | PSS idle | PSS after stream |
+|---|---|---|---|---|---|---|---|---|
+| empty view | — | 0.0 % | — | — | — | — | 12.7 MB | — |
+| 5 000 messages, no stream | 33 ms | 0.0 % | — | — | — | — | 27.8 MB | — |
+| 1 MB/s at 60 updates/s | 33 ms | 0.0 % / 0.0 % | 18.5 % | 16.5 % (2.8 ms/frame) | 1.8 % | 0.30 / 0.66 ms | 27.6 MB | 80.6 MB |
+| 1 MB/s at 30 updates/s | 32 ms | 0.0 % / 0.0 % | 10.4 % | 9.3 % (3.1 ms/frame) | 1.7 % | 0.55 / 0.92 ms | 26.1 MB | 79.0 MB |
+| 1 MB/s, worker thread, 8-byte tokens (`sender()`, ≤ 60 updates/s) | 34 ms | 0.0 % / 0.0 % | 20.2 % | — | — | — | 26.1 MB | 77.6 MB |
+| 20 KB/s at 60 updates/s (a fast model) | 41 ms | 0.0 % / 0.0 % | 10.8 % | 10.4 % (1.7 ms/frame) | 0.2 % | 0.03 / 0.07 ms | 25.6 MB | 27.7 MB |
+| 20 KB/s at 30 updates/s | 32 ms | 0.0 % / 0.0 % | 6.4 % | 6.0 % (2.0 ms/frame) | 0.1 % | 0.05 / 0.14 ms | 26.3 MB | 27.9 MB |
+
+Idle is the 3 s before and after the stream: no timer runs, nothing is
+painted. Only blocks in view (and half a view around) are laid out: 30 of
+27 501 after the transcript loads. At 1 MB/s more than a screen of new text
+arrives every frame, so every frame lays out a whole screen of new blocks;
+that is the worst case. Parsing and applying the stream costs under 2 % of
+a core; the rest is painting the whole view through Cairo/Pango once per
+update, so 30 updates/s halves the cost (`sender()` caps updates at 60/s).
+
+Memory: the document keeps every block as text plus styled runs, about
+5 bytes of memory per byte of densely styled Markdown (10 MB streamed into
+one message grows PSS by ~53 MB: 120 000 blocks, ~580 000 runs). Layouts are
+kept only for blocks near the view (they are dropped beyond ~600 laid-out
+blocks; their measured height stays).
+
+Release size (`opt-level = "s"`, thin LTO, stripped): `bench_minimal` is
+1 276 040 bytes (1 275 208 before this change: +832 bytes, the italic font
+mapping); `richtext_minimal` (the same app with a `RichText`) is 1 763 176
+bytes: the `text` module, `pulldown-cmark` (no default features), and
+`unicode-segmentation` add 487 KB.
+
 ## Window size matters
 
 Memory grows with window area for any software-rendered toolkit (two

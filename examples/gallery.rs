@@ -2,6 +2,7 @@
 //!   cargo run --example gallery
 //!   cargo run --example gallery -- --snapshot build/shots/gallery.png
 use fltk_omarchy::layout::{self, FlexExt};
+use fltk_omarchy::text::RichText;
 use fltk_omarchy::widgets::{glyph, *};
 use fltk_omarchy::{App, AppWindow, State};
 
@@ -9,7 +10,7 @@ fn main() {
     let snapshot = std::env::args().skip_while(|a| a != "--snapshot").nth(1);
     let app = App::new("dev.omarchy.fltk.gallery");
 
-    let mut win = AppWindow::new("Omarchy components", 560, 720);
+    let mut win = AppWindow::new("Omarchy components", 560, 800);
     let mut body = win.body();
     win.header().action(glyph::SETTINGS, "Preferences", || {});
     win.header().destructive_action(glyph::CLOSE, "Close", || fltk::app::quit());
@@ -58,6 +59,14 @@ fn main() {
     sec.fit(&*Row::new(glyph::MONITOR, "HDMI / DisplayPort").detail("Digital"));
     sec.fit(&*Row::new(glyph::HEADPHONES, "Built-in speakers").detail("Analog").current(true));
     sec.fit(&*Row::new(glyph::BLUETOOTH, "WH-1000XM4").detail("Bluetooth"));
+    sec.close_fitted();
+
+    let mut sec = layout::section();
+    sec.fit(&*Label::section("Rich text"));
+    let rt = RichText::new().padding(0).on_link(|url| println!("open {url}"));
+    sec.fit(&*rt);
+    sec.fixed(&*rt, 130);
+    rt.set_markdown("**Markdown** with `code`, [links](https://omarchy.org) and *streaming*:\n\n- [x] chat transcripts\n- [ ] tables, quotes, code blocks\n\n> Select with the mouse, copy with Ctrl+C.");
     sec.close_fitted();
     layout::spacer();
     win.end();
