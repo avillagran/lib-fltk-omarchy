@@ -57,6 +57,11 @@ limit and a time budget per draw. Pictures, API and measured cost:
   parsed again, only blocks in view are laid out, idle is 0 % CPU) and a
   one-line `RichLabel`
   ([picture and code](docs/COMPONENTS.md#richtext-and-richlabel-markdown-chat-streaming)).
+- **Text input and chat composer** (`edit`): a multi-line `TextArea`
+  (wrap, auto-grow, undo, input methods, grapheme-correct editing, atomic
+  chips) and a `Composer` (Enter sends, stop while busy, `@`/`$`/`/`
+  completions at the caret, attachment chips, file drops)
+  ([picture and code](docs/COMPONENTS.md#textarea-and-composer)).
 - **Components**: [docs/COMPONENTS.md](docs/COMPONENTS.md) (pictures,
   code, keys). **Keyboard**: [docs/KEYBOARD.md](docs/KEYBOARD.md).
 - **Platforms**: [docs/PLATFORMS.md](docs/PLATFORMS.md).
@@ -78,6 +83,7 @@ limit and a time budget per draw. Pictures, API and measured cost:
 ```sh
 cargo run --example gallery      # all components
 cargo run --example overlays     # dropdown, menu, confirm, notification, list
+cargo run --example composer     # chat composer: @files, $skills, /commands, drops
 cargo run --example app_shell    # Preferences/Actions menus, tabs, search, F1 help, operation toast
 cargo run --example docs_shots -- docs/components   # re-render the pictures of docs/COMPONENTS.md
 cargo run --example shaders      # shapes, gradients, effects, animated CPU shaders

@@ -132,6 +132,41 @@ mapping); `richtext_minimal` (the same app with a `RichText`) is 1 763 176
 bytes: the `text` module, `pulldown-cmark` (no default features), and
 `unicode-segmentation` add 487 KB.
 
+## Text editing (Unreleased)
+
+Measured 2026-11-04 on an AMD Ryzen 9 5900X, release build, with
+`script/edit-bench` (`examples/edit_bench.rs`): a 720×640 window with a
+`TextArea` (4..16 lines) and a `Composer`, keys sent with `focus::press`
+(the real key path, no OS input) and `app::flush()` after each key, so a
+key's time includes its redraw. Wayland: Hyprland 0.56.2, hidden
+workspace `special:omarchy-fltk-test`; X11: Xvfb. Medians of 3 runs
+(raw: [edit-bench-2026-11-04.jsonl](edit-bench-2026-11-04.jsonl)).
+
+| Case | Wayland (Hyprland) | X11 (Xvfb) |
+|---|---|---|
+| Key in the composer (avg, 300 keys) | 0.18 ms | 0.28 ms |
+| Key with the completion list open | 1.19 ms | 1.15 ms |
+| Paste 100 KB (2 000 lines, CJK mixed) + redraw | 7.7 ms | 10.4 ms |
+| Key at the end / start of that 100 KB text | 1.84 / 2.01 ms | 0.83 / 0.87 ms |
+| Set 100 KB as one paragraph (no newline) | 5.1 ms | 3.8 ms |
+| Key at the end of that paragraph | 2.34 ms | 0.85 ms |
+| Key at its start (avg / p95) | 2.78 / 6.35 ms | 1.81 / 6.59 ms |
+| PageDown + redraw in the 100 KB paragraph | 4.6 ms | 0.82 ms |
+| Idle CPU (3 s, after all of the above) | 0.01 % | 0.01 % |
+| PSS at start → after the 100 KB tests | 10.7 → 26.8 MB | 7.7 → 15.2 MB |
+
+How: the text is laid out per paragraph and only edited paragraphs are
+laid out again; inside a long paragraph the wrap restarts one line before
+the edit and stops as soon as a new line starts where a (shifted) old line
+started, because greedy wrapping depends only on the text after a line
+start. A key at the start of one long paragraph can move every line break
+after it (each line gives a word to the next), which is the p95 above.
+Word widths are cached, so laying out 100 KB measures each distinct word
+once. Nothing runs while idle: the caret does not blink. On Wayland each
+key redraws through FLTK's full-window buffer, which is most of the time
+per key. In a debug build (`cargo test`), the same keys take about 0.04 ms
+in an empty area and 6 ms at the start of the 100 KB paragraph.
+
 ## Streaming updates (Unreleased)
 
 How much an app pays to show data that changes all the time, with the

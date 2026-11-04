@@ -615,7 +615,7 @@ impl TextArea {
             }
         }
         self.inner.clone().redraw();
-        if text_changed {
+        if text_changed && self.cbs.change.is_set() {
             let t = self.value();
             self.cbs.change.call(t);
         }
@@ -760,6 +760,7 @@ impl TextArea {
                     s.buf.break_group();
                     s.drag = None;
                 }
+                draw::reset_spot();
                 w.redraw();
                 self.cbs.focus.call(false);
                 true

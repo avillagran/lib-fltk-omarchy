@@ -102,6 +102,16 @@ classic Omarchy look. Import as `fltk_omarchy`.
    implements `a11y::Accessible` and exposes rows near the viewport as
    virtual children, never one node per item. Check names with
    `a11y::snapshot(&*win)`.
+18. Chat input (prompts, messages) → `edit::Composer`; any other
+   multi-line text → `edit::TextArea` (not `TextField`, not fltk's
+   `TextEditor`). Bind the draft (`.bind(&draft)`, persistence is the
+   app's), `.on_submit(|text| ..)` (Enter sends, Shift+Enter new line),
+   `.busy(&running)` + `.on_stop(..)`, completions with
+   `.trigger('@', Trigger::WordStart, |q, reply| reply.set(items))`
+   (`reply.feed()` from threads; `CompletionItem::chip(data)` for atomic
+   tokens), files with `.on_files(..)` and `composer.attachments()`.
+   Tests: `focus::press(..)` / `focus::type_text("日本")`, then
+   `composer.completion_state()`, `area.caret_rect()`.
 
 ## Minimal app
 
@@ -138,7 +148,9 @@ fn main() {
 - `script/real-window` and `script/bench` open real windows on a hidden
   Hyprland special workspace without taking focus. Do not use synthetic
   input tools on the user's focused window. `script/x11-check` drives an
-  X11 window inside its own Xvfb display only.
+  X11 window inside its own Xvfb display only (so does
+  `script/edit-input-check`, real keys into a `TextArea`);
+  `script/edit-bench` measures the editor on the hidden workspace.
 - `.github/workflows/ci.yml` builds and tests on Linux (X11 and Wayland),
   macOS and Windows; it runs when the owner pushes.
 - Build in this checkout (`target/`), never in /tmp. Versions move 0.0.x;

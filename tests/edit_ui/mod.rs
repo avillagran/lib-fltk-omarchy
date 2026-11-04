@@ -628,7 +628,10 @@ pub fn a11y_checks(run: &mut dyn FnMut(&str, Check)) {
         let input = rec.find(ak::Role::MultilineTextInput, "Message").ok_or("input")?;
         let node = rec.node(input).ok_or("node")?;
         let sel = node.text_selection().ok_or("selection")?;
-        check(sel.focus.character_index == 4 || node.children().len() > 0, "caret reported")?;
+        check(
+            sel.anchor.character_index == 4 && sel.focus.character_index == 4,
+            &format!("caret after \"hi @\": {sel:?}"),
+        )?;
         let opt = rec.find(ak::Role::ListBoxOption, "main.rs").ok_or("option")?;
         check(node.active_descendant() == Some(opt), &format!("active descendant {:?} vs {opt:?}", node.active_descendant()))?;
         check(rec.focus() == Some(input), "focus stays on the input")?;

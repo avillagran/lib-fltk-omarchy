@@ -107,6 +107,8 @@ Names come from the visible text. Icon-only controls use their tooltip, or
 | `Progress` | ProgressIndicator | value 0..1, "42%" | — |
 | `NumberField` | SpinButton → spin button | `accessible_name`; value, min, max, step | Increment, Decrement, SetValue, Focus |
 | `TextField` / `password()` | TextInput / PasswordInput → entry / password text | placeholder as name; value (masked for passwords); caret and selection as text runs | SetValue, SetTextSelection, ReplaceSelectedText, Focus |
+| `edit::TextArea` | MultilineTextInput → multi-line entry | placeholder (or `accessible_name`) as name; value; caret and selection as text runs; read-only | SetValue, SetTextSelection, ReplaceSelectedText, Focus |
+| `edit::Composer` | its TextArea, expanded while the completion list is open; send / stop Buttons ("Send", "Stop", translated); attachments List of ListItems, each with a "Remove {name}" Button | the completion list is a virtual ListBox "Suggestions" under the input (options: label, description, selected, position); the input keeps the focus and its `active_descendant` is the highlighted option | Click on an option accepts it; Focus / ScrollIntoView highlight it; Click on a chip opens it, on its button removes it |
 | `Label` | Label → label | its text | — |
 | `Label::section` | Heading (level 2) | its text (not uppercased) | — |
 | `Hero` | Heading (level 1) | title; description "detail · meta" | — |
@@ -198,8 +200,10 @@ a11y::register(&*chat_widget, chat.clone());
   `counts(rows, cols)`, `sort`, `bounds` (window coordinates), `action`,
   `focusable`, `shortcut`, `text_selection(anchor, focus)` (characters),
   `child(key, ..)` (virtual children, any depth), `focused` (this child has
-  the keyboard focus while the widget has it), and `leaf` (do not expose
-  the fltk children).
+  the keyboard focus while the widget has it), `active_descendant(&[keys])`
+  (the highlighted virtual descendant while this node keeps the focus:
+  a completion list under a text input, like `aria-activedescendant`),
+  and `leaf` (do not expose the fltk children).
 - Text roles (TextInput, PasswordInput, SearchInput, MultilineTextInput,
   Document, Paragraph) get one AccessKit text run per line with character
   lengths and word starts. The AT can then read by character, word and

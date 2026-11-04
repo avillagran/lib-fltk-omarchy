@@ -413,14 +413,15 @@ impl Composer {
     }
 
     fn wire(&self) {
-        let d = &self.d;
         // Placeholder and button names follow the language.
-        let (area, dd) = (self.area.clone(), d.clone());
+        let me = self.clone();
         crate::i18n::bind(&self.inner, move || {
-            if !dd.custom_placeholder.get() {
-                area.st.borrow_mut().placeholder = crate::tr!("Write a message…");
-                area.clone().redraw();
+            if !me.d.custom_placeholder.get() {
+                me.area.st.borrow_mut().placeholder = crate::tr!("Write a message…");
+                me.area.clone().redraw();
             }
+            // The send button follows the reading direction.
+            me.layout();
         });
         let (s1, s2, s3) = (self.send.clone(), self.stop.clone(), self.idle.clone());
         crate::i18n::bind(&*self.send, move || {
@@ -703,6 +704,9 @@ impl Composer {
 
     /// Sends now (as Enter would).
     pub fn submit(&self, alternate: bool) {
+        if !self.d.submit.is_set() && !(alternate && self.d.alt_submit.is_set()) {
+            return;
+        }
         self.close_popup();
         let text = self.area.value();
         if text.trim().is_empty() && self.d.attachments.is_empty() {
@@ -776,15 +780,22 @@ impl Composer {
             cy += h + gap;
         }
         let aw = (w - bh - gap).max(40);
+        // Right-to-left: the send button goes to the reading end (left).
+        let rtl = crate::i18n::is_rtl();
+        let (ax, bx) = if rtl {
+            (x + bh + gap, x)
+        } else {
+            (x, x + aw + gap)
+        };
         let mut area = self.area.clone();
         let h0 = area.h();
-        area.resize(x, cy, aw, h0);
+        area.resize(ax, cy, aw, h0);
         let ah = area.natural_h();
-        area.resize(x, cy, aw, ah);
+        area.resize(ax, cy, aw, ah);
         let by = cy + ah - bh;
-        self.send.clone().resize(x + aw + gap, by, bh, bh);
-        self.idle.clone().resize(x + aw + gap, by, bh, bh);
-        self.stop.clone().resize(x + aw + gap, by, bh, bh);
+        self.send.clone().resize(bx, by, bh, bh);
+        self.idle.clone().resize(bx, by, bh, bh);
+        self.stop.clone().resize(bx, by, bh, bh);
         cy += ah;
         if let Some(mut tb) = self.toolbar.borrow().clone() {
             if tb.children() > 0 {
@@ -881,6 +892,9 @@ impl Composer {
             );
             if others {
                 return false;
+            }
+            if !self.d.submit.is_set() {
+                return false; // nothing to send to: Enter is a new line
             }
             if primary && shift {
                 self.submit(true);
@@ -1214,6 +1228,13 @@ impl Composer {
         let me = self.clone();
         layer.draw(move |l| {
             if me.area.was_deleted() {
+                // The composer went away with its list open.
+                let l2 = l.clone();
+                app::add_timeout3(0.0, move |_| {
+                    if !l2.was_deleted() {
+                        close_layer(&l2);
+                    }
+                });
                 return;
             }
             let p = me.d.popup.borrow();

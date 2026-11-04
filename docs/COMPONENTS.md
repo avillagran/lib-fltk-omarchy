@@ -87,6 +87,117 @@ r.close_fitted();
 More: `.on_change(|text| ..)`, `.on_submit(|text| ..)`, `type_text(..)`.
 **Keys:** type; Enter submits; Up/Down step the NumberField.
 
+## TextArea and Composer
+
+![text area and composer](components/composer.png)
+
+```rust
+use fltk_omarchy::edit::{Attachment, CompletionItem, Composer, TextArea, Trigger};
+let notes = State::new("Notes wrap at the edge of the field and the field grows from 2 to 6 lines, then scrolls.\nCtrl+Z undoes a word at a time.".to_string());
+col.fit(&*TextArea::new().placeholder("Notes").lines(2, 6).bind(&notes));
+let draft = State::new(String::new());
+let composer = Composer::new()
+    .placeholder("Ask anything, @files or /commands…")
+    .bind(&draft)
+    .trigger('@', Trigger::WordStart, |q, reply| {
+        let files = ["src/main.rs", "src/lib.rs", "src/edit/composer.rs", "Cargo.toml"];
+        reply.set(files.iter().filter(|f| f.contains(q.text.as_str())).map(|f| CompletionItem::new(f).icon(glyph::FILE).chip(f)).collect());
+    })
+    .on_submit(|text| println!("send {text}"))
+    .on_files(|paths| println!("attach {paths:?}"));
+composer.attachments().push(Attachment::new("shot.png", "shot.png").detail("84 KB"));
+col.fit(&*composer);
+// picture: after typing "Review @src" (the list opens at the caret)
+let _ = composer.area().take_focus();
+composer.area().type_text("Review @src");
+```
+
+`TextArea` is a multi-line editor with the `TextField` look: word wrap
+(the `RichText` line breaker: CJK breaks, grapheme-safe breaks in long
+words), auto-grow from `min` to `max` lines then scrolling
+(`.lines(min, max)`, `max` 0 = no limit), placeholder
+(`.placeholder`, `.bind_placeholder`), two-way `.bind(&State<String>)`,
+`.on_change`, `.read_only(true)`, `.tab_key(TabKey::..)`. Editing is
+grapheme-correct (emoji sequences, flags, combining marks and CJK move and
+delete as one character) and undo groups typing a word at a time
+(Backspace and Delete runs group too; paste, cut, completions and app
+changes are one step each). The API: `value`, `set_value` (undoable),
+`reset` (forgets history), `type_text`, `insert`, `replace`, `select`,
+`select_all`, `set_caret`, `undo`/`redo`, `copy`/`cut`/`paste`,
+`caret_rect()` (window coordinates), `caret_on_first_line()` /
+`caret_on_last_line()` (history on Up/Down), `line_count`,
+`with_buffer(|b| ..)` and `.on_key(|key, mods| ..)` to see keys first.
+Input methods go through FLTK's `Fl::compose`: dead keys, compose
+sequences and Wayland/macOS preedit text (drawn underlined; Enter commits
+it instead of sending) and committed CJK text; the candidate window is
+placed at the caret (`fl_set_spot`). Text aligns to the reading start
+(right in an RTL language).
+
+**Chips** are atomic tokens inside the text: `insert_chip(text, data)` or
+a completion item with `.chip(data)`. The caret never stops inside one,
+Backspace/Delete remove it whole, undo brings it back, and
+`expanded_text(|text, data| ..)` replaces each chip with its data (the
+full reference behind a short label) when you send.
+
+`Composer` is the chat input on a `TextArea` (1 to 8 lines): **Enter
+sends** (`on_submit(|text| ..)`, then the text and attachments are
+cleared; Ctrl+Z brings the text back), Shift+Enter is a new line
+(`.send_key(SendKey::ModEnter)` swaps them), Mod+Enter always sends,
+Mod+Shift+Enter is `.on_alternate_submit`. Without `on_submit`, Enter is
+just a new line. The send button is dimmed while there is nothing to send;
+with `.busy(&State<bool>)` true and an empty draft it becomes a **stop**
+button (`.on_stop`). `.toolbar(|row| ..)` adds a row of the app's buttons
+under the input.
+
+**Completions**: `.trigger(char, Trigger::WordStart | LineStart, |query,
+reply| ..)`. `@` and `$` start a query at the start of a word, `/` only at
+the start of a line (o3's rules). The provider answers with
+`reply.set(items)` now, later (`reply.loading()` shows "Searching…"
+until then, e.g. from a `Task`'s `on_done`), or from a worker thread with
+`reply.feed()`; answers to a query the user typed past are ignored. The
+list opens at the trigger, below the caret line (above when there is no
+room), and keeps the keyboard in the input: Up/Down move, Enter or Tab
+accept, Esc closes it (it stays closed until the text or caret changes),
+the mouse hovers and clicks. An accepted item replaces the trigger and the
+query with `insert` (default: trigger + label + space), as a chip when it
+has `.chip(data)`.
+
+**Attachments**: `composer.attachments()` is a `ListModel` of
+`Attachment` (`Attachment::file(path)` fills name, size and icon) shown as
+chips above the input, each with a × (`on_remove_attachment`), click or
+Enter to `on_open_attachment`. **Files**: drops on the composer and
+pastes of `file://` URI lists (what file managers copy) go to
+`.on_files(|paths| ..)`; other dropped text is inserted. Draft
+persistence is the app's: bind the draft `State`.
+
+**Keys (TextArea):** arrows; Home/End (visual line), Ctrl+Home/End (text);
+Ctrl+Left/Right word jumps (Alt on macOS, where Cmd+Left/Right go to the
+line ends and Cmd+Up/Down to the text ends); Shift extends; PageUp/PageDown;
+Backspace/Delete (with Ctrl, Alt on macOS: a word; Cmd+Backspace on
+macOS: to the line start); Mod+A, Mod+C, Mod+X, Mod+V (and
+Ctrl+Insert, Shift+Insert, Shift+Delete off macOS); Mod+Z, Mod+Shift+Z
+or Mod+Y; Enter new line; Esc clears the selection; Tab and Shift+Tab
+move focus (`TabKey::CtrlTabInserts` / `TabKey::Inserts` type a tab).
+Mouse: click, Shift+click, drag (scrolls at the edges), double click a
+word or chip, triple click a paragraph, middle click pastes the primary
+selection, right click opens Undo / Redo / Cut / Copy / Paste / Select all,
+wheel and scrollbar drag. **Keys (Composer):** the TextArea keys, plus
+Enter / Shift+Enter / Mod+Enter / Mod+Shift+Enter as above; with the list
+open: Up/Down, PageUp/PageDown, Enter, Tab, Esc. Shift+Tab from the input
+reaches the attachment chips: Left/Right choose, Delete removes, Enter
+opens.
+
+**Limits:** no bidi reordering inside a line (an RTL language aligns the
+lines right; each fragment is shaped by FLTK/Pango), no rich text inside
+the editor (chips are the only styled spans), no horizontal scrolling
+(long lines wrap), no caret blinking (an idle editor costs 0 % CPU), and
+image paste is the app's (`on_key` for Mod+V, `fltk::app::paste_image`).
+A real input method (fcitx5/IBus preedit) was not exercised in a test:
+committed text, CJK and emoji keysyms, Shift+Enter and Backspace go
+through FLTK's real X11 path in `script/edit-input-check` (same result as
+fltk's own `MultilineInput`); preedit is covered by unit tests of the
+buffer.
+
 ## ToggleSwitch and Toggle
 
 ![toggles](components/toggles.png)
@@ -606,6 +717,8 @@ with an area limit and a time budget, and shape hit-testing: all in
 | ButtonGroup | `widgets::ButtonGroup` | `new(&labels, &State<usize>)`, `selected()`, `button(i)` |
 | TextField | `widgets::TextField` | `new()`, `password()`, `.placeholder()`, `.bind()`, `.on_change()`, `.on_submit()`, `type_text()`, `input()` |
 | NumberField | `widgets::NumberField` | `new(&State<i64>, from, to, step)` |
+| multi-line input | `edit::TextArea` | `new()`, `.placeholder()`, `.lines(min, max)`, `.bind()`, `.on_change()`, `.on_key()`, `.read_only()`, `.tab_key()`, `value`, `set_value`, `reset`, `insert_chip`, `chips`, `expanded_text`, `undo`/`redo`, `caret_rect`, `caret_on_first_line` |
+| chat composer | `edit::Composer` | `new()`, `.bind()`, `.busy()`, `.trigger(c, Trigger::.., \|q, reply\| ..)`, `.on_submit()`, `.on_alternate_submit()`, `.on_stop()`, `.on_files()`, `.send_key()`, `.toolbar(\|row\| ..)`, `attachments()`, `area()`, `submit()` |
 | ToggleSwitch / Toggle | `widgets::ToggleSwitch`, `widgets::Toggle` | `new(&State<bool>)`, `new(title, description, &State<bool>)` |
 | PanelSlider / progress | `widgets::Slider`, `widgets::Progress` | `new(&State<f64>, min, max, step)`, `new(&State<f64>)` |
 | text tokens | `widgets::Label` | `new`, `styled(text, TextStyle::..)`, `section(..)`, `.bold()`, `.tone()`, `.center()`, `.right()`, `.bind()` |
