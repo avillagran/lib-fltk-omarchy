@@ -12,10 +12,15 @@ use fltk_omarchy::widgets::*;
 use fltk_omarchy::{App, AppWindow, State};
 
 fn main() {
-    let secs: f64 = std::env::args().nth(1).and_then(|s| s.parse().ok()).unwrap_or(30.0);
+    let secs: f64 = std::env::args()
+        .nth(1)
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(30.0);
     let app = App::new("dev.omarchy.fltk.a11y");
     let mut win = AppWindow::new("a11y check", 480, 560);
-    win.header().action(glyph::SETTINGS, "Preferences", || println!("event preferences"));
+    win.header().action(glyph::SETTINGS, "Preferences", || {
+        println!("event preferences")
+    });
     let mut body = win.body();
     let presses = State::new(0u32);
     let status = presses.map(|n| format!("Pressed {n} times"));
@@ -31,16 +36,17 @@ fn main() {
     let name = State::new("Ada".to_string());
     body.fit(&*TextField::new().placeholder("Name").bind(&name));
     let wifi = State::new(true);
-    let w2 = wifi.clone();
-    wifi.subscribe(move |on| println!("event wifi {on}")).forever();
-    body.fit(&*ToggleSwitch::new(&w2).accessible_name("Wi-Fi"));
+    wifi.subscribe(|on| println!("event wifi {on}")).forever();
+    body.fit(&*ToggleSwitch::new(&wifi).accessible_name("Wi-Fi"));
     let vol = State::new(0.5);
     vol.subscribe(|v| println!("event volume {v:.2}")).forever();
     body.fit(&*Slider::new(&vol, 0.0, 1.0, 0.1).accessible_name("Volume"));
     let out = State::new(0usize);
     body.fit(&*Dropdown::new("Output", &["Speakers", "Headphones"], &out));
     let count = State::new(10_000usize);
-    body.fit(&*List::new(&count, |i| ListRow::new(&format!("Song {i}")).detail("3:30")));
+    body.fit(&*List::new(&count, |i| {
+        ListRow::new(&format!("Song {i}")).detail("3:30")
+    }));
     win.end();
     win.show();
     println!("event shown");

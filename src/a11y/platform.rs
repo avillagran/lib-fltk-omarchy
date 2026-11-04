@@ -105,11 +105,7 @@ impl Adapter {
             }
             // SAFETY: `handle` is the live NSWindow of a shown fltk window.
             let a = unsafe {
-                accesskit_macos::SubclassingAdapter::for_window(
-                    handle,
-                    Activate(shared),
-                    Actions,
-                )
+                accesskit_macos::SubclassingAdapter::for_window(handle, Activate(shared), Actions)
             };
             return Some(Adapter::Mac(a));
         }

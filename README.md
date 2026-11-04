@@ -25,6 +25,11 @@ they close. See [docs/KEYBOARD.md](docs/KEYBOARD.md).
 Each component, with its picture, the code that draws it and its keys:
 [docs/COMPONENTS.md](docs/COMPONENTS.md).
 
+**Screen readers** (optional `a11y` feature): every component is exposed
+through AccessKit to Orca (AT-SPI), NVDA/Narrator (UI Automation) and
+VoiceOver. Nothing is built until an assistive technology asks. See
+[docs/ACCESSIBILITY.md](docs/ACCESSIBILITY.md).
+
 **Custom shapes and shaders** (`gfx`): write a shader once with
 `gfx::sl`, and the toolkit runs it on the GPU (with the optional `gpu`
 feature, at the monitor's refresh rate) or on the CPU: vector paths

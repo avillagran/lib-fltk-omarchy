@@ -286,15 +286,14 @@ fn check() {
     if active {
         let focus = app::focus().map_or(0, |f| f.as_widget_ptr() as usize);
         let focus_moved = LAST_FOCUS.with(|l| l.replace(focus)) != focus;
-        let dirty = DIRTY.with(|d| d.replace(false))
-            || woke
-            || ran
-            || focus_moved
-            || list
-                .iter()
-                .any(|s| s.win.damage() || s.shared.generation.load(Ordering::SeqCst) != s.seen);
-        if dirty {
-            for s in &mut list {
+        // Everything changes with focus, an action or an explicit change;
+        // otherwise only windows that repaint (or were just activated).
+        let all = DIRTY.with(|d| d.replace(false)) || woke || ran || focus_moved;
+        for s in &mut list {
+            let active = s.shared.active.load(Ordering::SeqCst);
+            if active
+                && (all || s.win.damage() || s.shared.generation.load(Ordering::SeqCst) != s.seen)
+            {
                 sync(s);
             }
         }
@@ -637,6 +636,7 @@ pub mod testing {
     //! (unit and UI tests; no D-Bus or window system needed).
     use super::*;
     pub use accesskit;
+    pub use accesskit_consumer;
 
     /// Updates sent to one window, applied to a local copy of the tree.
     #[derive(Clone)]
@@ -676,6 +676,7 @@ pub mod testing {
     impl Recorder {
         /// Runs the per-loop sync now (as the event loop would before waiting).
         pub fn sync(&self) {
+            mark_changed();
             check();
             let log = self.log.borrow();
             let mut t = self.tree.borrow_mut();

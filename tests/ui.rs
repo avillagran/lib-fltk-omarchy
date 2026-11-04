@@ -1347,6 +1347,9 @@ fn pixel(path: &Path, x: i32, y: i32) -> Result<[u8; 3], String> {
 /// Applies every update to AccessKit's own consumer, which panics on an
 /// inconsistent tree exactly like the platform adapters would.
 #[cfg(feature = "a11y")]
+use fltk_omarchy::a11y::testing::{accesskit, accesskit_consumer};
+
+#[cfg(feature = "a11y")]
 struct Consumer(Option<accesskit_consumer::Tree>);
 
 #[cfg(feature = "a11y")]

@@ -554,8 +554,9 @@ pub fn is_active() -> bool {
 
 /// Starts following windows for assistive technologies (idempotent).
 /// [`App::new`](crate::App::new) calls it; plain fltk apps call it once
-/// after `fltk::app::App::default()`. Set `OMARCHY_FLTK_A11Y=off` to keep
-/// the platform adapters off.
+/// after `fltk::app::App::default()` and `fltk::app::lock()` (the lock lets
+/// the adapter's thread wake the event loop when an AT asks). Set
+/// `OMARCHY_FLTK_A11Y=off` to keep the platform adapters off.
 #[inline]
 pub fn install() {
     #[cfg(feature = "a11y")]
