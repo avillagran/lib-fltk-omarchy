@@ -10,6 +10,8 @@
 //! `secs` s (`--via timer`: `push_markdown` from a UI timer at `hz`;
 //! `--via sender`: a worker thread pushes ~8-byte tokens through
 //! `TextSender`, which applies them at most 60 times a second), idle 3 s.
+//! `--lang ar`: the same transcript and stream in Arabic with Latin words
+//! and numbers (right-to-left blocks through the bidi layout).
 use fltk::app;
 use fltk_omarchy::text::{Block, ColorRole, RichText, Style};
 use fltk_omarchy::{App, AppWindow};
@@ -47,6 +49,37 @@ const STREAM: &[&str] = &[
     "- a list item with `code`\n- another item\n- third item with [a link](https://x.dev)\n\n",
     "```python\nfor i in range(10):\n    print(i)  # comment\n```\n\n",
     "Another paragraph of plain text to fill the transcript with something realistic to lay out and draw. ",
+    "\n\n",
+];
+
+const AGENT_AR: &str = r#"بالتأكيد — هذا ما تغيّر في `src/main.rs` و**السبب**:
+
+1. المحلل يحتفظ الآن *بذيل مفتوح* ويثبّت الكتل المغلقة.
+2. التخطيط مخزّن لكل كتلة؛ راجع [التوثيق](https://example.com/docs).
+   - [x] الاختبارات تنجح
+   - [ ] قياس الأداء للبث
+
+```rust
+fn push(&mut self, more: &str) -> Update {
+    self.tail.push_str(more); // O(tail)
+}
+```
+
+| الملف | الأسطر | الحالة |
+|------|------:|--------|
+| main.rs | 120 | معدّل |
+| text.rs | 980 | جديد |
+
+> ملاحظة: الأسطر الطويلة تلتف؛ التحديد يعمل عبر الكتل.
+"#;
+
+const STREAM_AR: &[&str] = &[
+    "بث إجابة طويلة مع **غامق** و*مائل* و`code` ورابط إلى https://example.com/page في منتصف جملة تستمر لبعض الوقت مع 42 رقمًا. ",
+    "تصل كلمات أخرى رمزًا برمز، وكل واحدة تُلحق بآخر فقرة من الرسالة مثل RichText و Markdown. ",
+    "\n\n",
+    "- عنصر في قائمة مع `code`\n- عنصر آخر\n- عنصر ثالث مع [رابط](https://x.dev)\n\n",
+    "```python\nfor i in range(10):\n    print(i)  # comment\n```\n\n",
+    "فقرة أخرى من نص عادي لملء المحادثة بشيء واقعي للتخطيط والرسم في عام 2026. ",
     "\n\n",
 ];
 
@@ -106,6 +139,7 @@ fn main() {
     let hz: f64 = arg(&args, "--hz", "60").parse().unwrap();
     let secs: f64 = arg(&args, "--secs", "10").parse().unwrap();
     let via = arg(&args, "--via", "timer");
+    let arabic = arg(&args, "--lang", "en") == "ar";
     let out = arg(&args, "--out", "build/richtext-bench.json");
     let title = args
         .last()
@@ -125,13 +159,18 @@ fn main() {
     for k in 0..messages {
         if k % 2 == 0 {
             view.append_block(header("You", ColorRole::Accent));
-            let q = format!("Question {k}: how do I stream **Markdown** into a `RichText` view?");
+            let q = if arabic {
+                format!("السؤال {k}: كيف أبث **Markdown** إلى عرض `RichText`؟")
+            } else {
+                format!("Question {k}: how do I stream **Markdown** into a `RichText` view?")
+            };
             transcript_bytes += q.len();
             view.append_markdown(&q);
         } else {
             view.append_block(header("Agent", ColorRole::Green));
-            transcript_bytes += AGENT.len();
-            view.append_markdown(AGENT);
+            let a = if arabic { AGENT_AR } else { AGENT };
+            transcript_bytes += a.len();
+            view.append_markdown(a);
         }
     }
     view.finish();
@@ -156,7 +195,7 @@ fn main() {
                 s.phase_start = Some((Instant::now(), cpu_ticks()));
                 s.paint0 = v.paint_stats();
             }
-            start_stream(r.clone(), v.clone(), rate, hz, secs, &via);
+            start_stream(r.clone(), v.clone(), rate, hz, secs, &via, arabic);
         });
     });
     // Finish: after the stream and 3 s of idle.
@@ -179,7 +218,8 @@ fn main() {
             let (_, c0) = s.phase_start.take().unwrap();
             s.idle2_cpu = (cpu_ticks() - c0) as f64 / tps;
             let json = format!(
-                "{{\"messages\":{messages},\"blocks\":{},\"transcript_kb\":{},\"build_ms\":{build_ms:.0},\"via\":\"{}\",\"rate_bps\":{rate},\"hz\":{hz},\"secs\":{secs},\"streamed_kb\":{},\"pushes\":{},\"push_avg_us\":{:.0},\"push_max_us\":{},\"laid_out\":{},\"idle_cpu_pct_before\":{:.1},\"stream_cpu_pct\":{:.1},\"idle_cpu_pct_after\":{:.1},\"pss_idle_kb\":{},\"pss_after_stream_kb\":{},\"at_bottom\":{},\"frames\":{},\"paint_avg_us\":{:.0},\"paint_cpu_pct\":{:.1},\"push_cpu_pct\":{:.1}}}",
+                "{{\"lang\":\"{}\",\"messages\":{messages},\"blocks\":{},\"transcript_kb\":{},\"build_ms\":{build_ms:.0},\"via\":\"{}\",\"rate_bps\":{rate},\"hz\":{hz},\"secs\":{secs},\"streamed_kb\":{},\"pushes\":{},\"push_avg_us\":{:.0},\"push_max_us\":{},\"laid_out\":{},\"idle_cpu_pct_before\":{:.1},\"stream_cpu_pct\":{:.1},\"idle_cpu_pct_after\":{:.1},\"pss_idle_kb\":{},\"pss_after_stream_kb\":{},\"at_bottom\":{},\"frames\":{},\"paint_avg_us\":{:.0},\"paint_cpu_pct\":{:.1},\"push_cpu_pct\":{:.1}}}",
+                if arabic { "ar" } else { "en" },
                 v.block_count(),
                 transcript_bytes / 1024,
                 via,
@@ -210,8 +250,8 @@ fn main() {
     app.run();
 }
 
-fn start_stream(run: Rc<RefCell<Run>>, view: RichText, rate: usize, hz: f64, secs: f64, via: &str) {
-    let source: String = STREAM.iter().cycle().take(400).copied().collect();
+fn start_stream(run: Rc<RefCell<Run>>, view: RichText, rate: usize, hz: f64, secs: f64, via: &str, arabic: bool) {
+    let source: String = (if arabic { STREAM_AR } else { STREAM }).iter().cycle().take(400).copied().collect();
     let end = Instant::now() + Duration::from_secs_f64(secs);
     if via == "sender" {
         let tx = view.sender();

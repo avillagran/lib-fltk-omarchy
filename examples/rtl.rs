@@ -4,6 +4,7 @@
 //! order with `direction(Ltr)`; RichText lays out mixed Arabic, Latin and
 //! numbers with the Unicode bidi algorithm.
 //!   cargo run --example rtl                       # live window, F2 switches en/ar
+//!   cargo run --example rtl -- --locale ar        # start in Arabic
 //!   cargo run --example rtl -- --snapshot build/rtl   # PNGs: <name>-en.png, <name>-ar.png
 use fltk::prelude::*;
 use fltk_omarchy::layout::{self, Direction, FlexExt};
@@ -43,9 +44,16 @@ struct Shell {
 fn shell() -> Shell {
     let mut win = AppWindow::new("", 620, 700);
     win.bind_title(&i18n::text("Files"));
-    let gear = win.header().action(glyph::SETTINGS, "", || {}).bind_tooltip(&i18n::text("Preferences"));
-    win.header().action(glyph::SEARCH, "", || {}).bind_tooltip(&i18n::text("Search"));
-    win.header().destructive_action(glyph::CLOSE, "", || {}).bind_tooltip(&i18n::text("Close"));
+    let gear = win
+        .header()
+        .action(glyph::SETTINGS, "", || {})
+        .bind_tooltip(&i18n::text("Preferences"));
+    win.header()
+        .action(glyph::SEARCH, "", || {})
+        .bind_tooltip(&i18n::text("Search"));
+    win.header()
+        .destructive_action(glyph::CLOSE, "", || {})
+        .bind_tooltip(&i18n::text("Close"));
     let mut body = win.body();
     let hero = Hero::new(glyph::VOLUME_HIGH, "", "").detail("64%");
     let h2 = hero.clone();
@@ -60,14 +68,28 @@ fn shell() -> Shell {
     let t2 = tabs.clone();
     i18n::bind(&*tabs, move || {
         let names = [tr!("Home"), tr!("Documents"), tr!("Pictures"), tr!("Music")];
-        t2.clone().set_tabs(&names.iter().map(|s| s.as_str()).collect::<Vec<_>>());
+        t2.clone()
+            .set_tabs(&names.iter().map(|s| s.as_str()).collect::<Vec<_>>());
     });
     body.fit(&*tabs);
 
     let mut r = layout::row();
-    r.fit(&*Button::icon(glyph::FOLDER, "").bordered().bind_text(&i18n::text("Open")));
-    r.fit(&*Button::icon(glyph::PLUS, "").primary().bind_text(&i18n::text("Save")));
-    r.fit(&*Button::icon(glyph::TRASH, "").danger().bordered().bind_text(&i18n::text("Delete")));
+    r.fit(
+        &*Button::icon(glyph::FOLDER, "")
+            .bordered()
+            .bind_text(&i18n::text("Open")),
+    );
+    r.fit(
+        &*Button::icon(glyph::PLUS, "")
+            .primary()
+            .bind_text(&i18n::text("Save")),
+    );
+    r.fit(
+        &*Button::icon(glyph::TRASH, "")
+            .danger()
+            .bordered()
+            .bind_text(&i18n::text("Delete")),
+    );
     layout::spacer();
     r.fit(&*ActionButton::new(glyph::REFRESH, "").bind_tooltip(&i18n::text("Refresh")));
     r.close_fitted();
@@ -104,11 +126,23 @@ fn shell() -> Shell {
     let _timeline = Slider::new(&State::new(0.25), 0.0, 1.0, 0.01);
     media.close_fitted();
 
-    body.fit(&*Toggle::new("", "", &State::new(true)).bind_title(&i18n::text("Night light")).bind_description(&i18n::text("Warmer colors after sunset")));
-    body.fit(&*Toggle::new("", "", &State::new(false)).bind_title(&i18n::text("Do not disturb")).bind_description(&i18n::text("Silence notifications")));
+    body.fit(
+        &*Toggle::new("", "", &State::new(true))
+            .bind_title(&i18n::text("Night light"))
+            .bind_description(&i18n::text("Warmer colors after sunset")),
+    );
+    body.fit(
+        &*Toggle::new("", "", &State::new(false))
+            .bind_title(&i18n::text("Do not disturb"))
+            .bind_description(&i18n::text("Silence notifications")),
+    );
     let row = Row::new(glyph::MONITOR, "HDMI / DisplayPort").detail("Digital");
     body.fit(&*row);
-    body.fit(&*Row::new(glyph::HEADPHONES, "Built-in speakers").detail("Analog").current(true));
+    body.fit(
+        &*Row::new(glyph::HEADPHONES, "Built-in speakers")
+            .detail("Analog")
+            .current(true),
+    );
     win.end();
     Shell { win, gear }
 }
@@ -121,21 +155,60 @@ fn data() -> AppWindow {
     r.set_spacing(12);
     let count = State::new(1000usize);
     let sel = State::new(Some(1usize));
-    let _list = List::new(&count, |i| ListRow::new(&format!("{} {i}", tr!("Text"))).icon(glyph::FILE).detail(&format!("{} KB", i * 3))).bind_selected(&sel);
-    let files = [("notes.md", "12 KB"), ("صورة.png", "1.2 MB"), ("README", "4 KB"), ("مستند.pdf", "380 KB")];
+    let _list = List::new(&count, |i| {
+        ListRow::new(&format!("{} {i}", tr!("Text")))
+            .icon(glyph::FILE)
+            .detail(&format!("{} KB", i * 3))
+    })
+    .bind_selected(&sel);
+    let files = [
+        ("notes.md", "12 KB"),
+        ("صورة.png", "1.2 MB"),
+        ("README", "4 KB"),
+        ("مستند.pdf", "380 KB"),
+    ];
     let panel = KeyboardPanel::new("files");
     let n = files.len();
-    panel.set_items(n, |i| i as u64, move |id| (id < n as u64).then_some(id as usize));
+    panel.set_items(
+        n,
+        |i| i as u64,
+        move |id| (id < n as u64).then_some(id as usize),
+    );
     panel.set_cursor(Some(1));
     panel.select_only(1);
-    let table = Table::new(&panel, vec![Column::new("", 0).flex(), Column::new("", 80).right()], move |row, col| {
-        if col == 0 { files[row].0.to_string() } else { files[row].1.to_string() }
-    })
-    .icon(|row| if row == 2 { glyph::FOLDER.into() } else { glyph::FILE.into() });
+    let table = Table::new(
+        &panel,
+        vec![Column::new("", 0).flex(), Column::new("", 80).right()],
+        move |row, col| {
+            if col == 0 {
+                files[row].0.to_string()
+            } else {
+                files[row].1.to_string()
+            }
+        },
+    )
+    .icon(|row| {
+        if row == 2 {
+            glyph::FOLDER.into()
+        } else {
+            glyph::FILE.into()
+        }
+    });
     let tpanel = KeyboardPanel::new("tree");
     let tree = Tree::new(&tpanel, |parent| match parent {
-        None => vec![TreeNode::new(1, &tr!("Home")).icon(glyph::FOLDER).branch(), TreeNode::new(2, &tr!("Music")).icon(glyph::FOLDER).branch()],
-        Some(1) => vec![TreeNode::new(10, &tr!("Documents")).icon(glyph::FOLDER).branch().detail("3"), TreeNode::new(11, "notes.md").icon(glyph::FILE).detail("12 KB")],
+        None => vec![
+            TreeNode::new(1, &tr!("Home")).icon(glyph::FOLDER).branch(),
+            TreeNode::new(2, &tr!("Music")).icon(glyph::FOLDER).branch(),
+        ],
+        Some(1) => vec![
+            TreeNode::new(10, &tr!("Documents"))
+                .icon(glyph::FOLDER)
+                .branch()
+                .detail("3"),
+            TreeNode::new(11, "notes.md")
+                .icon(glyph::FILE)
+                .detail("12 KB"),
+        ],
         Some(10) => vec![TreeNode::new(100, "a.txt").icon(glyph::FILE)],
         _ => vec![],
     });
@@ -169,7 +242,12 @@ fn main() {
     tw.end();
 
     let Some(dir) = shots else {
-        sh.win.shortcut("F2", || i18n::set_locale(if i18n::is_rtl() { "en" } else { "ar" }));
+        if let Some(l) = std::env::args().skip_while(|a| a != "--locale").nth(1) {
+            i18n::set_locale(&l);
+        }
+        sh.win.shortcut("F2", || {
+            i18n::set_locale(if i18n::is_rtl() { "en" } else { "ar" })
+        });
         sh.win.show();
         app.run();
         return;
@@ -186,29 +264,48 @@ fn main() {
         // Popups take the direction when they open.
         let items = vec![
             PopupItem::new(glyph::FOLDER, &tr!("Open")).shortcut("Mod+O"),
-            PopupItem::new(glyph::PLUS, &tr!("Save")).shortcut("Mod+S").divider(),
+            PopupItem::new(glyph::PLUS, &tr!("Save"))
+                .shortcut("Mod+S")
+                .divider(),
             PopupItem::new("", &tr!("Fullscreen")).checked(true),
             PopupItem::new(glyph::TRASH, &tr!("Delete")).shortcut("Delete"),
         ];
         let h = PopupMenu::open(&*sh.gear, items, |_| {});
         sh.win.snapshot(p("rtl-menu")).unwrap();
         h.close();
-        Menu::open(&*sh.win, &tr!("Go"), vec![
-            MenuItem::new("\u{f0047}", &tr!("Apps")).submenu(),
-            MenuItem::new("\u{f03d8}", &tr!("Style")).submenu(),
-            MenuItem::new("\u{f0425}", &tr!("System")).submenu(),
-            MenuItem::new(glyph::SETTINGS, &tr!("Preferences")),
-        ], |_| {});
+        Menu::open(
+            &*sh.win,
+            &tr!("Go"),
+            vec![
+                MenuItem::new("\u{f0047}", &tr!("Apps")).submenu(),
+                MenuItem::new("\u{f03d8}", &tr!("Style")).submenu(),
+                MenuItem::new("\u{f0425}", &tr!("System")).submenu(),
+                MenuItem::new(glyph::SETTINGS, &tr!("Preferences")),
+            ],
+            |_| {},
+        );
         sh.win.snapshot(p("rtl-command")).unwrap();
         fltk_omarchy::focus::press("Escape");
         close_overlays(&mut sh.win);
-        ConfirmDialog::open(&*sh.win, &tr!("Delete 3 files permanently?"), &tr!("Delete"), true, |_| {});
+        ConfirmDialog::open(
+            &*sh.win,
+            &tr!("Delete 3 files permanently?"),
+            &tr!("Delete"),
+            true,
+            |_| {},
+        );
         sh.win.snapshot(p("rtl-confirm")).unwrap();
         close_overlays(&mut sh.win);
         let mut toast = OperationToast::show(&*sh.win, &tr!("Copying files")).unwrap();
         toast.set_progress(0.4);
         toast.set_detail("notes.md → ~/Documents");
-        Notification::show(&*sh.win, glyph::BELL, &tr!("Screenshot saved"), "~/Pictures/2026-11-04.png", Urgency::Critical);
+        Notification::show(
+            &*sh.win,
+            glyph::BELL,
+            &tr!("Screenshot saved"),
+            "~/Pictures/2026-11-04.png",
+            Urgency::Critical,
+        );
         sh.win.snapshot(p("rtl-toast")).unwrap();
         toast.close();
         close_overlays(&mut sh.win);
@@ -219,7 +316,9 @@ fn main() {
 /// Deletes every overlay layer (children after the window's root flex).
 fn close_overlays(win: &mut AppWindow) {
     while win.children() > 1 {
-        let Some(c) = win.child(win.children() - 1) else { break };
+        let Some(c) = win.child(win.children() - 1) else {
+            break;
+        };
         win.remove(&c);
         fltk::app::delete_widget(c);
     }

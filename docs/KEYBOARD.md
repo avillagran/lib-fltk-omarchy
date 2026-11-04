@@ -36,6 +36,35 @@ and every component follows the same rules.
    full-strength accent border so it cannot be missed.
    `theme::set_focus_ring(FocusRing::Theme)` uses the theme tokens exactly.
 
+## Right to left
+
+In a right-to-left language (Arabic, Hebrew, Persian, Urdu…) the layout is
+mirrored ([I18N.md](I18N.md#right-to-left-languages)) and the keys follow
+the screen:
+
+- **Tab / Shift+Tab** keep the reading order: from the start (now the
+  right) to the end (the left). A row's first child is its rightmost one.
+- **Left / Right swap** in mirrored horizontal controls, so the arrow
+  points where the selection goes:
+
+  | Control | Left | Right |
+  |---|---|---|
+  | TabBar | next tab | previous tab |
+  | ButtonGroup | next option | previous option |
+  | Slider | raises the value | lowers it |
+  | KeyboardPanel grid | next item in the row | previous item |
+  | Tree | expands / goes to the first child | collapses / goes to the parent |
+  | Menu (command menu) | enters a submenu (`‹` mark) | — |
+
+  Up/Down, Home/End, PageUp/PageDown, Enter and Ctrl+Tab are unchanged.
+- A `KeyboardPanel` takes its host widget's direction: its `on_edge` gets
+  the logical key (`Left` = toward the start of the row), its `on_key` the
+  key as pressed. A canvas that does not mirror its grid sets
+  `layout::set_direction(&canvas, Some(Direction::Ltr))`.
+- Containers forced to `Direction::Ltr` (media controls, timelines) keep
+  the left-to-right keys.
+- Custom controls swap with `layout::logical_key(&widget, key)`.
+
 ## Popups and app shortcuts
 
 A list popup (PopupMenu, Dropdown, SearchableDropdown, Menu, ShortcutHelp)

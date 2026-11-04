@@ -63,7 +63,9 @@ limit and a time budget per draw. Pictures, API and measured cost:
 - **Translations**: [docs/I18N.md](docs/I18N.md): o3-compatible catalogs,
   the toolkit's own strings in 20 languages, plural forms, the system
   language on Linux, macOS and Windows, live language switching, a
-  catalog checker (`cargo run --example i18n_check`).
+  catalog checker (`cargo run --example i18n_check`), right-to-left
+  layouts mirrored live and bidirectional rich text
+  ([Arabic](docs/I18N.md#right-to-left-languages)).
 - **Data that changes**: keyed `ListModel` with granular changes,
   `sync_from` for snapshot protocols, batching and thread feeds; views
   redraw only the rows that changed and keep scroll and selection by key

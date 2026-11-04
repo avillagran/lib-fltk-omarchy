@@ -2,6 +2,47 @@
 
 ## Unreleased
 
+- **Right-to-left layouts.** In Arabic, Hebrew, Persian and Urdu the UI is
+  mirrored, live on a locale switch (no window rebuild); docs/I18N.md.
+  - `layout::Direction` (= `i18n::Direction`), `layout::direction_of` /
+    `is_rtl` (nearest override, else the language), per-container
+    overrides `FlexExt::direction(Direction::Ltr)` and
+    `layout::set_direction(&w, Some(..))` for media controls, timelines,
+    code. `layout::Mirror` (mirror x, points, alignment, glyphs) and
+    `layout::logical_key` for custom widgets.
+  - Rows mirror their children after FLTK lays them out (`layout::row`,
+    `fit`, `close_fitted`, `layout::mirror`; `AppWindow::end` registers
+    every `Flex` row of the window, `layout::mirror_rows`). Child order is
+    unchanged, so Tab still goes from the start to the end.
+  - Mirrored components: header (title right, actions left), Button,
+    ButtonGroup, Toggle/ToggleSwitch (knob left when on), Slider and
+    Progress (fill from the right), Hero, Row, Label, TabBar (order, close
+    glyph, overflow), List/Table/Tree (columns, indentation, expanders,
+    scrollbar left), PopupMenu (glyph right, shortcut/check left,
+    `open_at` grows left), Menu (`‹` submenu mark, Left enters),
+    Dropdown, SearchableDropdown, ShortcutHelp, ConfirmDialog,
+    OperationToast (bottom-left), Notification (top-left), TextField
+    placeholder. Accessibility bounds follow.
+  - Keys: Left/Right swap in mirrored TabBar, ButtonGroup, Slider,
+    KeyboardPanel grids (`on_edge` gets the logical key) and Tree
+    (docs/KEYBOARD.md).
+  - `Table::set_titles` renames columns (live translation).
+  - `i18n::is_rtl()` no longer takes a lock (read on every draw).
+  - Fix: a `Notification` shown after an earlier toast's window was
+    deleted no longer touches the deleted toast.
+- **Bidirectional RichText.** Lines follow the Unicode Bidirectional
+  Algorithm (new dependency `unicode-bidi` 0.3.18, MIT/Apache-2.0, no
+  dependencies): base direction per block from its first strong character
+  (RLM/LRM force it), pieces in visual order, right-to-left blocks
+  right-aligned with markers and quote bars on the right, tables with the
+  first column on the right, code left to right. Hit testing, selection
+  rectangles and `text_rect` follow the visual order
+  (`Layout::span_x`, `Frag::rtl`, `Line::rtl`, `Layout::rtl`,
+  `layout::has_rtl`). Text without right-to-left characters is laid out
+  as before; streaming keeps its incremental relayout.
+- `examples/rtl`: the same windows in English and Arabic, switched live
+  (`--snapshot DIR`); `richtext_bench --lang ar` streams Arabic.
+
 - **Multiplatform: Linux (Wayland and X11), macOS and Windows.** All OS
   code moved into a new `platform` module (`src/platform/`: `linux`,
   `macos`, `windows`, shared `generic` fallbacks, portable `poll`

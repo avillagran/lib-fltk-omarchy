@@ -2336,4 +2336,30 @@ fn a11y_checks(run: &mut dyn FnMut(&str, Check)) {
         fltk::window::DoubleWindow::delete((*win).clone());
         Ok(())
     });
+    run("a11y: mirrored bounds in a right-to-left language", &|shots| {
+        i18n::set_locale("ar");
+        let mut win = AppWindow::new("t", 480, 240);
+        win.header().action(glyph::SETTINGS, "Preferences", || {});
+        let mut body = win.body();
+        let tabs = TabBar::new(&["one", "two"], &State::new(0usize));
+        body.fit(&*tabs);
+        let list = List::new(&State::new(3usize), |i| ListRow::new(&format!("row {i}")));
+        body.fit(&*list);
+        win.end();
+        win.snapshot(shots.join("a11y-rtl.png")).map_err(|e| e.to_string())?;
+        let rec = testing::record(&*win);
+        rec.sync();
+        let mut consumer = Consumer(None);
+        consumer.feed(rec.take());
+        let rect = |role: R, name: &str| rec.find(role, name).and_then(|id| rec.node(id)).and_then(|n| n.bounds()).ok_or(format!("{name} bounds"));
+        let (one, two) = (rect(R::Tab, "one")?, rect(R::Tab, "two")?);
+        check(one.x0 > two.x0, &format!("first tab on the right ({} > {})", one.x0, two.x0))?;
+        let pref = rect(R::Button, "Preferences")?;
+        check(pref.x1 < 240.0, &format!("header action on the left ({})", pref.x1))?;
+        let row = rect(R::ListBoxOption, "row 0")?;
+        check((row.x1 - (list.x() + list.w()) as f64).abs() < 1.5, &format!("list rows end at the right edge ({} vs {})", row.x1, list.x() + list.w()))?;
+        i18n::set_locale("en");
+        fltk::window::DoubleWindow::delete((*win).clone());
+        Ok(())
+    });
 }
