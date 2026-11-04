@@ -18,6 +18,13 @@ with no keyboard code in the app. Tab and Shift+Tab move through the
 controls, arrows act inside the focused one, and menus give focus back when
 they close. See [docs/KEYBOARD.md](docs/KEYBOARD.md).
 
+**Motion that follows the system**: with Omarchy's Animations switch on
+(Hyprland `animations:enabled`; Reduce motion on macOS, animation effects
+on Windows, GNOME's setting) layout changes slide, a `Sidebar` expands
+when the pointer rests on it, popups fade, tabs and list rows move, with
+Omarchy's and o3's durations and no animation code in the app. Off, it
+all jumps. See [docs/ANIMATION.md](docs/ANIMATION.md).
+
 ![app window](docs/components/app-window.png)
 
 | | |

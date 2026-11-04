@@ -51,7 +51,11 @@ pub struct SidebarItem {
 
 impl SidebarItem {
     pub fn new(icon: &str, label: &str) -> SidebarItem {
-        SidebarItem { icon: icon.into(), label: label.into(), ..Default::default() }
+        SidebarItem {
+            icon: icon.into(),
+            label: label.into(),
+            ..Default::default()
+        }
     }
     /// A short count or mark at the end of the row (expanded).
     pub fn badge(mut self, b: &str) -> Self {
@@ -145,7 +149,11 @@ fn paint_rail(s: &Sb, sel: usize, (x, y, w, h): (i32, i32, i32, i32), rtl: bool,
         // Hairline on the edge facing the content.
         paint::fill(m.x(x + w - 1, 1), y, 1, h, 0, fg.over(bg, 0.12));
         // Labels fade in as the rail widens (none at rail width).
-        let reveal = if s.wide > s.rail { ((w - s.rail) as f64 / (s.wide - s.rail) as f64).clamp(0.0, 1.0) } else { 1.0 };
+        let reveal = if s.wide > s.rail {
+            ((w - s.rail) as f64 / (s.wide - s.rail) as f64).clamp(0.0, 1.0)
+        } else {
+            1.0
+        };
         let rh = row_h(t);
         let inset = t.spacing.sm;
         fltk::draw::push_clip(x, y, w, h);
@@ -154,25 +162,71 @@ fn paint_rail(s: &Sb, sel: usize, (x, y, w, h): (i32, i32, i32, i32), rtl: bool,
             let (bx, bw) = (x + inset, (w - 2 * inset).max(0));
             let selected = i == sel;
             if selected {
-                paint::fill(m.x(bx, bw), ry + 2, bw, rh - 4, t.radius, t.fill(&t.controls.selected, bg));
+                paint::fill(
+                    m.x(bx, bw),
+                    ry + 2,
+                    bw,
+                    rh - 4,
+                    t.radius,
+                    t.fill(&t.controls.selected, bg),
+                );
                 paint::fill(m.x(x + 2, 3), ry + 6, 3, rh - 12, 1, t.palette.accent);
             } else if s.hover == Some(i) {
-                paint::fill(m.x(bx, bw), ry + 2, bw, rh - 4, t.radius, t.fill(&t.controls.hover, bg));
+                paint::fill(
+                    m.x(bx, bw),
+                    ry + 2,
+                    bw,
+                    rh - 4,
+                    t.radius,
+                    t.fill(&t.controls.hover, bg),
+                );
             }
             if ring && i == s.cursor {
-                paint::stroke(m.x(bx, bw), ry + 2, bw, rh - 4, t.radius, t.controls.focus.border_width.max(1), t.border(&t.controls.focus, bg));
+                paint::stroke(
+                    m.x(bx, bw),
+                    ry + 2,
+                    bw,
+                    rh - 4,
+                    t.radius,
+                    t.controls.focus.border_width.max(1),
+                    t.border(&t.controls.focus, bg),
+                );
             }
             let ink = if selected { t.palette.accent } else { fg };
             paint::glyph(&it.icon, m.x(x, s.rail), ry, s.rail, rh, t.font.icon, ink);
             if reveal > 0.0 {
                 let text = fg.over(bg, reveal);
                 let tx = x + s.rail;
-                let bw2 = if it.badge.is_empty() { 0 } else { paint::measure(&it.badge, t.font.caption, false) + t.spacing.md };
+                let bw2 = if it.badge.is_empty() {
+                    0
+                } else {
+                    paint::measure(&it.badge, t.font.caption, false) + t.spacing.md
+                };
                 let lw = (x + w - inset - t.spacing.md - bw2 - tx).max(0);
-                paint::text_elided(&it.label, m.x(tx, lw), ry, lw, rh, t.font.body, selected, text, m.align(Align::Left));
+                paint::text_elided(
+                    &it.label,
+                    m.x(tx, lw),
+                    ry,
+                    lw,
+                    rh,
+                    t.font.body,
+                    selected,
+                    text,
+                    m.align(Align::Left),
+                );
                 if bw2 > 0 {
                     let bx2 = x + w - inset - t.spacing.md - bw2 + t.spacing.md;
-                    paint::text(&it.badge, m.x(bx2, bw2 - t.spacing.md), ry, bw2 - t.spacing.md, rh, t.font.caption, false, fg.darker(1.3).over(bg, reveal), m.align(Align::Right));
+                    paint::text(
+                        &it.badge,
+                        m.x(bx2, bw2 - t.spacing.md),
+                        ry,
+                        bw2 - t.spacing.md,
+                        rh,
+                        t.font.caption,
+                        false,
+                        fg.darker(1.3).over(bg, reveal),
+                        m.align(Align::Right),
+                    );
                 }
             }
         }
@@ -183,14 +237,21 @@ fn paint_rail(s: &Sb, sel: usize, (x, y, w, h): (i32, i32, i32, i32), rtl: bool,
 fn hit(s: &Sb, top: i32, h: i32, ey: i32) -> Option<usize> {
     theme::with(|t| {
         let rh = row_h(t);
-        rows(&s.items, h, t).iter().position(|&ry| ey >= top + ry && ey < top + ry + rh)
+        rows(&s.items, h, t)
+            .iter()
+            .position(|&ry| ey >= top + ry && ey < top + ry + rh)
     })
 }
 
 impl Sidebar {
     /// A rail with `items`; `selected` is the selected item's index.
     pub fn new(items: Vec<SidebarItem>, selected: &State<usize>) -> Sidebar {
-        let (rail, wide) = theme::with(|t| (t.spacing.control_height + 2 * t.spacing.lg, 240.max(t.font.body * 20)));
+        let (rail, wide) = theme::with(|t| {
+            (
+                t.spacing.control_height + 2 * t.spacing.lg,
+                240.max(t.font.body * 20),
+            )
+        });
         let mut inner = Widget::default().with_size(rail, 240);
         inner.set_frame(FrameType::NoBox);
         inner.set_visible_focus();
@@ -209,7 +270,13 @@ impl Sidebar {
             layer_w: Anim::new(),
             on_activate: None,
         }));
-        let sb = Sidebar { inner, st, selected: selected.clone(), pinned: State::new(false), expanded: State::new(false) };
+        let sb = Sidebar {
+            inner,
+            st,
+            selected: selected.clone(),
+            pinned: State::new(false),
+            expanded: State::new(false),
+        };
         sb.install();
         sb
     }
@@ -293,7 +360,11 @@ impl Sidebar {
     /// Simulates the pointer resting on (`true`) or leaving it, through the
     /// same path as real Enter/Leave events, hover intent included.
     pub fn hover(&self, on: bool) {
-        if on { self.entered() } else { self.left() }
+        if on {
+            self.entered()
+        } else {
+            self.left()
+        }
     }
 
     fn entered(&self) {
@@ -333,7 +404,8 @@ impl Sidebar {
                 let s = me.st.borrow();
                 s.gen != gen || s.hovered || s.layer_hovered
             };
-            let held = crate::focus::is_focused(&me.inner) || crate::overlay::modal_open_over(&me.inner);
+            let held =
+                crate::focus::is_focused(&me.inner) || crate::overlay::modal_open_over(&me.inner);
             if !stay && !held {
                 me.collapse();
             }
@@ -370,7 +442,9 @@ impl Sidebar {
         match mode {
             SidebarMode::Push => {
                 let target = if want { wide } else { rail };
-                if self.inner.w() != target && !crate::layout::refit(&self.inner, (target, self.inner.h())) {
+                if self.inner.w() != target
+                    && !crate::layout::refit(&self.inner, (target, self.inner.h()))
+                {
                     {
                         let mut w = self.inner.clone();
                         let h = w.h();
@@ -395,7 +469,13 @@ impl Sidebar {
     }
 
     fn open_layer(&self) {
-        if self.st.borrow().layer.as_ref().is_some_and(|l| !l.was_deleted()) {
+        if self
+            .st
+            .borrow()
+            .layer
+            .as_ref()
+            .is_some_and(|l| !l.was_deleted())
+        {
             return;
         }
         let (rail, wide) = {
@@ -403,8 +483,18 @@ impl Sidebar {
             (s.rail, s.wide)
         };
         let rtl = crate::layout::is_rtl(&self.inner);
-        let x = if rtl { self.inner.x() + self.inner.w() - wide } else { self.inner.x() };
-        let Some(mut layer) = crate::overlay::open_layer(&self.inner, Some((x, self.inner.y(), wide, self.inner.h())), false) else { return };
+        let x = if rtl {
+            self.inner.x() + self.inner.w() - wide
+        } else {
+            self.inner.x()
+        };
+        let Some(mut layer) = crate::overlay::open_layer(
+            &self.inner,
+            Some((x, self.inner.y(), wide, self.inner.h())),
+            false,
+        ) else {
+            return;
+        };
         {
             let mut s = self.st.borrow_mut();
             s.layer_w = Anim::new();
@@ -416,7 +506,15 @@ impl Sidebar {
             let mut s = me.st.borrow_mut();
             let want = me.expanded.get();
             let (rail, wide) = (s.rail as f64, s.wide as f64);
-            let w = s.layer_w.get(if want { wide } else { rail }, anim::ms::LAYOUT, Ease::OutCubic, l).round() as i32;
+            let w = s
+                .layer_w
+                .get(
+                    if want { wide } else { rail },
+                    anim::ms::LAYOUT,
+                    Ease::OutCubic,
+                    l,
+                )
+                .round() as i32;
             let closing = !want && !s.layer_w.running();
             let rtl = crate::layout::is_rtl(&me.inner);
             let x = if rtl { l.x() + l.w() - w } else { l.x() };
@@ -435,11 +533,19 @@ impl Sidebar {
             let rtl = crate::layout::is_rtl(&me.inner);
             let inside_panel = {
                 let ex = app::event_x();
-                if rtl { ex >= l.x() + l.w() - width } else { ex < l.x() + width }
+                if rtl {
+                    ex >= l.x() + l.w() - width
+                } else {
+                    ex < l.x() + width
+                }
             };
             match ev {
                 Event::Enter | Event::Move => {
-                    let h = if inside_panel { hit(&me.st.borrow(), l.y(), l.h(), app::event_y()) } else { None };
+                    let h = if inside_panel {
+                        hit(&me.st.borrow(), l.y(), l.h(), app::event_y())
+                    } else {
+                        None
+                    };
                     let was = me.st.borrow().layer_hovered;
                     {
                         let mut s = me.st.borrow_mut();
@@ -476,7 +582,13 @@ impl Sidebar {
             let s = st.borrow();
             let overlay_open = s.mode == SidebarMode::Overlay && s.layer.is_some();
             let ring = crate::focus::show_ring(w) && !overlay_open;
-            paint_rail(&s, sel.get(), (w.x(), w.y(), w.w(), w.h()), crate::layout::is_rtl(w), ring);
+            paint_rail(
+                &s,
+                sel.get(),
+                (w.x(), w.y(), w.w(), w.h()),
+                crate::layout::is_rtl(w),
+                ring,
+            );
             let _ = &me;
         });
         let me = self.clone();
@@ -568,18 +680,32 @@ impl Sidebar {
         });
         let mut w2 = self.inner.clone();
         crate::state::bind_widget(&self.inner, &self.selected, false, move |_| w2.redraw());
-        let (st, sel, ex, me) = (self.st.clone(), self.selected.clone(), self.expanded.clone(), self.inner.clone());
+        let (st, sel, ex, me) = (
+            self.st.clone(),
+            self.selected.clone(),
+            self.expanded.clone(),
+            self.inner.clone(),
+        );
         a11y::describe(&self.inner, move |n| {
             let Ok(s) = st.try_borrow() else { return };
-            n.role(Role::TabList).name(&crate::i18n::tr("Sidebar")).expanded(ex.get()).focusable();
+            n.role(Role::TabList)
+                .name(&crate::i18n::tr("Sidebar"))
+                .expanded(ex.get())
+                .focusable();
             let h = me.h();
             let rh = theme::with(row_h);
             let ys = theme::with(|t| rows(&s.items, h, t));
             let m = crate::layout::Mirror::of(&me);
             for (i, (it, ry)) in s.items.iter().zip(ys).enumerate() {
                 n.child(i as u64, |c| {
-                    c.role(Role::Tab).name(&it.label).selected(sel.get() == i).position(i + 1, s.items.len())
-                        .bounds(m.x(me.x(), me.w()), me.y() + ry, me.w(), rh).action(Action::Click).action(Action::Focus).focusable();
+                    c.role(Role::Tab)
+                        .name(&it.label)
+                        .selected(sel.get() == i)
+                        .position(i + 1, s.items.len())
+                        .bounds(m.x(me.x(), me.w()), me.y() + ry, me.w(), rh)
+                        .action(Action::Click)
+                        .action(Action::Focus)
+                        .focusable();
                     if !it.badge.is_empty() {
                         c.description(&it.badge);
                     }
@@ -591,7 +717,13 @@ impl Sidebar {
         });
         let me = self.clone();
         a11y::on_action(&self.inner, move |r| {
-            let Some(i) = r.key().map(|k| k as usize).filter(|i| *i < me.st.borrow().items.len()) else { return false };
+            let Some(i) = r
+                .key()
+                .map(|k| k as usize)
+                .filter(|i| *i < me.st.borrow().items.len())
+            else {
+                return false;
+            };
             match r.action {
                 Action::Click => me.activate(i),
                 Action::Focus => {

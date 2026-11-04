@@ -54,11 +54,18 @@ impl Kid {
 
 /// The widget's address, 0 once deleted (`as_widget_ptr` panics then).
 fn ptr(w: &Widget) -> usize {
-    if w.was_deleted() { 0 } else { w.as_widget_ptr() as usize }
+    if w.was_deleted() {
+        0
+    } else {
+        w.as_widget_ptr() as usize
+    }
 }
 
 fn same(a: &[Kid], b: &[Kid]) -> bool {
-    a.len() == b.len() && a.iter().zip(b).all(|(x, y)| x.ptr() == y.ptr() && x.rect == y.rect && x.visible == y.visible)
+    a.len() == b.len()
+        && a.iter()
+            .zip(b)
+            .all(|(x, y)| x.ptr() == y.ptr() && x.rect == y.rect && x.visible == y.visible)
 }
 
 struct Item {
@@ -110,11 +117,18 @@ extern "C" {
 }
 
 fn epoch() -> u64 {
-    theme::generation().wrapping_mul(1_000_003).wrapping_add(LOCALE_EPOCH.with(|e| e.get()))
+    theme::generation()
+        .wrapping_mul(1_000_003)
+        .wrapping_add(LOCALE_EPOCH.with(|e| e.get()))
 }
 
 fn track_of(p: usize) -> Option<Rc<RefCell<Track>>> {
-    TRACKS.with(|t| t.borrow().get(&p).filter(|(f, _)| !f.was_deleted()).map(|(_, t)| t.clone()))
+    TRACKS.with(|t| {
+        t.borrow()
+            .get(&p)
+            .filter(|(f, _)| !f.was_deleted())
+            .map(|(_, t)| t.clone())
+    })
 }
 
 /// True when `f` draws through the motion hook.
@@ -195,7 +209,9 @@ pub fn animated<W: WidgetExt>(w: &W) -> bool {
                 return false;
             }
             // SAFETY: as above.
-            cur = c.parent().map(|g| unsafe { Widget::from_widget_ptr(g.as_widget_ptr()) });
+            cur = c
+                .parent()
+                .map(|g| unsafe { Widget::from_widget_ptr(g.as_widget_ptr()) });
         }
         true
     })
@@ -216,10 +232,14 @@ pub fn set_visible<W: WidgetExt>(w: &W, on: bool) {
     if !on {
         if let Some(p) = parent.as_ref() {
             if let Some(tr) = track_of(p.as_widget_ptr() as usize) {
-                let ready = tr.borrow().seen && anim::enabled() && animated(p) && w.w() > 0 && w.h() > 0;
+                let ready =
+                    tr.borrow().seen && anim::enabled() && animated(p) && w.w() > 0 && w.h() > 0;
                 if ready {
                     if let Some(img) = capture(w) {
-                        tr.borrow_mut().ghosts.push(Ghost { img: RefCell::new(img), rect: (w.x(), w.y(), w.w(), w.h()) });
+                        tr.borrow_mut().ghosts.push(Ghost {
+                            img: RefCell::new(img),
+                            rect: (w.x(), w.y(), w.w(), w.h()),
+                        });
                     }
                 }
             }
@@ -267,12 +287,20 @@ fn is_column(f: &Flex) -> bool {
 fn kids(f: &Flex) -> Vec<Kid> {
     (0..f.children())
         .filter_map(|i| f.child(i))
-        .map(|c| Kid { rect: (c.x(), c.y(), c.w(), c.h()), visible: c.visible(), w: c })
+        .map(|c| Kid {
+            rect: (c.x(), c.y(), c.w(), c.h()),
+            visible: c.visible(),
+            w: c,
+        })
         .collect()
 }
 
 fn along(r: Rect, column: bool) -> i32 {
-    if column { r.3 } else { r.2 }
+    if column {
+        r.3
+    } else {
+        r.2
+    }
 }
 
 /// Before FLTK lays out again mid-animation: children whose size along the
@@ -285,10 +313,16 @@ fn restore(run: &Run, shown: &[Kid], column: bool) {
             continue;
         }
         let p = ptr(&c);
-        let untouched = shown.iter().any(|k| k.ptr() == p && along(k.rect, column) == along((c.x(), c.y(), c.w(), c.h()), column));
+        let untouched = shown.iter().any(|k| {
+            k.ptr() == p && along(k.rect, column) == along((c.x(), c.y(), c.w(), c.h()), column)
+        });
         if untouched && it.rect_differs() {
             let (x, y) = (c.x(), c.y());
-            if column { c.resize(x, y, c.w(), it.to.3) } else { c.resize(x, y, it.to.2, c.h()) }
+            if column {
+                c.resize(x, y, c.w(), it.to.3)
+            } else {
+                c.resize(x, y, it.to.2, c.h())
+            }
         }
     }
 }
@@ -310,7 +344,9 @@ fn resized(f: &mut Flex, tr: &Rc<RefCell<Track>>) {
     let column = is_column(f);
     let rect = (f.x(), f.y(), f.w(), f.h());
     let same_rect = {
-        let Ok(t) = tr.try_borrow() else { return crate::layout::flip_row(f) };
+        let Ok(t) = tr.try_borrow() else {
+            return crate::layout::flip_row(f);
+        };
         if t.in_draw || t.run.is_none() {
             drop(t);
             return crate::layout::flip_row(f);
@@ -321,7 +357,10 @@ fn resized(f: &mut Flex, tr: &Rc<RefCell<Track>>) {
     // Lays out again; this hook runs once more (in_draw) and mirrors.
     relayout(f, tr);
     let mut t = tr.borrow_mut();
-    let keep = same_rect && t.run.as_ref().is_some_and(|run| same_targets(run, &kids(f)));
+    let keep = same_rect
+        && t.run
+            .as_ref()
+            .is_some_and(|run| same_targets(run, &kids(f)));
     if keep {
         for k in &t.shown {
             let mut c = k.w.clone();
@@ -338,7 +377,10 @@ fn resized(f: &mut Flex, tr: &Rc<RefCell<Track>>) {
 fn same_targets(run: &Run, now: &[Kid]) -> bool {
     let vis: Vec<&Kid> = now.iter().filter(|k| k.visible).collect();
     vis.len() == run.items.len()
-        && vis.iter().zip(&run.items).all(|(k, it)| k.ptr() == ptr(&it.w) && k.rect == it.to)
+        && vis
+            .iter()
+            .zip(&run.items)
+            .all(|(k, it)| k.ptr() == ptr(&it.w) && k.rect == it.to)
 }
 
 fn relayout(f: &mut Flex, tr: &Rc<RefCell<Track>>) {
@@ -382,7 +424,10 @@ fn draw(f: &mut Flex, tr: &Rc<RefCell<Track>>) {
     } else {
         let (changed, running) = {
             let t = tr.borrow();
-            (!same(&now, &t.shown) || !t.ghosts.is_empty(), t.run.is_some())
+            (
+                !same(&now, &t.shown) || !t.ghosts.is_empty(),
+                t.run.is_some(),
+            )
         };
         if changed || (full && !running) {
             let from = {
@@ -397,7 +442,10 @@ fn draw(f: &mut Flex, tr: &Rc<RefCell<Track>>) {
             let mut t = tr.borrow_mut();
             let ghosts = std::mem::take(&mut t.ghosts);
             // Same targets (a relayout with nothing new): the motion goes on.
-            let same = ghosts.is_empty() && t.run.as_ref().is_some_and(|run| same_targets(run, &targets));
+            let same = ghosts.is_empty()
+                && t.run
+                    .as_ref()
+                    .is_some_and(|run| same_targets(run, &targets));
             if same {
                 // Back to this frame; the placing below sets it anyway.
             } else if let Some(old) = t.run.take() {
@@ -411,16 +459,30 @@ fn draw(f: &mut Flex, tr: &Rc<RefCell<Track>>) {
                     match from.iter().find(|o| o.ptr() == k.ptr() && o.visible) {
                         Some(o) => {
                             moves |= o.rect != k.rect;
-                            items.push(Item { w: k.w.clone(), from: o.rect, to: k.rect, appear: false });
+                            items.push(Item {
+                                w: k.w.clone(),
+                                from: o.rect,
+                                to: k.rect,
+                                appear: false,
+                            });
                         }
                         None => {
                             moves = true;
-                            items.push(Item { w: k.w.clone(), from: k.rect, to: k.rect, appear: true });
+                            items.push(Item {
+                                w: k.w.clone(),
+                                from: k.rect,
+                                to: k.rect,
+                                appear: true,
+                            });
                         }
                     }
                 }
                 if moves {
-                    t.run = Some(Run { tween: Tween::start(anim::ms::LAYOUT, Ease::OutCubic), items, ghosts });
+                    t.run = Some(Run {
+                        tween: Tween::start(anim::ms::LAYOUT, Ease::OutCubic),
+                        items,
+                        ghosts,
+                    });
                 }
             }
         }
@@ -436,7 +498,11 @@ fn draw(f: &mut Flex, tr: &Rc<RefCell<Track>>) {
             if it.w.was_deleted() {
                 continue;
             }
-            let r = if done { it.to } else { lerp_rect(it.from, it.to, k) };
+            let r = if done {
+                it.to
+            } else {
+                lerp_rect(it.from, it.to, k)
+            };
             if (it.w.x(), it.w.y(), it.w.w(), it.w.h()) != r {
                 it.w.resize(r.0, r.1, r.2, r.3);
             }
@@ -466,7 +532,10 @@ fn draw(f: &mut Flex, tr: &Rc<RefCell<Track>>) {
         if !c.visible() {
             continue;
         }
-        let appear = run.items.iter().find(|it| it.appear && ptr(&it.w) == c.as_widget_ptr() as usize);
+        let appear = run
+            .items
+            .iter()
+            .find(|it| it.appear && ptr(&it.w) == c.as_widget_ptr() as usize);
         match appear {
             Some(it) => {
                 let span = (along(it.to, column) as f64 * k).round().max(0.0) as i32;
@@ -493,7 +562,9 @@ fn draw(f: &mut Flex, tr: &Rc<RefCell<Track>>) {
             continue;
         }
         fltk::draw::push_clip(clip.0, clip.1, clip.2, clip.3);
-        g.img.borrow_mut().draw(g.rect.0, g.rect.1, g.rect.2, g.rect.3);
+        g.img
+            .borrow_mut()
+            .draw(g.rect.0, g.rect.1, g.rect.2, g.rect.3);
         fltk::draw::pop_clip();
         paint::alpha_fill(clip.0, clip.1, clip.2, clip.3, bg, k.min(1.0));
     }
@@ -501,7 +572,12 @@ fn draw(f: &mut Flex, tr: &Rc<RefCell<Track>>) {
 
 fn lerp_rect(a: Rect, b: Rect, k: f64) -> Rect {
     use crate::anim::Lerp;
-    (i32::lerp(a.0, b.0, k), i32::lerp(a.1, b.1, k), i32::lerp(a.2, b.2, k), i32::lerp(a.3, b.3, k))
+    (
+        i32::lerp(a.0, b.0, k),
+        i32::lerp(a.1, b.1, k),
+        i32::lerp(a.2, b.2, k),
+        i32::lerp(a.3, b.3, k),
+    )
 }
 
 /// The first `span` pixels of `r` along the axis, from the start edge
@@ -519,7 +595,11 @@ fn span_rect(r: Rect, span: i32, column: bool, rtl: bool) -> Rect {
 
 /// True while some toolkit container is moving its children (tests).
 pub fn animating() -> bool {
-    TRACKS.with(|t| t.borrow().values().any(|(f, t)| !f.was_deleted() && t.try_borrow().map_or(true, |t| t.run.is_some())))
+    TRACKS.with(|t| {
+        t.borrow()
+            .values()
+            .any(|(f, t)| !f.was_deleted() && t.try_borrow().map_or(true, |t| t.run.is_some()))
+    })
 }
 
 #[cfg(test)]
@@ -528,16 +608,37 @@ mod tests {
 
     #[test]
     fn spans_grow_from_the_start_edge() {
-        assert_eq!(span_rect((10, 20, 100, 30), 40, false, false), (10, 20, 40, 30));
-        assert_eq!(span_rect((10, 20, 100, 30), 40, false, true), (70, 20, 40, 30));
-        assert_eq!(span_rect((10, 20, 100, 30), 12, true, false), (10, 20, 100, 12));
-        assert_eq!(span_rect((10, 20, 100, 30), 500, false, false), (10, 20, 100, 30));
+        assert_eq!(
+            span_rect((10, 20, 100, 30), 40, false, false),
+            (10, 20, 40, 30)
+        );
+        assert_eq!(
+            span_rect((10, 20, 100, 30), 40, false, true),
+            (70, 20, 40, 30)
+        );
+        assert_eq!(
+            span_rect((10, 20, 100, 30), 12, true, false),
+            (10, 20, 100, 12)
+        );
+        assert_eq!(
+            span_rect((10, 20, 100, 30), 500, false, false),
+            (10, 20, 100, 30)
+        );
     }
 
     #[test]
     fn rects_interpolate_and_end_exactly() {
-        assert_eq!(lerp_rect((0, 0, 56, 100), (0, 0, 240, 100), 0.0), (0, 0, 56, 100));
-        assert_eq!(lerp_rect((0, 0, 56, 100), (0, 0, 240, 100), 0.5), (0, 0, 148, 100));
-        assert_eq!(lerp_rect((0, 0, 56, 100), (0, 0, 240, 100), 1.0), (0, 0, 240, 100));
+        assert_eq!(
+            lerp_rect((0, 0, 56, 100), (0, 0, 240, 100), 0.0),
+            (0, 0, 56, 100)
+        );
+        assert_eq!(
+            lerp_rect((0, 0, 56, 100), (0, 0, 240, 100), 0.5),
+            (0, 0, 148, 100)
+        );
+        assert_eq!(
+            lerp_rect((0, 0, 56, 100), (0, 0, 240, 100), 1.0),
+            (0, 0, 240, 100)
+        );
     }
 }

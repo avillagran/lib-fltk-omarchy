@@ -50,11 +50,22 @@ struct Frames {
 }
 
 fn stats(name: &str, f: &Frames, cpu: Duration, wall: Duration, width: (i32, i32)) -> String {
-    let gaps: Vec<f64> = f.at.windows(2).map(|w| (w[1] - w[0]).as_secs_f64() * 1000.0).collect();
-    let avg = if gaps.is_empty() { 0.0 } else { gaps.iter().sum::<f64>() / gaps.len() as f64 };
+    let gaps: Vec<f64> =
+        f.at.windows(2)
+            .map(|w| (w[1] - w[0]).as_secs_f64() * 1000.0)
+            .collect();
+    let avg = if gaps.is_empty() {
+        0.0
+    } else {
+        gaps.iter().sum::<f64>() / gaps.len() as f64
+    };
     let max = gaps.iter().cloned().fold(0.0, f64::max);
     let paint: Vec<f64> = f.paint.iter().map(|d| d.as_secs_f64() * 1000.0).collect();
-    let pavg = if paint.is_empty() { 0.0 } else { paint.iter().sum::<f64>() / paint.len() as f64 };
+    let pavg = if paint.is_empty() {
+        0.0
+    } else {
+        paint.iter().sum::<f64>() / paint.len() as f64
+    };
     let pmax = paint.iter().cloned().fold(0.0, f64::max);
     format!(
         "{{\"case\":\"{name}\",\"frames\":{},\"frame_interval_avg_ms\":{avg:.2},\"frame_interval_max_ms\":{max:.2},\"paint_avg_ms\":{pavg:.3},\"paint_max_ms\":{pmax:.3},\"cpu_ms\":{:.1},\"wall_ms\":{:.1},\"cpu_pct_of_core\":{:.1},\"width_from\":{},\"width_to\":{}}}",
@@ -69,11 +80,18 @@ fn stats(name: &str, f: &Frames, cpu: Duration, wall: Duration, width: (i32, i32
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    let report = args.get(1).cloned().unwrap_or_else(|| "build/motion-bench.json".into());
+    let report = args
+        .get(1)
+        .cloned()
+        .unwrap_or_else(|| "build/motion-bench.json".into());
     let cycles: usize = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(10);
     let app = App::new("dev.omarchy.fltk.motionbench");
     // With OMARCHY_FLTK_ANIM set the system setting is never read (no watcher).
-    let system = if std::env::var_os("OMARCHY_FLTK_ANIM").is_some() { None } else { anim::system() };
+    let system = if std::env::var_os("OMARCHY_FLTK_ANIM").is_some() {
+        None
+    } else {
+        anim::system()
+    };
     let source = anim::source();
     let mut win = AppWindow::new("omarchy-fltk-motion-bench", 900, 560);
     let mut body = win.body();
@@ -105,7 +123,9 @@ fn main() {
         bar.fit(&*Button::new(l).bordered());
     }
     bar.close_fitted();
-    let list = List::new(&State::new(100_000usize), |i| ListRow::new(&format!("Item {i}")).detail(&format!("{} KB", i * 3)));
+    let list = List::new(&State::new(100_000usize), |i| {
+        ListRow::new(&format!("Item {i}")).detail(&format!("{} KB", i * 3))
+    });
     let _ = &list;
     let mut probe = Widget::default().with_size(10, 1);
     probe.set_frame(FrameType::NoBox);
@@ -125,11 +145,18 @@ fn main() {
     win.show();
     pump(Duration::from_millis(600));
 
-    let mut out = vec![format!("\"system_animations\":{},\"source\":\"{:?}\"", system.map_or("null".to_string(), |b| b.to_string()), source)];
+    let mut out = vec![format!(
+        "\"system_animations\":{},\"source\":\"{:?}\"",
+        system.map_or("null".to_string(), |b| b.to_string()),
+        source
+    )];
     // Idle before.
     let c0 = cpu();
     idle(Duration::from_secs(5));
-    out.push(format!("\"idle_before_cpu_ms_per_5s\":{:.2}", (cpu() - c0).as_secs_f64() * 1000.0));
+    out.push(format!(
+        "\"idle_before_cpu_ms_per_5s\":{:.2}",
+        (cpu() - c0).as_secs_f64() * 1000.0
+    ));
 
     // The clock starts when the hover intent fires (the width target changes).
     let mark: Rc<RefCell<Option<(Duration, Instant)>>> = Rc::default();
@@ -150,12 +177,21 @@ fn main() {
                 // The hover path: intent delay, then the width target changes.
                 side.hover(dir);
                 pump_until(|| mark.borrow().is_some(), Duration::from_secs(2));
-                pump_until(|| !frames.borrow().at.is_empty() && !layout::animating(), Duration::from_secs(2));
+                pump_until(
+                    || !frames.borrow().at.is_empty() && !layout::animating(),
+                    Duration::from_secs(2),
+                );
                 // One more frame interval so the last frame is counted.
                 pump(Duration::from_millis(20));
                 let (c, t) = mark.borrow().unwrap_or((cpu(), Instant::now()));
                 let (dc, dt) = (cpu() - c, t.elapsed());
-                runs.push(stats(&format!("{name}-{mode}"), &frames.borrow(), dc, dt, (from, side.w())));
+                runs.push(stats(
+                    &format!("{name}-{mode}"),
+                    &frames.borrow(),
+                    dc,
+                    dt,
+                    (from, side.w()),
+                ));
                 pump(Duration::from_millis(120));
             }
         }
@@ -165,7 +201,10 @@ fn main() {
     pump(Duration::from_millis(300));
     let c1 = cpu();
     idle(Duration::from_secs(5));
-    out.push(format!("\"idle_after_cpu_ms_per_5s\":{:.2}", (cpu() - c1).as_secs_f64() * 1000.0));
+    out.push(format!(
+        "\"idle_after_cpu_ms_per_5s\":{:.2}",
+        (cpu() - c1).as_secs_f64() * 1000.0
+    ));
     out.push(format!("\"pending_after\":{}", anim::pending()));
     out.push(format!("\"runs\":[{}]", runs.join(",")));
     std::fs::write(&report, format!("{{{}}}\n", out.join(","))).unwrap();

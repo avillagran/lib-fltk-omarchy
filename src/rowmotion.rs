@@ -32,10 +32,16 @@ impl RowAnim {
     fn sample(&self, drift: f64) -> (i32, f64, f64) {
         let t = self.tween.t();
         match self.kind {
-            Kind::Displaced => ((self.dy0 * (1.0 - Ease::OutCubic.apply(t))).round() as i32, 1.0, 0.0),
-            Kind::Moved => {
-                ((self.dy0 * (1.0 - Ease::InOutCubic.apply(t))).round() as i32, 1.0, (std::f64::consts::PI * t).sin())
-            }
+            Kind::Displaced => (
+                (self.dy0 * (1.0 - Ease::OutCubic.apply(t))).round() as i32,
+                1.0,
+                0.0,
+            ),
+            Kind::Moved => (
+                (self.dy0 * (1.0 - Ease::InOutCubic.apply(t))).round() as i32,
+                1.0,
+                (std::f64::consts::PI * t).sin(),
+            ),
             Kind::Arrive => {
                 // o3: a fifth of the time waiting, then fade and settle.
                 let k = ((t - 0.2) / 0.8).clamp(0.0, 1.0);
@@ -120,7 +126,10 @@ impl<R: Clone> RowMotion<R> {
             return;
         }
         self.seen = self.gen;
-        let (inserted, moved) = (std::mem::take(&mut self.inserted), std::mem::take(&mut self.moved));
+        let (inserted, moved) = (
+            std::mem::take(&mut self.inserted),
+            std::mem::take(&mut self.moved),
+        );
         let all_new = std::mem::replace(&mut self.all_new_arrive, false);
         let displaced_ms = std::mem::replace(&mut self.displaced_ms, ms::ROW_DISPLACED);
         if !self.primed || !anim::enabled() {
@@ -134,13 +143,35 @@ impl<R: Clone> RowMotion<R> {
         for &(id, y) in rows {
             match before.get(&id) {
                 Some(&old) if old != y => {
-                    let kind = if moved.contains(&id) { Kind::Moved } else { Kind::Displaced };
-                    let ms = if kind == Kind::Moved { ms::ROW_MOVE } else { displaced_ms };
-                    self.anims.insert(id, RowAnim { dy0: (old - y) as f64, tween: Tween::start(ms, Ease::Linear), kind });
+                    let kind = if moved.contains(&id) {
+                        Kind::Moved
+                    } else {
+                        Kind::Displaced
+                    };
+                    let ms = if kind == Kind::Moved {
+                        ms::ROW_MOVE
+                    } else {
+                        displaced_ms
+                    };
+                    self.anims.insert(
+                        id,
+                        RowAnim {
+                            dy0: (old - y) as f64,
+                            tween: Tween::start(ms, Ease::Linear),
+                            kind,
+                        },
+                    );
                 }
                 Some(_) => {}
                 None if inserted.contains(&id) || all_new || moved.contains(&id) => {
-                    self.anims.insert(id, RowAnim { dy0: 0.0, tween: Tween::start(ms::ROW_ARRIVE, Ease::Linear), kind: Kind::Arrive });
+                    self.anims.insert(
+                        id,
+                        RowAnim {
+                            dy0: 0.0,
+                            tween: Tween::start(ms::ROW_ARRIVE, Ease::Linear),
+                            kind: Kind::Arrive,
+                        },
+                    );
                 }
                 None => fresh.push(id),
             }
@@ -149,23 +180,47 @@ impl<R: Clone> RowMotion<R> {
         // their neighbour (the nearest row above that moves, else below).
         for id in fresh {
             let pos = rows.iter().position(|r| r.0 == id).unwrap_or(0);
-            let near = rows[..pos].iter().rev().chain(rows[pos + 1..].iter()).find_map(|(n, _)| {
-                self.anims.get(n).filter(|a| a.kind == Kind::Displaced).map(|a| a.dy0)
-            });
+            let near = rows[..pos]
+                .iter()
+                .rev()
+                .chain(rows[pos + 1..].iter())
+                .find_map(|(n, _)| {
+                    self.anims
+                        .get(n)
+                        .filter(|a| a.kind == Kind::Displaced)
+                        .map(|a| a.dy0)
+                });
             if let Some(dy0) = near {
-                self.anims.insert(id, RowAnim { dy0, tween: Tween::start(displaced_ms, Ease::Linear), kind: Kind::Displaced });
+                self.anims.insert(
+                    id,
+                    RowAnim {
+                        dy0,
+                        tween: Tween::start(displaced_ms, Ease::Linear),
+                        kind: Kind::Displaced,
+                    },
+                );
             }
         }
         for (id, y, row) in &self.last {
             if !now.contains(id) && !alive(*id) {
-                self.ghosts.push(Ghost { row: row.clone(), y: *y, tween: Tween::start(ms::ROW_DEPART, Ease::Linear) });
+                self.ghosts.push(Ghost {
+                    row: row.clone(),
+                    y: *y,
+                    tween: Tween::start(ms::ROW_DEPART, Ease::Linear),
+                });
             }
         }
     }
 
     /// Offset, opacity and lift (0..1, moved rows mid-flight) of a row.
     pub fn at(&self, id: ItemId, drift: f64) -> (i32, f64, f64) {
-        self.anims.get(&id).map_or((0, 1.0, 0.0), |a| if a.tween.done() { (0, 1.0, 0.0) } else { a.sample(drift) })
+        self.anims.get(&id).map_or((0, 1.0, 0.0), |a| {
+            if a.tween.done() {
+                (0, 1.0, 0.0)
+            } else {
+                a.sample(drift)
+            }
+        })
     }
 
     /// After drawing: the rows in view as drawn (y with its offset).
