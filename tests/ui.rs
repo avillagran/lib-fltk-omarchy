@@ -11,6 +11,7 @@ use fltk_omarchy::focus::{self, press};
 use fltk_omarchy::gfx::{self, Hit, View};
 use fltk_omarchy::layout::{self, FlexExt};
 use fltk_omarchy::list::{List, ListRow};
+use fltk_omarchy::model::ListModel;
 use fltk_omarchy::panel::{KeyboardPanel, PanelLayout};
 use fltk_omarchy::overlay::{ConfirmDialog, Dropdown, Menu, MenuItem, Notification, Urgency};
 use fltk_omarchy::popups::{Dismiss, OperationToast, PopupCard, PopupItem, PopupMenu, SearchableDropdown, ShortcutHelp};
@@ -1215,6 +1216,124 @@ fn main() {
         k("Enter");
         check(Notification::count() == before && focus::is_focused(&*list), "Enter dismisses a focused notification; focus comes back")
     });
+    run("data models: rows redraw by item, scroll anchored on insert above, selection by key, feeds coalesce", &|shots| {
+        #[derive(Clone, PartialEq)]
+        struct Th { id: u32, title: String, status: &'static str }
+        let th = |id: u32| Th { id, title: format!("Thread {id}"), status: "idle" };
+        let model = ListModel::with_items(|t: &Th| t.id, (0..1000).map(th));
+        let mut win = AppWindow::new("t", 400, 400);
+        let mut body = win.body();
+        let sel = State::new(None::<usize>);
+        let mut list = List::from_model(&model, |t| ListRow::new(&t.title).detail(t.status)).bind_selected(&sel);
+        body.fit(&*list);
+        win.end();
+        let rh = theme::with(|t| t.font.body + 4 + 2 * t.spacing.xl) as i64;
+        list.set_scroll_offset(rh * 100 + 5);
+        win.snapshot(shots.join("model-list-0.png")).map_err(|e| e.to_string())?;
+        let built = list.rows_built();
+        let inv0 = list.invalidations();
+        model.patch(&102, |t| t.status = "running");
+        let inv1 = list.invalidations();
+        check(inv1.rows == inv0.rows + 1 && inv1.full == inv0.full, &format!("a visible patch invalidates one row: {inv0:?} -> {inv1:?}"))?;
+        model.patch(&900, |t| t.status = "running");
+        model.patch(&900, |t| t.status = "running"); // equal: no notification at all
+        let inv2 = list.invalidations();
+        check(inv2.rows == inv1.rows && inv2.none == inv1.none + 1 && inv2.full == inv1.full, &format!("an offscreen patch redraws nothing: {inv2:?}"))?;
+        // Selection by key and scroll anchoring on insert above the viewport.
+        list.select(103);
+        let sid = list.selected_id();
+        let p0 = shots.join("model-list-1-before.png");
+        win.snapshot(&p0).map_err(|e| e.to_string())?;
+        let top = list.scroll_offset();
+        model.transaction(|m| for k in 0..5 { m.insert(0, th(5000 + k)); });
+        let inv3 = list.invalidations();
+        check(list.scroll_offset() == top + 5 * rh, &format!("anchored: {} -> {} (row {rh})", top, list.scroll_offset()))?;
+        check(list.selected() == Some(108) && sel.get() == Some(108) && list.selected_id() == sid, &format!("selection follows its item: {:?} {:?}", list.selected(), sel.get()))?;
+        check(inv3.rows == inv2.rows && inv3.full == inv2.full, &format!("insert above: no row redrawn: {inv3:?}"))?;
+        let p1 = shots.join("model-list-2-after.png");
+        win.snapshot(&p1).map_err(|e| e.to_string())?;
+        let (a, b) = (png_rgb(&p0)?, png_rgb(&p1)?);
+        let same = (list.y()..list.y() + list.h()).all(|y| (list.x()..list.x() + list.w() - 8).all(|x| a.at(x, y) == b.at(x, y)));
+        check(same, "the rows on screen are pixel-identical after inserting above")?;
+        // Moving the selected item: selection by key, the view keeps its offset.
+        model.move_key(&103, 999);
+        check(list.selected() == Some(999) && list.scroll_offset() == top + 5 * rh, &format!("moved item keeps the selection: {:?}", list.selected()))?;
+        check(list.rows_built() - built < 120, "virtual: only visible rows were built")?;
+
+        // A thread pushes 500 diffs; the UI applies them in one notification.
+        let feed = model.feed();
+        let n0 = model.notifications();
+        let t0 = Instant::now();
+        std::thread::spawn(move || {
+            for i in 0..500u32 { feed.patch(i, |t| t.status = "done"); }
+            feed.upsert(Th { id: 9999, title: "New".into(), status: "idle" });
+        }).join().map_err(|_| "feed thread")?;
+        pump_until(|| model.contains_key(&9999));
+        check(model.notifications() - n0 == 1, &format!("one notification for 501 diffs: {}", model.notifications() - n0))?;
+        check(model.with_key(&499, |t| t.status) == Some("done") && t0.elapsed() < Duration::from_secs(2), "diffs applied")?;
+        let text = State::new(String::new());
+        let edits = Rc::new(RefCell::new(Vec::new()));
+        let e2 = edits.clone();
+        let _sub = text.subscribe_edit(move |t, e| e2.borrow_mut().push((t.len(), e)));
+        let tf = text.text_feed();
+        std::thread::spawn(move || for _ in 0..1000 { tf.push_str("token ") }).join().map_err(|_| "text thread")?;
+        pump_until(|| text.with(|t| t.len()) == 6000);
+        check(*edits.borrow() == vec![(6000, fltk_omarchy::state::Edit::Appended { from: 0 })], &format!("1000 chunks, one append: {:?}", edits.borrow()))?;
+        let level = State::new(0u32);
+        let hits = Rc::new(Cell::new(0));
+        let h2 = hits.clone();
+        let _lsub = level.subscribe(move |_| h2.set(h2.get() + 1));
+        let lf = level.feed().max_rate(20.0);
+        let producer = std::thread::spawn(move || for i in 1..=60 { lf.set(i); std::thread::sleep(Duration::from_millis(5)); });
+        pump_until(|| level.get() == 60);
+        producer.join().map_err(|_| "level thread")?;
+        check(level.get() == 60 && hits.get() <= 10, &format!("20 Hz cap: 60 values in {} notifications", hits.get()))?;
+
+        // Table and Tree on the same kind of model.
+        let panel = KeyboardPanel::new("threads");
+        let mut w2 = AppWindow::new("t", 520, 360);
+        let mut b2 = w2.body();
+        let table = Table::from_model(&panel, &model, vec![Column::new("Title", 0).flex(), Column::new("Status", 90)],
+            |t, col| if col == 0 { t.title.clone() } else { t.status.to_string() });
+        b2.fit(&*table);
+        w2.end();
+        let trh = theme::with(|t| t.font.body + 4 + 2 * t.spacing.lg) as i64;
+        table.set_scroll_offset(trh * 50);
+        w2.snapshot(shots.join("model-table.png")).map_err(|e| e.to_string())?;
+        panel.select_only(model.id_of(&55).unwrap());
+        let (ti0, ttop) = (table.invalidations(), table.scroll_offset());
+        model.patch(&50, |t| t.status = "running"); // 50 is at index 55 (5 inserted at the top)
+        let ti1 = table.invalidations();
+        check(ti1.rows == ti0.rows + 1 && ti1.full == ti0.full, &format!("table: one row for a visible patch: {ti0:?} -> {ti1:?}"))?;
+        model.transaction(|m| { m.insert(0, th(7000)); m.insert(0, th(7001)); });
+        check(table.scroll_offset() == ttop + 2 * trh && panel.cursor() == model.id_of(&55), &format!("table anchored, cursor by ID: {} -> {}", ttop, table.scroll_offset()))?;
+
+        #[derive(Clone, PartialEq)]
+        struct Node { id: u32, parent: Option<u32>, label: String }
+        let nodes = ListModel::with_items(|n: &Node| n.id, (0..3).map(|i| Node { id: i, parent: None, label: format!("Project {i}") })
+            .chain((0..30).map(|j| Node { id: 100 + j, parent: Some(j % 3), label: format!("Thread {j}") })));
+        let tp = KeyboardPanel::new("tree");
+        let mut w3 = AppWindow::new("t", 360, 320);
+        let mut b3 = w3.body();
+        let tree = Tree::from_model(&tp, &nodes, |n| { let t = TreeNode::new(0, &n.label); if n.parent.is_none() { t.branch() } else { t } }, |n| n.parent);
+        b3.fit(&*tree);
+        w3.end();
+        let root0 = nodes.id_of(&0).unwrap();
+        tree.expand(root0);
+        check(tree.visible_len() == 13, &format!("roots + 10 children of project 0: {}", tree.visible_len()))?;
+        w3.snapshot(shots.join("model-tree.png")).map_err(|e| e.to_string())?;
+        let tv0 = tree.invalidations();
+        nodes.patch(&103, |n| n.label = "Renamed".into());
+        let tv1 = tree.invalidations();
+        check(tv1.rows == tv0.rows + 1 && tv1.full == tv0.full && tree.node(2).is_some_and(|n| n.label == "Renamed"), &format!("tree: one row for a rename: {tv0:?} -> {tv1:?}"))?;
+        tp.select_only(nodes.id_of(&109).unwrap());
+        let row109 = tp.cursor_index();
+        nodes.patch(&106, |n| n.parent = Some(1)); // reparent above the cursor: rebuild, selection by ID
+        check(tree.visible_len() == 12 && tp.cursor() == nodes.id_of(&109) && tp.cursor_index() == row109.map(|r| r - 1),
+            &format!("tree: reparenting rebuilds and keeps the selection: {} {:?}", tree.visible_len(), tp.cursor_index()))?;
+        nodes.push(Node { id: 500, parent: Some(0), label: "New thread".into() });
+        check(tree.visible_len() == 13 && tree.node(10).is_some_and(|n| n.label == "New thread"), "tree: a new child shows under its expanded parent")
+    });
     run("live theme switch: omarchy-theme-set style rename is picked up", &|shots| {
         let state = PathBuf::from(std::env::var("OMARCHY_FLTK_STATE_DIR").unwrap());
         std::fs::create_dir_all(state.join("next-theme")).unwrap();
@@ -1607,6 +1726,15 @@ fn main() {
         check(rt.plain_text() == "Title\nfirst more\nitem", &format!("appended {:?}", rt.plain_text()))?;
         // The heading did not change: only the paragraph and the item were laid out.
         check(rt.blocks_laid_out() - laid == 2, &format!("relaid {}", rt.blocks_laid_out() - laid))?;
+        // State::push_str carries Edit::Appended; a text feed batches chunks into one.
+        let laid = rt.blocks_laid_out();
+        md.push_str(" again");
+        win.snapshot(shots.join("richtext-bind.png")).map_err(|e| e.to_string())?;
+        check(rt.plain_text() == "Title\nfirst more\nitem again" && rt.blocks_laid_out() - laid == 1, &format!("push_str {:?} relaid {}", rt.plain_text(), rt.blocks_laid_out() - laid))?;
+        let feed = md.text_feed();
+        std::thread::spawn(move || { for c in [" and", " fed"] { feed.push_str(c); } }).join().map_err(|_| "feed thread".to_string())?;
+        pump_until(|| rt.plain_text().ends_with("fed"));
+        check(rt.plain_text() == "Title\nfirst more\nitem again and fed", &format!("text_feed {:?}", rt.plain_text()))?;
         md.set("Other *text*".into());
         check(rt.plain_text() == "Other text" && rt.block_count() == 1, "replaced")?;
         let tx = rt.sender();
@@ -1661,6 +1789,36 @@ fn pump_until(mut f: impl FnMut() -> bool) {
         App::pump();
         std::thread::sleep(Duration::from_millis(10));
     }
+}
+
+struct Rgb { w: usize, depth: usize, raw: Vec<u8> }
+impl Rgb {
+    fn at(&self, x: i32, y: i32) -> [u8; 3] {
+        let off = y as usize * (self.w * self.depth + 1) + 1 + x as usize * self.depth;
+        [self.raw[off], self.raw[off + 1], self.raw[off + 2]]
+    }
+}
+
+/// Decodes a whole PNG written by our encoder (stored deflate).
+fn png_rgb(path: &Path) -> Result<Rgb, String> {
+    let data = std::fs::read(path).map_err(|e| e.to_string())?;
+    let w = u32::from_be_bytes(data[16..20].try_into().unwrap()) as usize;
+    let depth = if data[25] == 6 { 4 } else { 3 };
+    let (mut pos, mut z) = (8, Vec::new());
+    while pos + 8 <= data.len() {
+        let len = u32::from_be_bytes(data[pos..pos + 4].try_into().unwrap()) as usize;
+        if &data[pos + 4..pos + 8] == b"IDAT" { z.extend_from_slice(&data[pos + 8..pos + 8 + len]); }
+        pos += 12 + len;
+    }
+    let (mut raw, mut i) = (Vec::new(), 2);
+    loop {
+        let last = z[i] & 1;
+        let len = u16::from_le_bytes([z[i + 1], z[i + 2]]) as usize;
+        raw.extend_from_slice(&z[i + 5..i + 5 + len]);
+        i += 5 + len;
+        if last == 1 { break; }
+    }
+    Ok(Rgb { w, depth, raw })
 }
 
 /// Reads one RGB pixel from a PNG written by our encoder (stored deflate).

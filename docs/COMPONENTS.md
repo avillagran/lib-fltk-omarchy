@@ -216,7 +216,9 @@ let list = List::new(&count, |i| ListRow::new(&format!("Item {i}")).icon(glyph::
 
 Only the visible rows are built: 1 000 000 rows cost the same per frame as
 20. **Keys:** Up/Down or j/k move the cursor row; PageUp/PageDown, Home/End;
-Enter opens (`on_activate`).
+Enter opens (`on_activate`). For data that changes, `List::from_model`
+shows a `ListModel` and redraws only the rows that changed
+([MODELS.md](MODELS.md)).
 
 ## RichText and RichLabel (Markdown, chat streaming)
 

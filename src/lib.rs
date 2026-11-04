@@ -8,6 +8,7 @@ pub mod i18n;
 pub mod keys;
 pub mod layout;
 pub mod list;
+pub mod model;
 pub mod native;
 pub mod overlay;
 pub mod paint;
@@ -26,5 +27,6 @@ pub mod widgets;
 pub mod window;
 
 pub use app::App;
-pub use state::{combine, State, Subscription};
+pub use model::ListModel;
+pub use state::{batch, combine, State, Subscription};
 pub use window::{AppWindow, Mode};

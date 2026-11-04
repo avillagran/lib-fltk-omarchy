@@ -761,16 +761,22 @@ impl RichText {
 
     /// Shows the Markdown in `s` and follows it: when the new value extends
     /// the old one (streaming into a `State`), only the new text is parsed;
-    /// any other change re-parses it all. For high-rate streams prefer
+    /// any other change re-parses it all. `State::push_str` / `text_feed`
+    /// say so directly (`Edit::Appended`), so the old text is not even
+    /// re-hashed; plain `set` compares the prefix. For high-rate streams prefer
     /// [`push_markdown`](Self::push_markdown) or [`sender`](Self::sender).
     pub fn bind_markdown(self, s: &State<String>) -> Self {
         let (inn, mut w) = (self.inner.clone(), self.widget.clone());
-        crate::state::bind_widget(&self.widget, s, true, move |v: &String| {
+        crate::state::bind_widget_edit(&self.widget, s, move |v: &String, edit| {
             let mut i = inn.borrow_mut();
-            let extends = i.bound.is_some_and(|(len, h)| {
-                v.len() >= len && v.is_char_boundary(len) && fnv(FNV0, &v.as_bytes()[..len]) == h
-            });
             let (old_len, old_h) = i.bound.unwrap_or((0, FNV0));
+            // `push_str` says it only appended: no need to hash the prefix.
+            let extends = match edit {
+                crate::state::Edit::Appended { from } if i.bound.is_some() && from >= old_len && v.len() >= old_len => true,
+                _ => i.bound.is_some_and(|(len, h)| {
+                    v.len() >= len && v.is_char_boundary(len) && fnv(FNV0, &v.as_bytes()[..len]) == h
+                }),
+            };
             if extends && i.stream.is_some() {
                 i.push_markdown(&v[old_len..]);
                 i.bound = Some((v.len(), fnv(old_h, &v.as_bytes()[old_len..])));

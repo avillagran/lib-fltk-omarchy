@@ -47,19 +47,18 @@ impl Scroll {
         self.position_at(position, max, Instant::now(), crate::anim::enabled())
     }
 
-    pub fn running(&self) -> bool {
-        self.start.is_some()
-    }
-
-    /// Content above the view changed height by `delta` pixels: moves the
-    /// position and any running travel by the same amount, so what is on
-    /// screen stays put without cancelling the motion.
+    /// Moves the motion by `delta` pixels, keeping a running animation:
+    /// content was inserted or removed above the view (scroll anchoring).
     pub fn shift(&mut self, delta: i64) {
         let d = delta as f64;
         self.value = (self.value + d).max(0.0);
         self.from = (self.from + d).max(0.0);
         self.target = (self.target + d).max(0.0);
         self.reported = (self.reported + delta).max(0);
+    }
+
+    pub fn running(&self) -> bool {
+        self.start.is_some()
     }
 
     fn position_at(&mut self, position: i64, max: i64, now: Instant, smooth: bool) -> i64 {
