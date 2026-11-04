@@ -482,7 +482,9 @@ fn main() {
         win.snapshot(&p).map_err(|e| e.to_string())?;
         let mid = pixel(&p, card.x() + 100, card.y() + 40)?;
         let corner = pixel(&p, card.x() + 1, card.y() + 1)?;
-        check(mid == [acc.r(), acc.g(), acc.b()], &format!("card center {mid:?}"))?;
+        // Within 2 per channel: Windows' GDI image blit rounds premultiplied colors.
+        let near = |a: [u8; 3], b: [u8; 3]| a.iter().zip(b).all(|(x, y)| x.abs_diff(y) <= 2);
+        check(near(mid, [acc.r(), acc.g(), acc.b()]), &format!("card center {mid:?}"))?;
         check(corner == [bg.r(), bg.g(), bg.b()], &format!("rounded corner shows the window behind: {corner:?}"))?;
         let st = slow.stats();
         check(st.frames == 1 && st.render_size.0 * st.render_size.1 <= 20_000 && st.render_size.0 < 360, &format!("first frame complete at reduced size: {st:?}"))?;
@@ -1284,10 +1286,13 @@ fn main() {
         let h2 = hits.clone();
         let _lsub = level.subscribe(move |_| h2.set(h2.get() + 1));
         let lf = level.feed().max_rate(20.0);
+        let started = std::time::Instant::now();
         let producer = std::thread::spawn(move || for i in 1..=60 { lf.set(i); std::thread::sleep(Duration::from_millis(5)); });
         pump_until(|| level.get() == 60);
         producer.join().map_err(|_| "level thread")?;
-        check(level.get() == 60 && hits.get() <= 10, &format!("20 Hz cap: 60 values in {} notifications", hits.get()))?;
+        // At most one notification per 50 ms of wall time (slow CI runners sleep longer than 5 ms).
+        let allowed = (started.elapsed().as_secs_f64() * 20.0).ceil() as u32 + 1;
+        check(level.get() == 60 && hits.get() <= allowed.max(10) && hits.get() < 60, &format!("20 Hz cap: 60 values in {} notifications (allowed {allowed})", hits.get()))?;
 
         // Table and Tree on the same kind of model.
         let panel = KeyboardPanel::new("threads");
@@ -1592,7 +1597,9 @@ fn main() {
         let b1 = rt.text_rect(" chip").ok_or("chip rect")?;
         let bold = (b0.0, b0.1, b1.0 - b0.0, b0.3);
         let (ip, ib) = (ink(&p, plain)?, ink(&p, bold)?);
-        check(ib * 100 > ip * 110, &format!("bold ink {ib} vs regular {ip}"))?;
+        // Bold faces add less ink on macOS/Windows (Menlo, Consolas) than fontconfig's.
+        let more = if OS == Os::Linux { 110 } else { 104 };
+        check(ib * 100 > ip * more, &format!("bold ink {ib} vs regular {ip}"))?;
         let chip = rt.text_rect("chip").ok_or("chip")?;
         let px = pixel(&p, chip.0 - 1, chip.1 + chip.3 / 2)?;
         let lb = t.palette.lighter_background;
@@ -1689,7 +1696,7 @@ fn main() {
         check(focus::is_focused(&*after), "Tab leaves the view")?;
         press("Shift+Tab");
         check(focus::is_focused(&*rt), "Shift+Tab comes back")?;
-        check(press("Ctrl+a") && rt.selected_text() == rt.plain_text(), "Ctrl+A selects all")?;
+        check(press("Mod+a") && rt.selected_text() == rt.plain_text(), "Mod+A (Ctrl+A, Cmd+A on macOS) selects all")?;
         check(rt.plain_text() == "Read one and two.\ncode", "plain text")?;
         check(press("Ctrl+c"), "Ctrl+C copies")?;
         check(press("Escape") && rt.selection().is_none(), "Esc clears")
