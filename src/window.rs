@@ -238,10 +238,13 @@ impl AppWindow {
         AppWindow { win, header, body, mode, size: (width, height), min, shortcuts }
     }
 
-    /// Closes the body column (and the window group).
+    /// Closes the body column (and the window group). Every `Flex` row
+    /// inside then follows the writing direction
+    /// ([`layout::mirror_rows`](crate::layout::mirror_rows)).
     pub fn end(&mut self) {
         self.body.end();
         self.win.end();
+        crate::layout::mirror_rows(&self.win);
     }
 
     /// Sets the window title (taskbar, compositor) and the header title.
@@ -406,7 +409,8 @@ fn draw_stack(w: &mut DoubleWindow) {
 // ================================================================== Header
 
 /// Omarchy window header: bold title on the left, action buttons on the
-/// right, hairline below. Dragging it moves a floating window.
+/// right, hairline below (mirrored in a right-to-left language: title on
+/// the right, actions on the left). Dragging it moves a floating window.
 #[derive(Clone)]
 pub struct Header {
     inner: Flex,
@@ -429,7 +433,9 @@ impl Header {
         handle.set_frame(FrameType::NoBox);
         let tt = title_rc.clone();
         handle.draw(move |w| {
-            theme::with(|t| paint::text_elided(&tt.borrow(), w.x(), w.y(), w.w(), w.h(), t.font.title, true, t.palette.foreground, Align::Left));
+            // Reading start: the right in a right-to-left language.
+            let align = crate::layout::Mirror::of(w).align(Align::Left);
+            theme::with(|t| paint::text_elided(&tt.borrow(), w.x(), w.y(), w.w(), w.h(), t.font.title, true, t.palette.foreground, align));
         });
         let (dr, tt) = (draggable.clone(), title_rc.clone());
         handle.handle(move |w, ev| match ev {
@@ -448,9 +454,13 @@ impl Header {
         let mut actions = Flex::default().row();
         actions.set_spacing(t.spacing.xs);
         actions.end();
+        // Right to left: title on the right, actions on the left.
+        crate::layout::mirror(&actions);
         inner.fixed(&actions, 0);
         inner.end();
+        crate::layout::register(&inner);
         inner.draw(move |f| {
+            crate::layout::relayout_if_mirrored(f);
             theme::with(|t| {
                 crate::glass::fill(f.x(), f.y(), f.w(), f.h(), 0, t.palette.background);
                 let line = t.palette.foreground.over(t.palette.background, 0.12);
@@ -483,7 +493,8 @@ impl Header {
         self.title.borrow().clone()
     }
 
-    /// Adds an action button (Nerd glyph + tooltip) on the right side.
+    /// Adds an action button (Nerd glyph + tooltip) on the right side (the
+    /// left in a right-to-left language).
     pub fn action(&mut self, glyph: &str, tooltip: &str, f: impl FnMut() + 'static) -> ActionButton {
         self.add(ActionButton::new(glyph, tooltip).on_click(f))
     }

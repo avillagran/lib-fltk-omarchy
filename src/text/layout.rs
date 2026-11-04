@@ -9,14 +9,25 @@
 //! lines before the change are reused and only the rest is laid out again.
 //!
 //! Each fragment of a line is drawn as one string (one run, one line), so
-//! FLTK (Pango on Linux) shapes it: Arabic joins and its words read
-//! right-to-left inside the fragment. Lines are still filled left to right,
-//! and selection measures offsets left to right (no bidi reordering).
+//! FLTK (Pango on Linux) shapes it: Arabic joins.
+//!
+//! Bidirectional text follows the Unicode Bidirectional Algorithm (UAX #9,
+//! `unicode-bidi`): a block's base direction is its first strong character
+//! (`dir=auto`; start a block with U+200F RLM or U+200E LRM to force it).
+//! Blocks with right-to-left text get their embedding levels per paragraph;
+//! each line is split where the level changes and its fragments are placed
+//! in visual order (rule L2), so Arabic, Latin and numbers on one line read
+//! right. Every fragment then has one direction (`Frag::rtl`). Lines of a
+//! right-to-left block are right-aligned and their list/quote indentation
+//! is on the right ([`Layout::mirror_x`]); code blocks stay left to right.
+//! Hit testing, caret x and selection rectangles follow the visual order.
+//! Text without right-to-left characters skips all of it.
 
 use super::doc::*;
 use crate::theme::Theme;
 use fltk::enums::Font;
 use std::ops::Range;
+use unicode_bidi::{BidiInfo, Level};
 use unicode_segmentation::UnicodeSegmentation;
 
 /// A font: family (UI or monospace), weight, slant, size in pixels.
@@ -226,6 +237,8 @@ pub struct Frag {
     pub run: u32,
     pub font: FontKey,
     pub tab: bool,
+    /// Right-to-left run (odd bidi level): byte `start` is at the right edge.
+    pub rtl: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -240,7 +253,10 @@ pub struct Line {
     /// Bytes of the text covered, including trailing blanks and the newline.
     pub start: u32,
     pub end: u32,
+    /// Fragments in visual order (left to right on screen).
     pub frags: Range<u32>,
+    /// Right-to-left paragraph: right-aligned, its logical end on the left.
+    pub rtl: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -264,11 +280,24 @@ pub struct Layout {
     pub lines: Vec<Line>,
     pub frags: Vec<Frag>,
     pub table: Option<TableGeom>,
+    /// Right-to-left block (first strong character): lines right-aligned,
+    /// indentation on the right.
+    pub rtl: bool,
 }
 
 impl Layout {
     pub fn frags_of(&self, l: &Line) -> &[Frag] {
         &self.frags[l.frags.start as usize..l.frags.end as usize]
+    }
+
+    /// Mirrors the span `x..x + w` (block coordinates) inside the block for
+    /// a right-to-left block: list markers and quote bars go on the right.
+    pub fn mirror_x(&self, x: i32, w: i32) -> i32 {
+        if self.rtl {
+            self.width - x - w
+        } else {
+            x
+        }
     }
 
     /// Byte offset nearest to (x, y) (block coordinates).
@@ -283,12 +312,22 @@ impl Layout {
             l.end as usize - 1
         } else {
             l.end as usize
-        };
-        let Some(first) = frags.first() else {
+        }
+        .max(l.start as usize);
+        let (Some(first), Some(last)) = (frags.first(), frags.last()) else {
             return l.start as usize;
+        };
+        // Beyond either end: the logical start or end of the line.
+        let (left_end, right_end) = if l.rtl {
+            (line_end, l.start as usize)
+        } else {
+            (l.start as usize, line_end)
         };
         if rx <= first.x {
-            return l.start as usize;
+            return left_end;
+        }
+        if rx >= last.x + last.w {
+            return right_end;
         }
         for f in frags {
             if rx < f.x + f.w {
@@ -299,24 +338,26 @@ impl Layout {
                         f.end as usize
                     };
                 }
+                // Distance from the fragment's logical start edge.
+                let d = if f.rtl { f.x + f.w - rx } else { rx - f.x };
                 let s = &text[f.start as usize..f.end as usize];
-                let mut best = (f.start as usize, f32::MAX);
+                let mut best = f.start as usize;
                 let mut prev_w = 0.0;
                 for (i, g) in s.grapheme_indices(true) {
                     let end = i + g.len();
                     let w = m.width(f.font, &s[..end]);
                     // Nearest edge of the grapheme under the pointer.
-                    if rx < f.x + w {
-                        let mid = f.x + (prev_w + w) / 2.0;
-                        return f.start as usize + if rx < mid { i } else { end };
+                    if d < w {
+                        let mid = (prev_w + w) / 2.0;
+                        return f.start as usize + if d < mid { i } else { end };
                     }
-                    best = (f.start as usize + end, 0.0);
+                    best = f.start as usize + end;
                     prev_w = w;
                 }
-                return best.0;
+                return best;
             }
         }
-        line_end.max(l.start as usize)
+        right_end
     }
 
     /// The line under (x, y), or the nearest one.
@@ -353,50 +394,115 @@ impl Layout {
         Some(i.min(self.lines.len() - 1))
     }
 
-    /// X (block coordinates) of byte `at` on line `li`.
+    /// X (from the fragment's x) of byte `at` inside fragment `f`.
+    fn in_frag(f: &Frag, text: &str, at: usize, m: &mut dyn Metrics) -> f32 {
+        let d = if at <= f.start as usize {
+            0.0
+        } else if at >= f.end as usize || f.tab {
+            f.w
+        } else {
+            m.width(f.font, &text[f.start as usize..at])
+        };
+        if f.rtl {
+            f.x + f.w - d
+        } else {
+            f.x + d
+        }
+    }
+
+    /// X (block coordinates) of byte `at` on line `li` (the caret; in mixed
+    /// text, the edge of the character at `at`).
     pub fn x_of(&self, text: &str, li: usize, at: usize, m: &mut dyn Metrics) -> f32 {
         let l = &self.lines[li];
         let frags = self.frags_of(l);
-        for f in frags {
-            if at < f.end as usize || (at == f.end as usize && !f.tab && at == f.start as usize) {
-                if at <= f.start as usize {
-                    return l.x as f32 + f.x;
-                }
-                if f.tab {
-                    return l.x as f32 + f.x + f.w;
-                }
-                return l.x as f32 + f.x + m.width(f.font, &text[f.start as usize..at]);
-            }
+        if let Some(f) = frags
+            .iter()
+            .find(|f| (f.start as usize) <= at && at < f.end as usize)
+            .or_else(|| frags.iter().find(|f| f.end as usize == at))
+        {
+            return l.x as f32 + Self::in_frag(f, text, at, m);
         }
-        frags.last().map_or(l.x as f32, |f| l.x as f32 + f.x + f.w)
+        // Past the drawn text (trailing blanks): the line's logical end.
+        let end = if l.rtl {
+            frags.first().map(|f| f.x)
+        } else {
+            frags.last().map(|f| f.x + f.w)
+        };
+        l.x as f32 + end.unwrap_or(0.0)
     }
 
-    /// Rectangles (x, y, w, h) covering bytes `range` (selection).
+    /// Rectangles (x, y, w, h) covering bytes `range` (selection). In mixed
+    /// direction lines a range can cover several separate spans.
     pub fn rects(
         &self,
         text: &str,
         range: Range<usize>,
         m: &mut dyn Metrics,
     ) -> Vec<(i32, i32, i32, i32)> {
-        let mut out = Vec::new();
-        for (li, l) in self.lines.iter().enumerate() {
+        let mut out: Vec<(i32, i32, i32, i32)> = Vec::new();
+        for l in self.lines.iter() {
             let (ls, le) = (l.start as usize, l.end as usize);
             if range.end <= ls || range.start >= le.max(ls + 1) {
                 continue;
             }
-            let s = range.start.max(ls);
-            let e = range.end.min(le);
-            let x0 = self.x_of(text, li, s, m);
-            let mut x1 = self.x_of(text, li, e, m);
+            let frags = self.frags_of(l);
+            let mut spans: Vec<(f32, f32)> = Vec::new();
+            for f in frags {
+                let s = range.start.max(f.start as usize);
+                let e = range.end.min(f.end as usize);
+                if s < e {
+                    let (a, b) = (Self::in_frag(f, text, s, m), Self::in_frag(f, text, e, m));
+                    spans.push((a.min(b), a.max(b)));
+                }
+            }
             // Selected line break or wrap: a bit of the line end shows it.
             if range.end > le || (range.end == le && le > ls && text[..le].ends_with('\n')) {
-                x1 += (l.h / 3).max(3) as f32;
+                let bit = (l.h / 3).max(3) as f32;
+                if l.rtl {
+                    let x = frags.first().map_or(0.0, |f| f.x);
+                    spans.push((x - bit, x));
+                } else {
+                    let x = frags.last().map_or(0.0, |f| f.x + f.w);
+                    spans.push((x, x + bit));
+                }
             }
-            if x1 > x0 {
-                out.push((x0.floor() as i32, l.y, (x1.ceil() - x0.floor()) as i32, l.h));
+            spans.sort_by(|a, b| a.0.total_cmp(&b.0));
+            let mut merged: Vec<(f32, f32)> = Vec::new();
+            for (a, b) in spans {
+                match merged.last_mut() {
+                    Some(last) if a <= last.1 + 0.5 => last.1 = last.1.max(b),
+                    _ => merged.push((a, b)),
+                }
+            }
+            for (a, b) in merged {
+                let (x0, x1) = (l.x as f32 + a, l.x as f32 + b);
+                if x1 > x0 {
+                    out.push((x0.floor() as i32, l.y, (x1.ceil() - x0.floor()) as i32, l.h));
+                }
             }
         }
         out
+    }
+
+    /// The span (x0, x1), block coordinates, of bytes `range` on line `li`
+    /// (all of its pieces in mixed text): tests and "where is this word".
+    pub fn span_x(&self, text: &str, li: usize, range: Range<usize>, m: &mut dyn Metrics) -> (f32, f32) {
+        let l = &self.lines[li];
+        let mut out: Option<(f32, f32)> = None;
+        for f in self.frags_of(l) {
+            let s = range.start.max(f.start as usize);
+            let e = range.end.min(f.end as usize);
+            if s < e {
+                let (a, b) = (Self::in_frag(f, text, s, m), Self::in_frag(f, text, e, m));
+                let (a, b) = (a.min(b), a.max(b));
+                out = Some(out.map_or((a, b), |(x0, x1)| (x0.min(a), x1.max(b))));
+            }
+        }
+        let (a, b) = out.unwrap_or_else(|| {
+            let x = self.x_of(text, li, range.start, m) - l.x as f32;
+            (x, x)
+        });
+        (l.x as f32 + a, l.x as f32 + b)
     }
 }
 
@@ -415,19 +521,22 @@ pub fn layout_block(
     let width = width.max(40);
     let left = ty.left(b).min(width - 20);
     let base = ty.base(b);
+    let text = b.text();
+    let rtl = block_rtl(b);
     let mut out = Layout {
         width,
         left,
         box_w: width - left,
+        rtl,
         ..Default::default()
     };
-    let text = b.text();
     let reuse = prev.filter(|(pb, pl)| {
         pl.width == width
             && pb.kind == b.kind
             && pb.indent == b.indent
             && pb.quote == b.quote
             && pl.table.is_none()
+            && pl.rtl == rtl
     });
     match &b.kind {
         BlockKind::Rule => {
@@ -442,6 +551,9 @@ pub fn layout_block(
                     width - left - 2 * ty.code_pad,
                     ty.code_header,
                 )
+            } else if rtl {
+                // Indentation on the right.
+                (0, width - left, 0)
             } else {
                 (left, width - left, 0)
             };
@@ -464,7 +576,8 @@ pub fn layout_block(
                     y = pl.lines[keep].y;
                 }
             }
-            let y = layout_text(
+            let bidi = Bidi::new(text, 0, from..text.len(), rtl, code);
+            let y = layout_text_in(
                 text,
                 b.content.runs(),
                 from..text.len(),
@@ -475,6 +588,7 @@ pub fn layout_block(
                 ty,
                 m,
                 &mut out,
+                &bidi,
             );
             out.height = if code { y + ty.code_pad } else { y };
             if let BlockKind::Heading(l) = kind {
@@ -485,6 +599,106 @@ pub fn layout_block(
         }
     }
     out
+}
+
+/// Right-to-left block: the first strong character of its text (code
+/// blocks are always left to right).
+fn block_rtl(b: &Block) -> bool {
+    if b.is_code() || !has_rtl(b.text()) {
+        return false;
+    }
+    unicode_bidi::get_base_direction_full(b.text()) == unicode_bidi::Direction::Rtl
+}
+
+/// Right-to-left letters (Hebrew, Arabic, Syriac, Thaana, N'Ko… and their
+/// presentation forms) or marks that may make text right to left. A quick
+/// test: text without any of them skips the bidi algorithm.
+pub fn has_rtl(s: &str) -> bool {
+    if s.is_ascii() {
+        return false;
+    }
+    s.chars().any(|c| {
+        matches!(c as u32,
+            0x0590..=0x08FF | 0xFB1D..=0xFDFF | 0xFE70..=0xFEFF | 0x10800..=0x10FFF | 0x1E800..=0x1EFFF
+            | 0x200F | 0x202B | 0x202E | 0x2067 | 0x2068)
+    })
+}
+
+/// Bidi levels of the text being laid out (a block or a table cell).
+struct Bidi {
+    /// Levels were computed (the text has right-to-left characters, or
+    /// the block is right to left).
+    on: bool,
+    /// Base direction: right to left.
+    rtl: bool,
+    /// Byte offset of `levels[0]` in the text.
+    ctx: usize,
+    /// One level per byte from `ctx`.
+    levels: Vec<Level>,
+}
+
+impl Bidi {
+    /// Levels for bytes `range` of `text`. The algorithm runs from the start
+    /// of the paragraph holding `range.start` (not before `floor`): the
+    /// levels of a paragraph depend only on its own text, so an incremental
+    /// layout gets the same levels as a full one.
+    fn new(text: &str, floor: usize, range: Range<usize>, rtl: bool, code: bool) -> Bidi {
+        let off = Bidi { on: false, rtl: false, ctx: range.start, levels: Vec::new() };
+        if code {
+            return off;
+        }
+        let ctx = text[floor..range.start]
+            .char_indices()
+            .rev()
+            .find(|(_, c)| matches!(c, '\n' | '\r' | '\u{85}' | '\u{1c}'..='\u{1e}' | '\u{2029}'))
+            .map_or(floor, |(i, c)| floor + i + c.len_utf8());
+        let part = &text[ctx..range.end];
+        if !rtl && !has_rtl(part) {
+            return off;
+        }
+        let level = if rtl { Level::rtl() } else { Level::ltr() };
+        let levels = BidiInfo::new(part, Some(level)).levels;
+        Bidi { on: true, rtl, ctx, levels }
+    }
+
+    fn level(&self, at: usize) -> u8 {
+        self.levels.get(at.wrapping_sub(self.ctx)).map_or(if self.rtl { 1 } else { 0 }, |l| l.number())
+    }
+}
+
+/// Splits the fragments of one line (from `f0`) where the bidi level
+/// changes and places them in visual order (rule L2).
+fn reorder_line(text: &str, out: &mut Layout, f0: usize, bidi: &Bidi, m: &mut dyn Metrics) {
+    let base = if bidi.rtl { 1 } else { 0 };
+    let mut pieces: Vec<(Frag, u8)> = Vec::with_capacity(out.frags.len() - f0 + 2);
+    for f in out.frags.drain(f0..) {
+        if f.tab {
+            // L1: segment separators take the paragraph level.
+            pieces.push((Frag { rtl: bidi.rtl, ..f }, base));
+            continue;
+        }
+        let (start, end) = (f.start as usize, f.end as usize);
+        let mut s = start;
+        while s < end {
+            let l = bidi.level(s);
+            let mut e = s;
+            while e < end && bidi.level(e) == l {
+                e += text[e..].chars().next().map_or(1, char::len_utf8);
+            }
+            let w = if s == start && e == end { f.w } else { m.width(f.font, &text[s..e]) };
+            pieces.push((Frag { start: s as u32, end: e as u32, w, rtl: l % 2 == 1, ..f }, l));
+            s = e;
+        }
+    }
+    let levels: Vec<Level> = pieces.iter().map(|p| Level::new(p.1).unwrap_or_else(|_| Level::ltr())).collect();
+    let order = BidiInfo::reorder_visual(&levels);
+    let mut x = 0.0f32;
+    for i in order {
+        let mut f = pieces[i].0;
+        f.x = x;
+        x += f.w;
+        out.frags.push(f);
+    }
 }
 
 /// Bytes at the start where both texts and their runs agree.
@@ -512,6 +726,9 @@ fn common_prefix(a: &Inline, b: &Inline) -> usize {
 
 fn layout_table(b: &Block, t: &Table, out: &mut Layout, ty: &Typo, m: &mut dyn Metrics) {
     let text = b.text();
+    // Right to left (the table's first strong character): the first column
+    // on the right and the table at the right edge.
+    let rtl = out.rtl;
     let ncols = t.rows.iter().map(Vec::len).max().unwrap_or(0).max(1);
     let pad = ty.cell_pad;
     let avail = out.box_w;
@@ -560,6 +777,14 @@ fn layout_table(b: &Block, t: &Table, out: &mut Layout, ty: &Typo, m: &mut dyn M
         cols.push((x, *w));
         x += w;
     }
+    let total = x - out.left;
+    if rtl {
+        let right = out.left + avail;
+        for c in cols.iter_mut() {
+            c.0 = right - (c.0 - out.left) - c.1;
+        }
+        out.left = right - total;
+    }
     let mut rows = Vec::with_capacity(t.rows.len());
     let mut y = 0;
     for (ri, row) in t.rows.iter().enumerate() {
@@ -568,7 +793,16 @@ fn layout_table(b: &Block, t: &Table, out: &mut Layout, ty: &Typo, m: &mut dyn M
         for (ci, cell) in row.iter().enumerate() {
             let (cx, cw) = cols[ci];
             let start = out.lines.len();
-            let end_y = layout_text(
+            // Each cell reads in its own direction ("12 KB" stays left to
+            // right in an Arabic table); a cell without letters takes the table's.
+            let part = &text[cell.clone()];
+            let cell_rtl = match unicode_bidi::get_base_direction_full(part) {
+                unicode_bidi::Direction::Rtl => true,
+                unicode_bidi::Direction::Ltr => false,
+                _ => rtl,
+            };
+            let bidi = Bidi::new(text, cell.start, cell.clone(), cell_rtl, false);
+            let end_y = layout_text_in(
                 text,
                 b.content.runs(),
                 cell.clone(),
@@ -579,22 +813,23 @@ fn layout_table(b: &Block, t: &Table, out: &mut Layout, ty: &Typo, m: &mut dyn M
                 ty,
                 m,
                 out,
+                &bidi,
             );
             row_h = row_h.max(end_y - y - pad);
-            // Column alignment.
+            // Column alignment, in the table's direction: right to left,
+            // Left is the start (the right edge) and Right the end.
             let align = t.align.get(ci).copied().unwrap_or_default();
-            if align != ColumnAlign::Left {
-                for li in start..out.lines.len() {
-                    let l = &out.lines[li];
-                    let used = out.frags_of(l).last().map_or(0.0, |f| f.x + f.w);
-                    let free = (l.w as f32 - used).max(0.0);
-                    let shift = if align == ColumnAlign::Center {
-                        free / 2.0
-                    } else {
-                        free
-                    };
-                    out.lines[li].x += shift.floor() as i32;
-                }
+            for li in start..out.lines.len() {
+                let l = &out.lines[li];
+                let used = out.frags_of(l).last().map_or(0.0, |f| f.x + f.w);
+                let free = (l.w as f32 - used).max(0.0).floor() as i32;
+                let at = match (align, rtl) {
+                    (ColumnAlign::Center, _) => free / 2,
+                    (ColumnAlign::Left, false) | (ColumnAlign::Right, true) => 0,
+                    _ => free,
+                };
+                let now = if l.rtl { free } else { 0 };
+                out.lines[li].x += at - now;
             }
         }
         let _ = first_line;
@@ -603,7 +838,7 @@ fn layout_table(b: &Block, t: &Table, out: &mut Layout, ty: &Typo, m: &mut dyn M
         y += h;
     }
     out.height = y + 1;
-    out.box_w = (x - out.left).max(1);
+    out.box_w = total.max(1);
     out.table = Some(TableGeom {
         cols,
         rows,
@@ -780,7 +1015,8 @@ struct Placed {
 }
 
 /// Lays out bytes `range` of `text` into lines at (x, y), `w` wide; returns
-/// the y below the last line.
+/// the y below the last line. The base direction is the first strong
+/// character of `range` (see the module docs).
 #[allow(clippy::too_many_arguments)]
 pub fn layout_text(
     text: &str,
@@ -793,6 +1029,26 @@ pub fn layout_text(
     ty: &Typo,
     m: &mut dyn Metrics,
     out: &mut Layout,
+) -> i32 {
+    let part = &text[range.clone()];
+    let rtl = has_rtl(part) && unicode_bidi::get_base_direction_full(part) == unicode_bidi::Direction::Rtl;
+    let bidi = Bidi::new(text, range.start, range.clone(), rtl, false);
+    layout_text_in(text, runs, range, base, x, w, y, ty, m, out, &bidi)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn layout_text_in(
+    text: &str,
+    runs: &[Run],
+    range: Range<usize>,
+    base: FontKey,
+    x: i32,
+    w: i32,
+    y: i32,
+    ty: &Typo,
+    m: &mut dyn Metrics,
+    out: &mut Layout,
+    bidi: &Bidi,
 ) -> i32 {
     let max = w.max(8) as f32 + 0.05;
     let mut space_w = Vec::new();
@@ -807,7 +1063,7 @@ pub fn layout_text(
     if n == 0 {
         // An empty block still has one line.
         finish_line(
-            text, &mut line, line_start, range.end, base, x, w, &mut y, ty, m, out,
+            text, &mut line, line_start, range.end, base, x, w, &mut y, ty, m, out, bidi,
         );
         return y;
     }
@@ -816,7 +1072,7 @@ pub fn layout_text(
         if toks[i].kind == Kind::Newline {
             let end = toks[i].end;
             finish_line(
-                text, &mut line, line_start, end, base, x, w, &mut y, ty, m, out,
+                text, &mut line, line_start, end, base, x, w, &mut y, ty, m, out, bidi,
             );
             line_start = end;
             lx = 0.0;
@@ -824,7 +1080,7 @@ pub fn layout_text(
             if i == n {
                 // Text ending in a newline: the empty last line is shown.
                 finish_line(
-                    text, &mut line, line_start, range.end, base, x, w, &mut y, ty, m, out,
+                    text, &mut line, line_start, range.end, base, x, w, &mut y, ty, m, out, bidi,
                 );
             }
             continue;
@@ -842,7 +1098,7 @@ pub fn layout_text(
         if lx + body_w > max && !line.is_empty() {
             let end = toks[i].start;
             finish_line(
-                text, &mut line, line_start, end, base, x, w, &mut y, ty, m, out,
+                text, &mut line, line_start, end, base, x, w, &mut y, ty, m, out, bidi,
             );
             line_start = end;
             lx = 0.0;
@@ -871,7 +1127,7 @@ pub fn layout_text(
                 }
                 let brk = fit.max(t.start);
                 finish_line(
-                    text, &mut line, line_start, brk, base, x, w, &mut y, ty, m, out,
+                    text, &mut line, line_start, brk, base, x, w, &mut y, ty, m, out, bidi,
                 );
                 line_start = brk;
                 lx = 0.0;
@@ -902,7 +1158,7 @@ pub fn layout_text(
     }
     if !line.is_empty() || line_start < range.end {
         finish_line(
-            text, &mut line, line_start, range.end, base, x, w, &mut y, ty, m, out,
+            text, &mut line, line_start, range.end, base, x, w, &mut y, ty, m, out, bidi,
         );
     }
     y
@@ -956,7 +1212,7 @@ fn fit_prefix(
 
 #[allow(clippy::too_many_arguments)]
 fn finish_line(
-    _text: &str,
+    text: &str,
     line: &mut Vec<Placed>,
     start: usize,
     end: usize,
@@ -967,6 +1223,7 @@ fn finish_line(
     ty: &Typo,
     m: &mut dyn Metrics,
     out: &mut Layout,
+    bidi: &Bidi,
 ) {
     let f0 = out.frags.len() as u32;
     // Trailing blanks are not drawn.
@@ -1003,9 +1260,20 @@ fn finish_line(
                 run: t.run,
                 font: t.font,
                 tab,
+                rtl: false,
             }),
         }
     }
+    if bidi.on && out.frags.len() > f0 as usize {
+        reorder_line(text, out, f0 as usize, bidi, m);
+    }
+    // Right to left: right-aligned.
+    let x = if bidi.rtl {
+        let used = out.frags[f0 as usize..].last().map_or(0.0, |f| f.x + f.w);
+        x + (w as f32 - used).max(0.0).floor() as i32
+    } else {
+        x
+    };
     if fonts.is_empty() {
         fonts.push(base);
     }
@@ -1026,6 +1294,7 @@ fn finish_line(
         start: start as u32,
         end: end as u32,
         frags: f0..out.frags.len() as u32,
+        rtl: bidi.rtl,
     });
     *y += lh;
     line.clear();
@@ -1206,6 +1475,149 @@ mod tests {
         assert_eq!(r, vec![(36, 0, 30, 15)]);
         let cell = &t.rows[1][1];
         assert_eq!(&b.text()[cell.clone()], "12345");
+    }
+
+    /// Texts of the fragments of line `li`, left to right on screen.
+    fn visual(b: &Block, l: &Layout, li: usize) -> Vec<String> {
+        l.frags_of(&l.lines[li])
+            .iter()
+            .map(|f| b.text()[f.start as usize..f.end as usize].to_string())
+            .collect()
+    }
+
+    #[test]
+    fn bidi_rtl_paragraph_reorders_and_right_aligns() {
+        // Base direction from the first strong character (Arabic).
+        let b = Block::paragraph("مرحبا world 123");
+        let l = layout_block(&b, 400, &typo(), &mut FakeMetrics, None);
+        assert!(l.rtl && l.lines[0].rtl);
+        // W7: the number follows "world" (L), so "world 123" is one run.
+        assert_eq!(visual(&b, &l, 0), vec!["world 123", "مرحبا "]);
+        let f = l.frags_of(&l.lines[0]);
+        assert!(f[0].x == 0.0 && f.windows(2).all(|w| (w[0].x + w[0].w - w[1].x).abs() < 0.01));
+        assert!(f[1].rtl && !f[0].rtl);
+        // A number after Arabic stays after it, read left to right.
+        let b2 = Block::paragraph("السعر 120 دولار");
+        let l2 = layout_block(&b2, 400, &typo(), &mut FakeMetrics, None);
+        assert_eq!(visual(&b2, &l2, 0), vec![" دولار", "120", "السعر "]);
+        // Right-aligned: the line ends at the column's right edge.
+        let ln = &l.lines[0];
+        let used = f.last().map(|f| f.x + f.w).unwrap();
+        assert!((ln.x as f32 + used - 400.0).abs() <= 1.0, "x {} used {used}", ln.x);
+        // Hit testing: the right end is the logical start, the left end the logical end.
+        let text = b.text();
+        assert_eq!(l.hit(text, 399, 3, &mut FakeMetrics), 0);
+        assert_eq!(l.hit(text, ln.x - 5, 3, &mut FakeMetrics), text.len());
+        // The caret before the first Arabic letter is at the right edge.
+        assert!((l.x_of(text, 0, 0, &mut FakeMetrics) - 400.0).abs() <= 1.0);
+        // Byte 2 (after the first letter): one char (6 px) left of the edge.
+        assert!((l.x_of(text, 0, 2, &mut FakeMetrics) - 394.0).abs() <= 1.0);
+        // "world" reads left to right inside the right-to-left line.
+        let w0 = text.find("world").unwrap();
+        let (a, z) = l.span_x(text, 0, w0..w0 + 5, &mut FakeMetrics);
+        assert!((z - a - 30.0).abs() < 0.01);
+        assert!(l.x_of(text, 0, w0, &mut FakeMetrics) < l.x_of(text, 0, w0 + 5, &mut FakeMetrics));
+        // A hit in the middle of "world" maps back to its bytes.
+        let mid = l.hit(text, (a + 13.0) as i32, 3, &mut FakeMetrics);
+        assert_eq!(mid, w0 + 2);
+    }
+
+    #[test]
+    fn bidi_selection_covers_separate_spans_in_mixed_lines() {
+        // Left to right paragraph with an Arabic phrase: selecting from the
+        // middle of the phrase to the end gives two pieces on screen.
+        let b = Block::paragraph("abc مرحبا بالعالم xyz");
+        let l = layout_block(&b, 400, &typo(), &mut FakeMetrics, None);
+        assert!(!l.rtl);
+        assert_eq!(visual(&b, &l, 0), vec!["abc ", "مرحبا بالعالم", " xyz"]);
+        let text = b.text();
+        let from = text.find("بالعالم").unwrap();
+        let r = l.rects(text, from..text.len(), &mut FakeMetrics);
+        // "بالعالم" is drawn at the left end of the Arabic phrase, " xyz" after it:
+        // not adjacent on screen, so two rectangles.
+        assert_eq!(r.len(), 2, "{r:?}");
+        let arabic = l.frags_of(&l.lines[0])[1];
+        assert_eq!(r[0].0, arabic.x as i32);
+        assert!(r[0].2 > 0 && r[1].0 >= (arabic.x + arabic.w) as i32);
+    }
+
+    #[test]
+    fn bidi_styled_runs_and_ltr_text_are_untouched() {
+        // No right-to-left characters: the fast path, as before.
+        let b = Block::paragraph("plain ").push("bold", &Style::plain().bold());
+        let l = layout_block(&b, 400, &typo(), &mut FakeMetrics, None);
+        assert!(!l.rtl && l.frags.iter().all(|f| !f.rtl));
+        assert_eq!(l.frags_of(&l.lines[0])[0].x, 0.0);
+        // Styled Arabic runs move as a whole: bold word first on the right.
+        let b = Block::paragraph("").push("عريض", &Style::plain().bold()).push(" عادي", &Style::plain());
+        let l = layout_block(&b, 400, &typo(), &mut FakeMetrics, None);
+        assert_eq!(visual(&b, &l, 0), vec![" عادي", "عريض"]);
+        assert!(l.frags_of(&l.lines[0])[1].font.bold);
+        // An explicit RLM makes a Latin paragraph right to left.
+        let b = Block::paragraph("\u{200f}ok 42");
+        let l = layout_block(&b, 200, &typo(), &mut FakeMetrics, None);
+        assert!(l.rtl && l.lines[0].x > 100);
+        // Code stays left to right.
+        let b = Block::code("", "مرحبا = 1");
+        let l = layout_block(&b, 400, &typo(), &mut FakeMetrics, None);
+        assert!(!l.rtl && l.lines[0].x == typo().code_pad);
+    }
+
+    #[test]
+    fn bidi_wrapped_lines_and_indentation_mirror() {
+        let b = Block::paragraph("واحد اثنان ثلاثة أربعة خمسة ستة سبعة").item(ListMarker::Bullet, 1);
+        let l = layout_block(&b, 120, &typo(), &mut FakeMetrics, None);
+        assert!(l.lines.len() >= 3);
+        for ln in &l.lines {
+            let used = l.frags_of(ln).last().map_or(0.0, |f| f.x + f.w);
+            // Indentation on the right: lines end list_w before the right edge.
+            assert!((ln.x as f32 + used - (120 - typo().list_w) as f32).abs() <= 1.0, "{ln:?}");
+        }
+        assert_eq!(l.mirror_x(l.left - typo().list_w, typo().list_w), 120 - typo().list_w);
+        let joined: String = l.lines.iter().map(|ln| &b.text()[ln.start as usize..ln.end as usize]).collect();
+        assert_eq!(joined, b.text());
+    }
+
+    #[test]
+    fn bidi_incremental_relayout_equals_full_layout() {
+        let ty = typo();
+        let mut text = String::new();
+        let mut prev: Option<(Block, Layout)> = None;
+        for i in 0..60 {
+            text.push_str(if i % 3 == 0 { "كلمة " } else if i % 3 == 1 { "word " } else { "123 " });
+            if i % 17 == 0 {
+                text.push('\n');
+            }
+            let b = Block::paragraph(&text);
+            let full = layout_block(&b, 120, &ty, &mut FakeMetrics, None);
+            let inc = layout_block(&b, 120, &ty, &mut FakeMetrics, prev.as_ref().map(|(b, l)| (b, l)));
+            assert_eq!(inc, full, "step {i}");
+            assert!(full.rtl);
+            prev = Some((b, inc));
+        }
+    }
+
+    #[test]
+    fn bidi_rtl_table_mirrors_columns() {
+        let b = Block::table(
+            &[ColumnAlign::Left, ColumnAlign::Right],
+            &[&["الاسم", "الحجم"], &["ملف", "12"]],
+            true,
+        );
+        let l = layout_block(&b, 400, &typo(), &mut FakeMetrics, None);
+        assert!(l.rtl);
+        let g = l.table.as_ref().unwrap();
+        // First column on the right, the table against the right edge.
+        assert!(g.cols[0].0 > g.cols[1].0);
+        assert_eq!(g.cols[0].0 + g.cols[0].1, 400);
+        assert_eq!(l.left, g.cols[1].0);
+        // Start-aligned (Left) cells sit at their column's right edge.
+        let ln = &l.lines[0];
+        let used = l.frags_of(ln).last().map_or(0.0, |f| f.x + f.w);
+        assert!((ln.x as f32 + used - (g.cols[0].0 + g.cols[0].1 - typo().cell_pad) as f32).abs() <= 1.0);
+        // End-aligned (Right) cells at the left edge.
+        let ln = &l.lines[3];
+        assert_eq!(ln.x, g.cols[1].0 + typo().cell_pad);
     }
 
     #[test]

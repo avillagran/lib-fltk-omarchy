@@ -67,11 +67,17 @@ pub const LANGUAGES: &[(&str, &str)] = &[
     ("cs", "Čeština"),
 ];
 
-/// Writing direction of the current language.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Writing direction of the current language (also `layout::Direction`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Direction {
     Ltr,
     Rtl,
+}
+
+impl Direction {
+    pub fn is_rtl(self) -> bool {
+        self == Direction::Rtl
+    }
 }
 
 struct Shared {
@@ -94,9 +100,12 @@ impl Shared {
             LANGUAGES.iter().any(|(l, _)| *l == t) || app.has_locale(t)
         });
         self.requested = requested;
+        RTL.store(locale::is_rtl(&self.resolved), std::sync::atomic::Ordering::Relaxed);
     }
 }
 
+/// Direction of `Shared::resolved`, read on every draw (no lock).
+static RTL: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 static SHARED: OnceLock<RwLock<Shared>> = OnceLock::new();
 static TOOLKIT: OnceLock<Catalog> = OnceLock::new();
 
@@ -210,6 +219,9 @@ pub fn language() -> String {
     read(|s| locale::language(&s.resolved).to_string())
 }
 
+/// Writing direction of the language in use. Layouts and components
+/// mirror with it (see [`crate::layout::direction_of`] for per-container
+/// overrides).
 pub fn direction() -> Direction {
     if is_rtl() {
         Direction::Rtl
@@ -218,8 +230,10 @@ pub fn direction() -> Direction {
     }
 }
 
+/// True when the language in use is written right to left.
 pub fn is_rtl() -> bool {
-    read(|s| locale::is_rtl(&s.resolved))
+    shared();
+    RTL.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 /// Adds an app catalog (o3's flat JSON) on top of the toolkit and earlier

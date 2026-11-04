@@ -63,7 +63,13 @@ classic Omarchy look. Import as `fltk_omarchy`.
    rest. App strings live in an o3-style catalog (`i18n::load(include_str!(..))`,
    English source keys); check it with `cargo run --example i18n_check --
    app.json --sources src`. Never build a sentence from translated pieces;
-   use placeholders. Guide: docs/I18N.md.
+   use placeholders. Right-to-left languages (ar, he, fa, ur) mirror the
+   layout and components live and swap Left/Right in mirrored controls:
+   build left to right and do not mirror by hand. Keep media controls,
+   timelines and code left to right with `row.direction(Direction::Ltr)` /
+   `layout::set_direction(&w, Some(Direction::Ltr))`; custom widgets draw
+   through `layout::Mirror::of(&w)` and handle arrows with
+   `layout::logical_key`. Guide: docs/I18N.md.
 13. Verify visually: `win.snapshot("shot.png")` renders offscreen without
    showing a window; look at the PNG. Verify keys with
    `focus::press("Tab")`, `press("Down")`, `press("Enter")`… (same path as

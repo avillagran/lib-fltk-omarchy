@@ -148,11 +148,13 @@ impl Dropdown {
         let hover = Rc::new(Cell::new(false));
         let (opts, v, lbl, hv) = (options.clone(), value.clone(), label_rc.clone(), hover.clone());
         inner.draw(move |w| {
+            // Right to left: caption and value right-aligned, chevron on the left.
+            let m = crate::layout::Mirror::of(w);
             theme::with(|t| {
                 let mut y = w.y();
                 if !lbl.borrow().is_empty() {
                     let lh = t.font.caption + 4;
-                    paint::text_elided(&lbl.borrow(), w.x(), y, w.w(), lh, t.font.caption, true, t.palette.foreground.darker(1.4), Align::Left);
+                    paint::text_elided(&lbl.borrow(), w.x(), y, w.w(), lh, t.font.caption, true, t.palette.foreground.darker(1.4), m.align(Align::Left));
                     y += lh + t.spacing.label_gap;
                 }
                 let h = t.spacing.control_height;
@@ -164,8 +166,9 @@ impl Dropdown {
                 let pad = t.spacing.control_padding_x + 1;
                 let chev = paint::measure(glyph::CHEVRON_DOWN, t.font.body, false);
                 let text = opts.borrow().get(v.get()).cloned().unwrap_or_default();
-                paint::text_elided(&text, w.x() + pad, y, w.w() - 2 * pad - chev - t.spacing.md, h, t.font.body, false, fg, Align::Left);
-                paint::glyph(glyph::CHEVRON_DOWN, w.x() + w.w() - 9 - chev, y, chev, h, t.font.body, fg.darker(1.2));
+                let tw = w.w() - 2 * pad - chev - t.spacing.md;
+                paint::text_elided(&text, m.x(w.x() + pad, tw), y, tw, h, t.font.body, false, fg, m.align(Align::Left));
+                paint::glyph(glyph::CHEVRON_DOWN, m.x(w.x() + w.w() - 9 - chev, chev), y, chev, h, t.font.body, fg.darker(1.2));
             });
         });
         let (opts, v, hv) = (options.clone(), value.clone(), hover.clone());
@@ -242,6 +245,7 @@ fn open_popup(trigger: &mut Widget, options: &Rc<RefCell<Vec<String>>>, value: &
     let win_h = trigger.top_window().map(|w| w.h()).unwrap_or(y + h);
     let y = if y + h > win_h { (trigger.y() + label_h - 2 - h).max(0) } else { y };
     let rect = (trigger.x(), y, trigger.w(), h);
+    let align = crate::layout::Mirror::new(crate::layout::is_rtl(trigger), 0, 0).align(Align::Left);
     let Some(mut layer) = open_layer(trigger, None, true) else { return };
     let current = Rc::new(Cell::new(value.get() as i32));
     let top = Rc::new(Cell::new(0i32));
@@ -259,7 +263,7 @@ fn open_popup(trigger: &mut Widget, options: &Rc<RefCell<Vec<String>>>, value: &
                 if idx == cur.get() {
                     paint::fill(x + inset, ry, w - 2 * inset, row_h, t.radius, t.fill(&t.controls.hover, fill));
                 }
-                paint::text_elided(&text, x + inset + t.spacing.control_padding_x, ry, w - 2 * (inset + t.spacing.control_padding_x), row_h, t.font.body, false, t.popups.text, Align::Left);
+                paint::text_elided(&text, x + inset + t.spacing.control_padding_x, ry, w - 2 * (inset + t.spacing.control_padding_x), row_h, t.font.body, false, t.popups.text, align);
             }
         });
     });
@@ -384,6 +388,9 @@ impl ConfirmDialog {
         let confirm = confirm.to_string();
         let labels = Rc::new(move || [crate::i18n::tr("Cancel"), confirm.clone()]);
         let lb = labels.clone();
+        // Right to left: message right-aligned, buttons at the left end
+        // (Confirm outermost, as it is on the right left to right).
+        let rtl = crate::layout::is_rtl(anchor);
         let geom = Rc::new(move |l: &Widget| -> ((i32, i32, i32, i32), [(i32, i32, i32, i32); 2]) {
             theme::with(|t| {
                 let s = |px: f64| (px * t.font.base as f64 / 12.0).round() as i32;
@@ -403,7 +410,8 @@ impl ConfirmDialog {
                 let by = cy + ch - pad - bh;
                 let b1 = (cx + cw - pad - bw, by, bw, bh);
                 let b0 = (b1.0 - s(10.0) - bw, by, bw, bh);
-                ((cx, cy, cw, ch), [b0, b1])
+                let m = crate::layout::Mirror::new(rtl, cx, cw);
+                ((cx, cy, cw, ch), [m.rect(b0), m.rect(b1)])
             })
         });
         let (sel, msg2, labels2, geom2) = (selected.clone(), message.to_string(), labels.clone(), geom.clone());
@@ -421,7 +429,8 @@ impl ConfirmDialog {
                 let border = t.menu.selected_text;
                 paint::surface(cx, cy, cw, ch, t.radius, Some(b), Some((border, t.controls.normal.border_width.max(1))));
                 let pad = (18.0 * t.font.base as f64 / 12.0).round() as i32;
-                paint::text(&msg2, cx + pad, cy + pad, cw - 2 * pad, ch - 2 * pad, t.font.title, false, t.palette.foreground, Align::TopLeft | Align::Wrap);
+                let align = if rtl { Align::TopRight } else { Align::TopLeft };
+                paint::text(&msg2, cx + pad, cy + pad, cw - 2 * pad, ch - 2 * pad, t.font.title, false, t.palette.foreground, align | Align::Wrap);
                 for (i, (bx, by, bw, bh)) in buttons.iter().copied().enumerate() {
                     let on = sel.get() == i as i32;
                     let fg = t.palette.foreground;
@@ -493,6 +502,7 @@ impl ConfirmDialog {
                 Event::KeyDown => {
                     match app::event_key() {
                         Key::Escape => done(l, false),
+                        // Two buttons: either arrow (and Tab) goes to the other one.
                         Key::Left | Key::Right | Key::Tab => { sel.set(1 - sel.get()); l.redraw(); }
                         Key::Enter | Key::KPEnter => { let ok = sel.get() == 1; done(l, ok) }
                         _ => {}
@@ -515,7 +525,8 @@ pub fn draw_scrim(l: &Widget, color: Rgb, alpha: f64) {
 
 // ============================================================ Notification
 
-/// Omarchy notification card (toast) at the window's top-right: icon slot,
+/// Omarchy notification card (toast) at the window's top-right (top-left,
+/// mirrored, in a right-to-left language): icon slot,
 /// bold summary, body in `darker(text, 1.15)`, accent border, auto-dismiss
 /// (8 s normal, never for critical). A click dismisses it; from the
 /// keyboard, Tab reaches it and Enter, Space, Delete or Esc dismiss it.
@@ -543,8 +554,14 @@ impl Notification {
             (cw, (2 * pad + lines * (t.font.title + 6)).max(s(40.0) + 2 * pad) + 4)
         });
         let margin = theme::with(|t| t.gaps_out.max(8));
-        let stack_y = TOASTS.with(|v| v.borrow().iter().map(|w| w.h() + margin).sum::<i32>());
-        let rect = (win.w() - cw - margin, margin + stack_y, cw, ch);
+        let stack_y = TOASTS.with(|v| {
+            // Toasts deleted with their window are gone.
+            v.borrow_mut().retain(|w| !w.was_deleted());
+            v.borrow().iter().map(|w| w.h() + margin).sum::<i32>()
+        });
+        // Top-right; top-left right to left, with the icon on the right.
+        let rtl = crate::layout::is_rtl(anchor);
+        let rect = (if rtl { margin } else { win.w() - cw - margin }, margin + stack_y, cw, ch);
         let Some(mut layer) = open_layer(anchor, Some(rect), false) else { return };
         TOASTS.with(|v| v.borrow_mut().push(layer.clone()));
         let (icon, summary, body) = (icon.to_string(), summary.to_string(), body.to_string());
@@ -554,18 +571,20 @@ impl Notification {
                 let n = &t.notifications;
                 card(t, l.x(), l.y(), l.w(), l.h(), n, 2);
                 let s = |px: f64| (px * t.font.base as f64 / 12.0).round() as i32;
+                let m = crate::layout::Mirror::new(rtl, l.x(), l.w());
                 let mut x = l.x() + 12;
                 if !icon.is_empty() {
                     let slot = s(40.0);
-                    paint::glyph(&icon, x, l.y(), slot, l.h(), t.font.display_large, n.text);
+                    paint::glyph(&icon, m.x(x, slot), l.y(), slot, l.h(), t.font.display_large, n.text);
                     x += slot + 12;
                 }
                 let w = l.x() + l.w() - s(10.0) - x;
                 let line = t.font.title + 6;
                 let top = l.y() + (l.h() - if body.is_empty() { line } else { 2 * line }) / 2;
-                paint::text_elided(&summary, x, top, w, line, t.font.title, true, n.text, Align::Left);
+                let (tx, al) = (m.x(x, w), m.align(Align::Left));
+                paint::text_elided(&summary, tx, top, w, line, t.font.title, true, n.text, al);
                 if !body.is_empty() {
-                    paint::text_elided(&body, x, top + line, w, line, t.font.title, false, n.text.darker(1.15), Align::Left);
+                    paint::text_elided(&body, tx, top + line, w, line, t.font.title, false, n.text.darker(1.15), al);
                 }
                 if crate::focus::show_ring(l) {
                     let fill = n.fill(bg(t));
@@ -647,7 +666,9 @@ impl MenuItem {
 /// The Omarchy menu card: centered over a scrim, the header shows the
 /// typed filter (or "Title…" dimmed), 50 px rows with an 18 px glyph,
 /// accent text on the cursor row. Type to filter, Up/Down/PageUp/PageDown
-/// move (wrapping, skipping disabled), Enter picks, Esc clears/closes.
+/// move (wrapping, skipping disabled), Enter (or Right, the arrow toward the
+/// submenu mark; Left right to left) picks, Esc clears/closes. Mirrored in
+/// a right-to-left language.
 pub struct Menu;
 
 pub(crate) fn menu_filter(items: &[MenuItem], q: &str) -> Vec<usize> {
@@ -684,6 +705,9 @@ impl Menu {
         let visible = Rc::new(RefCell::new(menu_filter(&items, "")));
         let title = title.to_string();
         let title2 = title.clone();
+        // Right to left: glyphs on the right, the submenu mark on the left
+        // pointing left, and Left enters a submenu.
+        let rtl = crate::layout::is_rtl(anchor);
 
         struct Geo { cx: i32, cy: i32, cw: i32, ch: i32, pad: i32, header: i32, gap: i32, row: i32, spacing: i32, rows: usize }
         let geo = {
@@ -725,9 +749,10 @@ impl Menu {
                 paint::surface(g.cx, g.cy, g.cw, g.ch, t.radius, Some(fill), Some((m.border.over(fill, m.border_alpha), 2)));
                 let x = g.cx + g.pad;
                 let w = g.cw - 2 * g.pad;
+                let mr = crate::layout::Mirror::new(rtl, x, w);
                 let q = fl.borrow();
                 let (htext, alpha) = if q.is_empty() { (format!("{title}…"), 0.58) } else { (q.clone(), 1.0) };
-                paint::text_elided(&htext, x, g.cy + g.pad, w, g.header, t.font.heading, false, m.text.over(fill, alpha), Align::Left);
+                paint::text_elided(&htext, x, g.cy + g.pad, w, g.header, t.font.heading, false, m.text.over(fill, alpha), mr.align(Align::Left));
                 let ly = g.cy + g.pad + g.header + g.gap;
                 let vis = vis.borrow();
                 if vis.is_empty() {
@@ -753,23 +778,25 @@ impl Menu {
                     let s = |px: f64| (px * t.font.base as f64 / 12.0).round() as i32;
                     let mut tx = x + s(18.0);
                     if !item.icon.is_empty() {
-                        paint::glyph(&item.icon, x + s(8.0), ry, s(36.0), g.row, t.font.icon_large, color);
+                        paint::glyph(&item.icon, mr.x(x + s(8.0), s(36.0)), ry, s(36.0), g.row, t.font.icon_large, color);
                         tx = x + s(8.0) + s(36.0) + s(6.0);
                     }
                     let trail = if item.submenu { s(14.0) + s(8.0) } else { 0 };
                     let tw = x + w - trail - s(6.0) - tx;
                     let show_detail = !item.detail.is_empty() && !q.is_empty();
                     let lh = t.font.heading + 6;
+                    let (mtx, al) = (mr.x(tx, tw), mr.align(Align::Left));
                     if show_detail {
                         let dh = t.font.body_small + 4;
                         let top_y = ry + (g.row - lh - dh - s(3.0)) / 2;
-                        paint::text_elided(&item.label, tx, top_y, tw, lh, t.font.heading, false, color, Align::Left);
-                        paint::text_elided(&item.detail, tx, top_y + lh + s(3.0), tw, dh, t.font.body_small, false, m.text.over(fill, 0.52), Align::Left);
+                        paint::text_elided(&item.label, mtx, top_y, tw, lh, t.font.heading, false, color, al);
+                        paint::text_elided(&item.detail, mtx, top_y + lh + s(3.0), tw, dh, t.font.body_small, false, m.text.over(fill, 0.52), al);
                     } else {
-                        paint::text_elided(&item.label, tx, ry, tw, g.row, t.font.heading, false, color, Align::Left);
+                        paint::text_elided(&item.label, mtx, ry, tw, g.row, t.font.heading, false, color, al);
                     }
                     if item.submenu {
-                        paint::glyph(glyph::SUBMENU, x + w - s(8.0) - s(14.0), ry, s(14.0), g.row, t.font.heading, m.text.over(fill, 0.36));
+                        let mark = mr.glyph(glyph::SUBMENU, glyph::SUBMENU_RTL);
+                        paint::glyph(mark, mr.x(x + w - s(8.0) - s(14.0), s(14.0)), ry, s(14.0), g.row, t.font.heading, m.text.over(fill, 0.36));
                     }
                 }
                 fltk::draw::pop_clip();
@@ -865,7 +892,10 @@ impl Menu {
                         Key::Up => { step(-1); l.redraw(); }
                         Key::PageDown => { step(6); l.redraw(); }
                         Key::PageUp => { step(-6); l.redraw(); }
-                        Key::Enter | Key::KPEnter | Key::Right => pick(l),
+                        Key::Enter | Key::KPEnter => pick(l),
+                        // Into a submenu: the arrow that points at its mark.
+                        Key::Right if !rtl => pick(l),
+                        Key::Left if rtl => pick(l),
                         Key::BackSpace => {
                             if ctrl {
                                 let mut f = fl.borrow_mut();

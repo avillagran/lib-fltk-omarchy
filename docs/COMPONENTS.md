@@ -266,10 +266,14 @@ link (`on_link`) or copies the code; Ctrl+A selects all, Ctrl+C copies
 blocks, double click a word, triple click a block; the pointer is a hand
 over links.
 
-**Limits:** no bidi reordering (each fragment is shaped by FLTK/Pango, so
-Arabic reads right to left inside it, but lines fill left to right and
-selection measures left to right); long code lines wrap (no horizontal
-scrolling); images show as their alt text with the link.
+**Right to left:** a block with Arabic or Hebrew first is right-aligned and
+its lines follow the Unicode bidi algorithm (mixed Arabic, Latin and
+numbers in visual order; selection follows the screen); see
+[I18N.md](I18N.md#bidirectional-text).
+
+**Limits:** long code lines wrap (no horizontal scrolling); images show as
+their alt text with the link; the scrollbar stays on the right in a
+right-to-left language.
 
 ## PopupMenu (Preferences / Actions / context menus)
 
