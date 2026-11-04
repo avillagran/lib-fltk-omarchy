@@ -19,7 +19,7 @@ use fltk_omarchy::theme::Corners;
 use fltk_omarchy::Mode;
 use fltk_omarchy::task::{Outcome, Task};
 use fltk_omarchy::widgets::*;
-use fltk_omarchy::{theme, App, AppWindow, State};
+use fltk_omarchy::{i18n, theme, tr, trn, App, AppWindow, State};
 use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -48,6 +48,8 @@ fn main() {
     std::env::remove_var("HYPRLAND_INSTANCE_SIGNATURE");
 
     let app = App::new("dev.omarchy.fltk.tests");
+    // Toolkit strings follow the system language: pin English.
+    i18n::set_locale("en");
     let shots = root.join("shots");
     let mut failed = 0;
     let mut run = |name: &str, f: &dyn Fn(&Path) -> Result<(), String>| {
@@ -1345,6 +1347,105 @@ fn main() {
         pump_until(|| theme::current().palette.accent == theme::Rgb(0x123456));
         check(theme::current().palette.accent == theme::Rgb(0x123456), "an edit in the new directory is followed live")?;
         check(theme::set_theme_dir(None) && theme::current().palette.accent == theme::Rgb(0xe68e0d), "None goes back to the Omarchy theme")
+    });
+    run("i18n: switching the locale re-labels bound widgets live", &|shots| {
+        i18n::set_locale("en");
+        let count = State::new(3);
+        let mut win = AppWindow::new("Files", 420, 330);
+        win.bind_title(&i18n::text("Preferences"));
+        let mut body = win.body();
+        let mut row = layout::row();
+        let open = Button::new("").bordered().bind_text(&i18n::text("Open")).bind_tooltip(&i18n::text("Open"));
+        row.fit(&*open);
+        let trash = Button::new("").bind_text(&i18n::text("Move to trash"));
+        row.fit(&*trash);
+        row.close_fitted();
+        // Temporaries: the binding keeps the derived States alive.
+        let items = Label::new("").bind(&i18n::map(&count, |n| trn!("{count} items", *n)));
+        body.fit(&*items);
+        let plain = Label::new("").bind(&count.map(|n| format!("n = {n}")));
+        body.fit(&*plain);
+        let field = TextField::new().bind_placeholder(&i18n::text("Search…"));
+        body.fit(&*field);
+        let toggle = Toggle::new("", "", &State::new(true)).bind_title(&i18n::text("Fullscreen"));
+        body.fit(&*toggle);
+        win.end();
+        win.snapshot(shots.join("i18n-en.png")).map_err(|e| e.to_string())?;
+        check(open.text() == "Open" && items.text() == "3 items" && win.label() == "Preferences", "english")?;
+        let w_en = trash.w();
+        i18n::set_locale("de_DE.UTF-8");
+        check(open.text() == "Öffnen" && trash.text() == "In den Papierkorb verschieben", &format!("german buttons: {} / {}", open.text(), trash.text()))?;
+        check(WidgetExt::tooltip(&*open).as_deref() == Some("Öffnen"), "tooltip follows")?;
+        check(win.label() == "Einstellungen" && win.header().title() == "Einstellungen", "window and header title")?;
+        check(trash.w() > w_en && trash.w() == trash.preferred_size().0, &format!("fitted button takes its translated width: {} -> {}", w_en, trash.w()))?;
+        check(items.text() == "3 Elemente", &items.text())?;
+        win.snapshot(shots.join("i18n-de.png")).map_err(|e| e.to_string())?;
+        count.set(1);
+        check(items.text() == "1 Element" && plain.text() == "n = 1", "plural and derived temporary follow the count")?;
+        i18n::set_locale("ru");
+        let forms: Vec<String> = [1, 3, 5, 21].iter().map(|n| { count.set(*n); items.text() }).collect();
+        check(forms == ["1 элемент", "3 элемента", "5 элементов", "21 элемент"], &format!("{forms:?}"))?;
+        check(tr!("No matches for “{query}”", query = "x") == "Нет совпадений для «x»", "toolkit string with an argument")?;
+        win.snapshot(shots.join("i18n-ru.png")).map_err(|e| e.to_string())?;
+        i18n::set_locale("en");
+        check(open.text() == "Open" && items.text() == "21 items", "back to English")
+    });
+    run("i18n: Arabic and CJK render; start-aligned labels follow RTL", &|shots| {
+        for loc in ["ar", "ja", "zh", "ko"] {
+            i18n::set_locale(loc);
+            let mut win = AppWindow::new("", 460, 200);
+            win.bind_title(&i18n::text("Keyboard shortcuts"));
+            let mut body = win.body();
+            let label = Label::new("").bind(&i18n::text("Nothing here yet"));
+            body.fit(&*label);
+            let n = State::new(5);
+            body.fit(&*Label::new("").tone(Tone::Dim).bind(&i18n::map(&n, |n| trn!("{count} items", *n))));
+            let mut row = layout::row();
+            row.fit(&*Button::new("").bordered().bind_text(&i18n::text("Cancel")));
+            row.fit(&*Button::new("").primary().bind_text(&i18n::text("Save")));
+            row.close_fitted();
+            win.end();
+            let p = shots.join(format!("i18n-{loc}.png"));
+            win.snapshot(&p).map_err(|e| e.to_string())?;
+            // Text was drawn: foreground pixels in the label's start (or end, RTL) half.
+            let bg = pixel(&p, 2, win.h() - 3)?;
+            let (lx, ly, lw, lh) = (label.x(), label.y(), label.w(), label.h());
+            let half = |right: bool| -> Result<usize, String> {
+                let mut n = 0;
+                for y in (ly..ly + lh).step_by(2) {
+                    for x in (lx..lx + lw / 2).step_by(2) {
+                        let x = if right { x + lw / 2 } else { x };
+                        if pixel(&p, x, y)? != bg { n += 1; }
+                    }
+                }
+                Ok(n)
+            };
+            let (l, r) = (half(false)?, half(true)?);
+            let rtl = i18n::is_rtl();
+            check(rtl == (loc == "ar"), "direction")?;
+            if rtl { check(r > 0 && l == 0, &format!("{loc}: RTL label is right-aligned ({l} left, {r} right)"))?; }
+            else { check(l > 0, &format!("{loc}: text drawn ({l} px)"))?; }
+        }
+        i18n::set_locale("en");
+        check(i18n::direction() == i18n::Direction::Ltr, "back to LTR")
+    });
+    run("i18n: toolkit overlays draw their own strings translated", &|shots| {
+        i18n::set_locale("uk");
+        let mut win = AppWindow::new("t", 460, 300);
+        win.end();
+        ConfirmDialog::open(&*win, &tr!("Delete"), &tr!("Delete"), true, |_| {});
+        win.snapshot(shots.join("i18n-uk-confirm.png")).map_err(|e| e.to_string())?;
+        focus::press("Escape");
+        let toast = OperationToast::show(&*win, "Копіювання").ok_or("toast")?;
+        let mut t2 = toast.clone();
+        t2.toggle_pause();
+        win.snapshot(shots.join("i18n-uk-toast.png")).map_err(|e| e.to_string())?;
+        toast.close();
+        Menu::open(&*win, "Меню", vec![], |_| {});
+        win.snapshot(shots.join("i18n-uk-menu.png")).map_err(|e| e.to_string())?;
+        focus::press("Escape");
+        i18n::set_locale("en");
+        check(tr!("Cancel") == "Cancel", "back to English")
     });
     drop(app);
     println!("{}", if failed == 0 { "all ui checks passed" } else { "ui checks FAILED" });

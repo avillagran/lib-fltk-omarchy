@@ -12,7 +12,7 @@ use fltk_omarchy::panel::KeyboardPanel;
 use fltk_omarchy::paint;
 use std::rc::Rc;
 use fltk_omarchy::widgets::{glyph, *};
-use fltk_omarchy::{theme, App, AppWindow, State};
+use fltk_omarchy::{i18n, theme, trn, App, AppWindow, State};
 use std::path::{Path, PathBuf};
 
 /// A bare window with a padded column (the picture frame).
@@ -51,6 +51,7 @@ fn main() {
     std::fs::create_dir_all(&dir).unwrap();
     let _app = App::without_theme_watch("dev.omarchy.fltk.docs");
     fltk_omarchy::anim::set_enabled(false); // pictures show final states
+    i18n::set_locale("en"); // the toolkit's own strings, whatever the system language
 
     // ---- buttons
     let (win, col) = frame(600, 76);
@@ -259,6 +260,28 @@ fn main() {
     w.end();
     w.snapshot(dir.join("app-window.png")).unwrap();
     println!("{}", dir.join("app-window.png").display());
+
+    // ---- i18n: one window, bound to the toolkit catalog, in Arabic and Japanese
+    for loc in ["ar", "ja"] {
+        i18n::set_locale(loc);
+        let mut w = AppWindow::new("", 460, 230);
+        w.bind_title(&i18n::text("Preferences"));
+        let mut body = w.body();
+        body.fit(&*Label::section("").bind(&i18n::text("Language")));
+        body.fit(&*TextField::new().bind_placeholder(&i18n::text("Search…")));
+        let n = State::new(5);
+        body.fit(&*Label::new("").bind(&i18n::map(&n, |n| trn!("{count} items", *n))));
+        let mut r = layout::row();
+        layout::spacer();
+        r.fit(&*Button::new("").bordered().bind_text(&i18n::text("Cancel")));
+        r.fit(&*Button::new("").primary().bind_text(&i18n::text("Save")));
+        r.close_fitted();
+        w.end();
+        let p = dir.join(format!("i18n-{loc}.png"));
+        w.snapshot(&p).unwrap();
+        println!("{}", p.display());
+    }
+    i18n::set_locale("en");
 
     // ---- keyboard: focus ring while driving the app with the keyboard
     let mut w = AppWindow::new("Keyboard", 600, 330);

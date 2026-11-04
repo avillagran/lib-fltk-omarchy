@@ -18,6 +18,7 @@
 
 pub mod dirs;
 pub mod fonts;
+pub mod languages;
 mod generic;
 pub(crate) mod poll;
 

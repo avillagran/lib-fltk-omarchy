@@ -50,6 +50,10 @@ limit and a time budget per draw. Pictures, API and measured cost:
 - **Components**: [docs/COMPONENTS.md](docs/COMPONENTS.md) (pictures,
   code, keys). **Keyboard**: [docs/KEYBOARD.md](docs/KEYBOARD.md).
 - **Platforms**: [docs/PLATFORMS.md](docs/PLATFORMS.md).
+- **Translations**: [docs/I18N.md](docs/I18N.md): o3-compatible catalogs,
+  the toolkit's own strings in 20 languages, plural forms, the system
+  language on Linux, macOS and Windows, live language switching, a
+  catalog checker (`cargo run --example i18n_check`).
 - **Capabilities vs QML**: [docs/CAPABILITIES.md](docs/CAPABILITIES.md).
 - **Measured** (same session, 520×400 app with a 100 000-row list, 0.0.2):
   15.0 MB PSS and 70 ms to first frame vs 59.5 MB / 127 ms (QML software)
