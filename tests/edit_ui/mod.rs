@@ -13,6 +13,11 @@ use std::time::{Duration, Instant};
 
 type Check<'a> = &'a dyn Fn(&Path) -> Result<(), String>;
 
+/// Word moves and deletes: Alt on macOS, Ctrl elsewhere.
+fn word_mod() -> &'static str {
+    if fltk_omarchy::platform::OS == fltk_omarchy::platform::Os::MacOs { "Alt" } else { "Ctrl" }
+}
+
 fn keys(s: &str) {
     for c in s.chars() {
         match c {
@@ -55,18 +60,18 @@ pub fn checks(run: &mut dyn FnMut(&str, Check)) {
                 s.get() == "hello world\nsecond",
                 &format!("typed into the State: {:?}", s.get()),
             )?;
-            press("Ctrl+z");
+            press("Mod+z");
             check(
                 s.get() == "hello world\n",
                 &format!("undo removes the last word: {:?}", s.get()),
             )?;
-            press("Ctrl+z");
+            press("Mod+z");
             check(
                 s.get() == "hello world",
                 &format!("then the line break: {:?}", s.get()),
             )?;
-            press("Ctrl+Shift+z");
-            press("Ctrl+Shift+z");
+            press("Mod+Shift+z");
+            press("Mod+Shift+z");
             check(s.get() == "hello world\nsecond", "redo")?;
             // Committed input-method text (CJK, emoji) arrives through Fl::compose.
             type_text("日本");
@@ -95,13 +100,13 @@ pub fn checks(run: &mut dyn FnMut(&str, Check)) {
                 a.value() == "from the app" && a.caret() == 12,
                 "State replaces the text, caret at the end",
             )?;
-            press("Ctrl+BackSpace");
+            press(&format!("{}+BackSpace", word_mod()));
             check(
                 s.get() == "from the ",
                 &format!("Ctrl+Backspace deletes a word: {:?}", s.get()),
             )?;
             press("Home");
-            press("Ctrl+Right");
+            press(&format!("{}+Right", word_mod()));
             press("Shift+End");
             check(
                 a.selected_text() == " the ",
@@ -205,8 +210,8 @@ pub fn checks(run: &mut dyn FnMut(&str, Check)) {
                 a.caret_on_last_line() && !a.caret_on_first_line(),
                 "caret line queries",
             )?;
-            press("Ctrl+Home");
-            check(a.caret() == 0 && a.caret_on_first_line(), "Ctrl+Home")?;
+            press("Mod+Home");
+            check(a.caret() == 0 && a.caret_on_first_line(), "Mod+Home")?;
             press("Down");
             press("Down");
             check(
@@ -253,17 +258,17 @@ pub fn checks(run: &mut dyn FnMut(&str, Check)) {
             press("Shift+Tab");
             check(focus::is_focused(&*a), "Shift+Tab back")?;
             keys("copy me");
-            press("Ctrl+a");
-            press("Ctrl+c");
+            press("Mod+a");
+            press("Mod+c");
             press("End");
-            press("Ctrl+v");
+            press("Mod+v");
             App::pump();
             check(
                 a.value() == "copy mecopy me",
                 &format!("copy + paste: {:?}", a.value()),
             )?;
-            press("Ctrl+a");
-            press("Ctrl+x");
+            press("Mod+a");
+            press("Mod+x");
             App::pump();
             check(a.value().is_empty(), "cut")?;
             let r = TextArea::new().read_only(true);
@@ -315,7 +320,7 @@ pub fn checks(run: &mut dyn FnMut(&str, Check)) {
             )?;
             press("Enter");
             check(sent.borrow().len() == 1, "empty drafts are not sent")?;
-            press("Ctrl+z");
+            press("Mod+z");
             check(
                 draft.get() == "line one\ntwo",
                 "a sent draft comes back with undo",
@@ -411,7 +416,7 @@ pub fn checks(run: &mut dyn FnMut(&str, Check)) {
                 c.value() == "look at " && c.area().chips().is_empty(),
                 &format!("atomic chip delete: {:?}", c.value()),
             )?;
-            press("Ctrl+z");
+            press("Mod+z");
             check(
                 c.value() == "look at @src/lib.rs " && c.area().chips().len() == 1,
                 &format!(
@@ -519,11 +524,11 @@ pub fn checks(run: &mut dyn FnMut(&str, Check)) {
                 "answer from a thread",
             )?;
             press("Escape");
-            press("Ctrl+a");
+            press("Mod+a");
             press("BackSpace");
             // A file manager's clipboard: file:// URIs become files, not text.
             fltk::app::copy("file:///tmp/a%20b.png\nfile:///tmp/c.txt");
-            press("Ctrl+v");
+            press("Mod+v");
             App::pump();
             check(
                 files.borrow().as_slice()
@@ -579,7 +584,7 @@ pub fn checks(run: &mut dyn FnMut(&str, Check)) {
             let typing = t1.elapsed() / 50;
             // One 100 KB paragraph (worst case: every keystroke wraps it again).
             a.reset(&para.repeat(100_000 / para.len()));
-            press("Ctrl+Home");
+            press("Mod+Home");
             let t2 = Instant::now();
             for _ in 0..20 {
                 press("y");
