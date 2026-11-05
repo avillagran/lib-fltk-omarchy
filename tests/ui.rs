@@ -31,6 +31,7 @@ mod edit_ui;
 mod tooltip_ui;
 mod motion_ui;
 mod sidebar_ui;
+mod popup_ui;
 
 const COLORS_A: &str = "accent = \"#e68e0d\"\nbackground = \"#121212\"\nforeground = \"#bebebe\"\nred = \"#d35f5f\"\n";
 const COLORS_B: &str = "accent = \"#33ccff\"\nbackground = \"#1a1b26\"\nforeground = \"#c0caf5\"\nred = \"#f7768e\"\n";
@@ -1993,6 +1994,8 @@ fn main() {
     edit_ui::checks(&mut run);
     motion_ui::checks(&mut run);
     sidebar_ui::checks(&mut run);
+    popup_ui::checks(&mut run);
+    popup_ui::motion_checks(&mut run);
     #[cfg(feature = "a11y")]
     a11y_checks(&mut run);
     #[cfg(feature = "a11y")]
@@ -2001,6 +2004,8 @@ fn main() {
     motion_ui::a11y_checks(&mut run);
     #[cfg(feature = "a11y")]
     sidebar_ui::a11y_checks(&mut run);
+    #[cfg(feature = "a11y")]
+    popup_ui::a11y_checks(&mut run);
     drop(app);
     println!("{}", if failed == 0 { "all ui checks passed" } else { "ui checks FAILED" });
     if failed > 0 && !strict {
