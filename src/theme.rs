@@ -104,7 +104,73 @@ pub struct Palette {
     /// `colors.toml` `bright_foreground`: emphasized text. Default:
     /// `foreground`.
     pub bright_foreground: Rgb,
+    /// `colors.toml` `orange`. Default: `yellow` (o3's warning tone).
+    pub orange: Rgb,
+    /// Terminal colors `color0`–`color15`. Missing entries fall back to the
+    /// matching named color (0 background, 1 red, 2 green, 3 yellow, 4 blue,
+    /// 5 magenta, 6 cyan, 7 foreground; 8–15 the same as 0–7, with 8 =
+    /// `muted`).
+    pub ansi: [Rgb; 16],
+    /// Every `#rrggbb` entry of `colors.toml` by key, as written
+    /// (`bright_blue`, `color12`, app-specific keys…). See [`Palette::named`].
+    pub entries: std::collections::BTreeMap<String, Rgb>,
     pub light: bool,
+}
+
+impl Palette {
+    /// A `colors.toml` entry by key (`"orange"`, `"bright_blue"`,
+    /// `"color9"`…), exactly as the theme file defines it; `None` when the
+    /// theme does not set it. Use the fields for colors with defaults.
+    pub fn named(&self, key: &str) -> Option<Rgb> {
+        self.entries.get(key).copied()
+    }
+
+    /// The colors used to tell projects (or any keyed items) apart: blue,
+    /// green, magenta, cyan, orange, yellow, red, bright_blue,
+    /// bright_magenta from the theme (missing ones → accent), duplicates
+    /// removed. Same list and order as o3-code's `T3Palette.projectColors`.
+    pub fn project_colors(&self) -> Vec<Rgb> {
+        let mut out: Vec<Rgb> = Vec::new();
+        for k in ["blue", "green", "magenta", "cyan", "orange", "yellow", "red", "bright_blue", "bright_magenta"] {
+            let c = self.named(k).unwrap_or(self.accent);
+            if !out.contains(&c) {
+                out.push(c);
+            }
+        }
+        out
+    }
+
+    /// A stable color for `key` among `keys` (all the items shown together):
+    /// each key hashes to a slot of [`Palette::project_colors`] and takes
+    /// the next free one on a collision, visiting keys in sorted order, so
+    /// the colors stay distinct while there are enough of them and do not
+    /// depend on display order. Same assignment as o3-code's
+    /// `T3Palette.projectColor`, so a project keeps its color after a port.
+    pub fn project_color<'a>(&self, key: &str, keys: impl IntoIterator<Item = &'a str>) -> Rgb {
+        let colors = self.project_colors();
+        // JavaScript's default sort: UTF-16 code units; duplicates are kept
+        // (a repeated key takes another slot, as in o3).
+        let mut ids: Vec<&str> = keys.into_iter().collect();
+        ids.sort_by(|a, b| a.encode_utf16().cmp(b.encode_utf16()));
+        let mut used = vec![false; colors.len()];
+        let mut found = None;
+        for id in ids {
+            // JavaScript: hash = (hash * 31 + charCodeAt(i)) >>> 0, over UTF-16 units.
+            let hash = id.encode_utf16().fold(0u32, |h, u| h.wrapping_mul(31).wrapping_add(u as u32));
+            let mut slot = hash as usize % colors.len();
+            for _ in 0..colors.len() {
+                if !used[slot] {
+                    break;
+                }
+                slot = (slot + 1) % colors.len();
+            }
+            used[slot] = true;
+            if id == key {
+                found = Some(slot);
+            }
+        }
+        colors[found.unwrap_or(0)]
+    }
 }
 
 /// A surface's colors (`[popups]`, `[menu]`, `[tooltip]`, `[notifications]`…).
@@ -503,8 +569,29 @@ impl Theme {
             lighter_background: col("lighter_background")
                 .unwrap_or_else(|| if light { Rgb(0x000000).over(background, 0.05) } else { Rgb(0xffffff).over(background, 0.08) }),
             bright_foreground: col("bright_foreground").unwrap_or(foreground),
+            orange: col("orange").or(col("yellow")).unwrap_or(Rgb(0xe0af68)),
+            ansi: [Rgb(0); 16],
+            entries: colors
+                .iter()
+                .filter_map(|(k, v)| v.as_str().and_then(Rgb::parse).map(|c| (k.clone(), c)))
+                .collect(),
             light,
         };
+        let mut palette = palette;
+        let base = [
+            palette.background,
+            palette.red,
+            palette.green,
+            palette.yellow,
+            palette.blue,
+            palette.magenta,
+            palette.cyan,
+            palette.foreground,
+        ];
+        for i in 0..16 {
+            let fallback = if i == 8 { palette.muted } else { base[i % 8] };
+            palette.ansi[i] = col(&format!("color{i}")).unwrap_or(fallback);
+        }
 
         let hypr_active = shell_color(shell, "hyprland.active-border", &palette)
             .or_else(|| shell_color(shell, "notifications.border", &palette))
@@ -873,6 +960,29 @@ mod tests {
     use super::*;
 
     const COLORS: &str = "accent = \"#e68e0d\"\nbackground = \"#121212\"\nforeground = \"#bebebe\"\nred = \"#D35F5F\"\n";
+
+    #[test]
+    fn named_terminal_and_project_colors() {
+        let file = "background = \"#101010\"\nforeground = \"#e0e0e0\"\naccent = \"#123456\"\nblue = \"#0000a1\"\ngreen = \"#00a200\"\nmagenta = \"#a300a3\"\ncyan = \"#00a4a4\"\norange = \"#a5a500\"\nyellow = \"#a6a600\"\nred = \"#a70000\"\nbright_blue = \"#0000b8\"\nbright_magenta = \"#b900b9\"\ncolor9 = \"#ff0909\"\n";
+        let p = Theme::from_tables("x", &toml::parse(file), &Table::new(), 0, 5).palette;
+        assert_eq!(p.orange, Rgb(0xa5a500));
+        assert_eq!(p.named("bright_blue"), Some(Rgb(0x0000b8)));
+        assert_eq!(p.named("nope"), None);
+        // color9 from the file; the others fall back to the named colors.
+        assert_eq!((p.ansi[9], p.ansi[1], p.ansi[4], p.ansi[0], p.ansi[8]), (Rgb(0xff0909), Rgb(0xa70000), Rgb(0x0000a1), Rgb(0x101010), p.muted));
+        assert_eq!(p.project_colors().len(), 9);
+        // Expected values computed with o3-code's T3Palette.projectColor in node.
+        let ids = ["github.com/avillagran/o3-code", "lib-fltk-omarchy", "files", "ñandú-日本", "omarchy", "x", "y", "z", "w", "v", "u"];
+        let want = [0xb900b9, 0x0000b8, 0xa70000, 0xa6a600, 0x00a4a4, 0xa5a500, 0xa6a600, 0xa6a600, 0xa300a3, 0x00a200, 0x0000a1];
+        for (id, w) in ids.iter().zip(want) {
+            assert_eq!(p.project_color(id, ids), Rgb(w), "{id}");
+        }
+        assert_eq!(p.project_color("missing", ids), Rgb(0x0000a1));
+        // Missing theme colors collapse to the accent once.
+        let q = Theme::from_tables("x", &toml::parse("accent = \"#123456\"\n"), &Table::new(), 0, 5).palette;
+        assert_eq!(q.project_colors(), vec![Rgb(0x123456)]);
+        assert_eq!(q.orange, q.yellow);
+    }
 
     #[test]
     fn defaults_follow_omarchy_style_tokens() {
