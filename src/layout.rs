@@ -283,13 +283,15 @@ pub fn set_direction<W: WidgetExt>(w: &W, d: Option<Direction>) {
 pub fn direction_of<W: WidgetExt>(w: &W) -> Direction {
     let forced = OVERRIDES.with(|o| {
         let o = o.borrow();
-        if o.is_empty() {
+        // A deleted widget (or override) has no pointer to compare:
+        // `as_widget_ptr` asserts on it, so check `was_deleted` first.
+        if o.is_empty() || w.was_deleted() {
             return None;
         }
         let mut cur = Some(as_widget(w));
         while let Some(c) = cur {
             let p = c.as_widget_ptr();
-            if let Some((_, d)) = o.iter().find(|(t, _)| t.as_widget_ptr() == p && !t.was_deleted()) {
+            if let Some((_, d)) = o.iter().find(|(t, _)| !t.was_deleted() && t.as_widget_ptr() == p) {
                 return Some(*d);
             }
             cur = c.parent().map(|g| as_widget(&g));
