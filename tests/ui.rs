@@ -30,6 +30,8 @@ use std::time::{Duration, Instant};
 mod edit_ui;
 mod tooltip_ui;
 mod motion_ui;
+mod sidebar_ui;
+mod navtree_ui;
 mod popup_ui;
 
 const COLORS_A: &str = "accent = \"#e68e0d\"\nbackground = \"#121212\"\nforeground = \"#bebebe\"\nred = \"#d35f5f\"\n";
@@ -1992,6 +1994,8 @@ fn main() {
     tooltip_ui::checks(&mut run, COLORS_A, COLORS_B);
     edit_ui::checks(&mut run);
     motion_ui::checks(&mut run);
+    sidebar_ui::checks(&mut run);
+    navtree_ui::checks(&mut run);
     popup_ui::checks(&mut run);
     popup_ui::motion_checks(&mut run);
     #[cfg(feature = "a11y")]
@@ -2000,6 +2004,10 @@ fn main() {
     edit_ui::a11y_checks(&mut run);
     #[cfg(feature = "a11y")]
     motion_ui::a11y_checks(&mut run);
+    #[cfg(feature = "a11y")]
+    sidebar_ui::a11y_checks(&mut run);
+    #[cfg(feature = "a11y")]
+    navtree_ui::a11y_checks(&mut run);
     #[cfg(feature = "a11y")]
     popup_ui::a11y_checks(&mut run);
     drop(app);

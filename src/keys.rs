@@ -59,6 +59,7 @@ pub fn parse(spec: &str) -> Result<Keys, String> {
         "end" => Key::End,
         "pageup" => Key::PageUp,
         "pagedown" => Key::PageDown,
+        "menu" => Key::Menu,
         f if f.len() >= 2 && f.starts_with('f') && f[1..].parse::<i32>().is_ok_and(|n| (1..=12).contains(&n)) => {
             Key::from_i32(Key::F1.bits() + f[1..].parse::<i32>().unwrap() - 1)
         }

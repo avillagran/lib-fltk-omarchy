@@ -635,7 +635,7 @@ pub(crate) fn give_back(layer: &Widget, window: Option<Widget>) {
 // ------------------------------------------------------------ key injection
 
 use crate::platform::fl_abi::{
-    FL_E_CLICKS, FL_E_KEYSYM, FL_E_LENGTH, FL_E_ORIGINAL_KEYSYM, FL_E_STATE, FL_E_TEXT, FL_E_X, FL_E_X_ROOT, FL_E_Y, FL_E_Y_ROOT,
+    FL_E_CLICKS, FL_E_DY, FL_E_KEYSYM, FL_E_LENGTH, FL_E_ORIGINAL_KEYSYM, FL_E_STATE, FL_E_TEXT, FL_E_X, FL_E_X_ROOT, FL_E_Y, FL_E_Y_ROOT,
 };
 
 thread_local! {
@@ -777,4 +777,150 @@ pub fn click_at<W: WindowExt>(window: &W, x: i32, y: i32) {
     // SAFETY: as above.
     unsafe { FL_E_STATE = 0 };
     dispatch(Event::Released, win);
+}
+
+/// Sends a right click (press + release) at window coordinates `(x, y)` of
+/// `window` through fltk's normal event path (tests of context menus).
+pub fn right_click_at<W: WindowExt>(window: &W, x: i32, y: i32) {
+    let win = window.as_widget_ptr() as app::WindowPtr;
+    // SAFETY: fltk's event globals are plain data, used on the UI thread.
+    unsafe {
+        FL_E_X = x;
+        FL_E_Y = y;
+        FL_E_X_ROOT = window.x() + x;
+        FL_E_Y_ROOT = window.y() + y;
+        FL_E_CLICKS = 0;
+        FL_E_KEYSYM = Key::from_i32(0xfee8 + 3).bits(); // FL_Button + 3 (right)
+        FL_E_STATE = 0x0400_0000; // FL_BUTTON3
+    }
+    dispatch(Event::Push, win);
+    // SAFETY: as above.
+    unsafe { FL_E_STATE = 0 };
+    dispatch(Event::Released, win);
+}
+
+/// Presses the left button at `from` (window coordinates of `window`),
+/// drags to `to` in a few steps and, with `release`, lets go there; without
+/// it the button stays down (finish with [`mouse_up`]). Through fltk's
+/// normal event path (tests of drags: reordering, resizing).
+pub fn mouse_drag<W: WindowExt>(window: &W, from: (i32, i32), to: (i32, i32), release: bool) {
+    let win = window.as_widget_ptr() as app::WindowPtr;
+    let at = |x: i32, y: i32, state: i32| {
+        // SAFETY: fltk's event globals are plain data, used on the UI thread.
+        unsafe {
+            FL_E_X = x;
+            FL_E_Y = y;
+            FL_E_X_ROOT = window.x() + x;
+            FL_E_Y_ROOT = window.y() + y;
+            FL_E_CLICKS = 0;
+            FL_E_KEYSYM = Key::from_i32(0xfee8 + 1).bits(); // FL_Button + 1 (left)
+            FL_E_STATE = state;
+        }
+    };
+    at(from.0, from.1, 0x0100_0000);
+    dispatch(Event::Push, win);
+    for k in 1..=4 {
+        let x = from.0 + (to.0 - from.0) * k / 4;
+        let y = from.1 + (to.1 - from.1) * k / 4;
+        at(x, y, 0x0100_0000);
+        dispatch(Event::Drag, win);
+    }
+    if release {
+        mouse_up(window, to.0, to.1);
+    }
+}
+
+/// Releases the left button at `(x, y)` (after [`mouse_drag`] without release).
+pub fn mouse_up<W: WindowExt>(window: &W, x: i32, y: i32) {
+    let win = window.as_widget_ptr() as app::WindowPtr;
+    // SAFETY: as above.
+    unsafe {
+        FL_E_X = x;
+        FL_E_Y = y;
+        FL_E_X_ROOT = window.x() + x;
+        FL_E_Y_ROOT = window.y() + y;
+        FL_E_STATE = 0;
+    }
+    dispatch(Event::Released, win);
+}
+
+/// Turns the mouse wheel by `dy` notches (positive: down) at window
+/// coordinates `(x, y)` of `window`, through fltk's normal event path.
+/// Returns true when something used it.
+pub fn wheel_at<W: WindowExt>(window: &W, x: i32, y: i32, dy: i32) -> bool {
+    let win = window.as_widget_ptr() as app::WindowPtr;
+    // SAFETY: fltk's event globals are plain data, used on the UI thread.
+    unsafe {
+        FL_E_X = x;
+        FL_E_Y = y;
+        FL_E_X_ROOT = window.x() + x;
+        FL_E_Y_ROOT = window.y() + y;
+        FL_E_STATE = 0;
+        FL_E_DY = dy;
+    }
+    let used = dispatch(Event::MouseWheel, win);
+    // SAFETY: as above.
+    unsafe { FL_E_DY = 0 };
+    used
+}
+
+thread_local! {
+    static DROPPED: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Drags `text` (e.g. `file:///home/me/a.txt`, one URI per line, as file
+/// managers send files) to window coordinates `(x, y)` of `window`
+/// through the events FLTK delivers on every platform: `DndEnter` (first
+/// time), `DndDrag`, and with `release` `DndRelease` then, when the widget
+/// under the pointer accepts it, `Paste` with the text. Without `release`
+/// the drag stays there (call it again to move, [`drag_leave`] to leave).
+/// Returns whether the position (`release: false`) or the drop was
+/// accepted. For tests.
+pub fn drop_at<W: WindowExt>(window: &W, x: i32, y: i32, text: &str, release: bool) -> bool {
+    let win = window.as_widget_ptr() as app::WindowPtr;
+    // SAFETY: fltk's event globals are plain data, used on the UI thread.
+    unsafe {
+        FL_E_X = x;
+        FL_E_Y = y;
+        FL_E_X_ROOT = window.x() + x;
+        FL_E_Y_ROOT = window.y() + y;
+        FL_E_STATE = 0;
+    }
+    if DRAGGING.with(|d| !d.replace(true)) {
+        dispatch(Event::DndEnter, win);
+    }
+    let over = dispatch(Event::DndDrag, win);
+    if !release {
+        return over;
+    }
+    DRAGGING.with(|d| d.set(false));
+    if !dispatch(Event::DndRelease, win) {
+        return false;
+    }
+    let Some(mut target) = app::belowmouse::<Widget>() else {
+        return false;
+    };
+    DROPPED.with(|t| {
+        let mut t = t.borrow_mut();
+        t.clear();
+        t.extend_from_slice(text.as_bytes());
+        t.push(0);
+        // SAFETY: as above; the buffer lives in this thread's storage until
+        // the next call.
+        unsafe {
+            FL_E_TEXT = t.as_mut_ptr() as *mut c_char;
+            FL_E_LENGTH = text.len() as i32;
+        }
+    });
+    target.handle_event(Event::Paste)
+}
+
+thread_local! {
+    static DRAGGING: Cell<bool> = const { Cell::new(false) };
+}
+
+/// The drag of [`drop_at`] (`release: false`) leaves the window.
+pub fn drag_leave<W: WindowExt>(window: &W) {
+    DRAGGING.with(|d| d.set(false));
+    dispatch(Event::DndLeave, window.as_widget_ptr() as app::WindowPtr);
 }

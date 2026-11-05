@@ -58,6 +58,11 @@ and o3 (`ui/qml`). They are in `anim::ms`.
 | A child appearing: grows from its start edge, fades in | 190 ms; opacity `min(1, 1.8·progress)` | o3 `T3Reveal.qml` (the child keeps its size, clipped; spring opacity) |
 | **Sidebar** width (push) or panel (overlay) | 190 ms OutCubic | as layout |
 | Sidebar hover intent / leave grace | 350 ms / 140 ms (`ms::HOVER_OPEN`, `ms::HOVER_CLOSE`) | o3 `T3Composer.qml` quick menu (350 ms), `T3ThreadRow.qml` preview `closeDelay` (140 ms) |
+| **Sidebar / NavTree rows**: rows added by `set_items` or a model change arrive, removed ones leave, the others slide | as list rows (360 / 300 / 442 ms) | o3 `T3ThreadRow.qml` |
+| A section or branch folding / opening: the rows below slide, hidden rows fade out, shown rows arrive | 200 ms (`ms::REVEAL`) | as `Tree` |
+| Two-line rows (detail, usage bar) grow with the expanding rail; labels fade in | with the width (190 ms) | — |
+| `NavTree::reveal` / `scroll_to` | 120 ms (the wheel's glide) | — |
+| Busy spinner (`SidebarItem::busy`, `NavItem::busy`, `Badge::spinner`) | one turn per second, only while animations are on (a still frame when off) | — |
 | PopupMenu submenu hover intent / aim grace | 200 ms / 300 ms (`ms::SUBMENU_OPEN`, `ms::SUBMENU_AIM`); timed on the animation clock (`anim::clock`), kept when motion is off (it is intent, not motion); the submenu card fades in and out like any popup | desktop menus (GTK `gtk-menu-popup-delay`, 225 ms) |
 | **Popups** (PopupMenu, Dropdown, SearchableDropdown, Menu, ConfirmDialog, PopupCard, ShortcutHelp, toasts, completion lists): in / out | 180 ms / 120 ms, Omarchy `Style.easeOut` (cubic Bézier 0.23, 1, 0.32, 1); the scrim fades with the card | Omarchy `Ui/PopupCard.qml` |
 | **TabBar** selection (fill and accent line) slides | 160 ms OutCubic (`ms::INDICATOR`) | o3 `T3Panel.qml` group chips (160 ms OutCubic), Omarchy clock panel (160 ms OutCubic) |
@@ -133,6 +138,16 @@ width in its row (the layout motion above); `SidebarMode::Overlay` keeps
 the rail's width and slides the expanded panel over the content. Right to
 left it is on the right. Screen readers get a tab list named "Sidebar"
 with its expanded state. See [COMPONENTS.md](COMPONENTS.md#sidebar).
+
+`navtree::NavTree` (the engine under `Sidebar`) moves the same way and
+adds: rows that arrive, leave and slide when the model changes (by key),
+folding sections and branches (the rows below slide over 200 ms), the
+rows' second line growing as the rail widens, `reveal(key)` and
+`scroll_to(key)` gliding to the row, and spinners that turn only while
+animations are on. Dragging the resizable edge follows the pointer at
+once (the layout motion is held for that container during the drag).
+With `OMARCHY_FLTK_ANIM=off` (or the system setting off) everything is
+in its final place at once and the spinner is a still frame.
 
 ## Your own widgets
 
@@ -210,3 +225,5 @@ motion no frame is pending (`anim::pending() == 0`): the timer stops.
   follows the old value).
 - Popup cards fade; they do not scale (Omarchy's 0.97 → 1 grow is left
   out).
+- `Sidebar`/`NavTree` rows that leave fade out in place while the rows
+  below slide up over them (no height collapse of the leaving row itself).

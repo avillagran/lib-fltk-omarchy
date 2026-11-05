@@ -39,6 +39,13 @@ pub mod glyph {
     pub const SEARCH: &str = "\u{f0349}";
     pub const FOLDER: &str = "\u{f024b}";
     pub const FILE: &str = "\u{f0214}";
+    /// Eject (a removable device in a sidebar).
+    pub const EJECT: &str = "\u{f01ea}";
+    pub const HARDDISK: &str = "\u{f02ca}";
+    pub const USB: &str = "\u{f0553}";
+    pub const HOME: &str = "\u{f02dc}";
+    pub const DOWNLOAD: &str = "\u{f01da}";
+    pub const BOOKMARK: &str = "\u{f00c0}";
     pub const WINDOW_FLOAT: &str = "\u{f05b2}";
     pub const CLOSE: &str = "\u{f0156}";
     pub const CHECKMARK: &str = "\u{2713}";
@@ -1162,8 +1169,11 @@ pub struct TextField {
     change: Cb<String>,
     submit: Cb<String>,
     placeholder: Rc<RefCell<String>>,
+    keys: KeyHook,
 }
 fltk::widget_extends!(TextField, fltk::group::Group, inner);
+
+type KeyHook = Rc<RefCell<Option<Box<dyn FnMut(Key) -> bool>>>>;
 
 impl TextField {
     pub fn new() -> Self {
@@ -1238,7 +1248,9 @@ impl TextField {
             _ => false,
         });
         let (c2, s2) = (change.clone(), submit.clone());
-        input.set_trigger(CallbackTrigger::Changed | CallbackTrigger::EnterKey);
+        // Enter submits even when the text did not change since the last edit
+        // callback (FL_WHEN_ENTER_KEY alone needs a change).
+        input.set_trigger(CallbackTrigger::Changed | CallbackTrigger::EnterKeyAlways);
         let mut parent = inner.clone();
         input.set_callback(move |i| {
             parent.redraw();
@@ -1249,9 +1261,23 @@ impl TextField {
             }
         });
         let mut parent = inner.clone();
+        let keys: KeyHook = Rc::default();
+        let k2 = keys.clone();
         input.handle(move |_, ev| {
             if matches!(ev, Event::Focus | Event::Unfocus) {
                 parent.redraw();
+            }
+            if ev == Event::KeyDown {
+                // Take the hook out while it runs (it may touch the field).
+                let f = k2.borrow_mut().take();
+                if let Some(mut f) = f {
+                    let used = f(app::event_key());
+                    let mut slot = k2.borrow_mut();
+                    if slot.is_none() {
+                        *slot = Some(f);
+                    }
+                    return used;
+                }
             }
             false
         });
@@ -1288,7 +1314,14 @@ impl TextField {
             g3.redraw();
             true
         });
-        Self { inner, input, change, submit, placeholder }
+        Self { inner, input, change, submit, placeholder, keys }
+    }
+
+    /// Runs for each key pressed in the field, after its own editing (e.g.
+    /// Down to move into a result list); return true when it used the key.
+    pub fn on_key(self, f: impl FnMut(Key) -> bool + 'static) -> Self {
+        *self.keys.borrow_mut() = Some(Box::new(f));
+        self
     }
 
     pub fn placeholder(self, text: &str) -> Self {

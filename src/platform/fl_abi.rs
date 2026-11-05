@@ -28,6 +28,8 @@ extern "C" {
     pub(crate) static mut FL_E_Y_ROOT: i32;
     #[link_name = "_ZN2Fl8e_clicksE"]
     pub(crate) static mut FL_E_CLICKS: i32;
+    #[link_name = "_ZN2Fl4e_dyE"]
+    pub(crate) static mut FL_E_DY: i32;
 }
 
 #[cfg(target_env = "msvc")]
@@ -53,6 +55,8 @@ extern "C" {
     pub(crate) static mut FL_E_Y_ROOT: i32;
     #[link_name = "?e_clicks@Fl@@2HA"]
     pub(crate) static mut FL_E_CLICKS: i32;
+    #[link_name = "?e_dy@Fl@@2HA"]
+    pub(crate) static mut FL_E_DY: i32;
 }
 
 // Plain C functions of cfltk (no C++ mangling): the same name on every OS.

@@ -11,6 +11,7 @@ pub mod keys;
 pub mod layout;
 pub mod list;
 pub mod model;
+pub mod navtree;
 pub(crate) mod motion;
 pub(crate) mod rowmotion;
 pub mod native;

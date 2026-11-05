@@ -54,6 +54,7 @@ the screen:
   | Slider | raises the value | lowers it |
   | KeyboardPanel grid | next item in the row | previous item |
   | Tree | expands / goes to the first child | collapses / goes to the parent |
+  | Sidebar, NavTree | opens a folded row or header / goes to the first child | folds it / goes to the parent |
   | Menu (command menu) | enters a submenu (`‹` mark) | — |
 
   Up/Down, Home/End, PageUp/PageDown, Enter and Ctrl+Tab are unchanged.
@@ -209,6 +210,8 @@ operation started from a menu.
 | PopupCard | Tab / Shift+Tab stay inside; Esc closes, focus comes back |
 | Table | the KeyboardPanel keys; Enter activates |
 | Tree | the KeyboardPanel keys, plus Right (expand / first child) and Left (collapse / parent) |
+| Sidebar | Tab focuses and expands it; Up / Down, PageUp / PageDown, Home / End (skip plain headers, disabled and folded rows); Enter / Space pick (fold a collapsible header); Left / Right fold / unfold a header; Delete: the row's secondary action (eject); Menu or Shift+F10: context menu at the row; Esc collapses |
+| NavTree | the Sidebar keys, plus: Right opens a folded row or goes to its first child, Left folds an open row or goes to its parent; typing jumps to the next row whose title starts with the typed letters (Space activates unless you are typing); Delete runs the row's first enabled action; in the search field Down goes to the results and Enter opens the best match |
 | ShortcutHelp | Up / Down, PageUp / PageDown, Home / End (bounded); Esc / F1 close |
 | KeyboardPanel | Up / Down (Left / Right in a grid), with Ctrl (cursor only), Shift (range), Ctrl+Shift (add range); PageUp / PageDown, Home / End; Ctrl+Space, Ctrl+A; Enter |
 

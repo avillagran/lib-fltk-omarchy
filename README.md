@@ -74,6 +74,14 @@ limit and a time budget per draw. Pictures, API and measured cost:
   hover, click or keys, beside their entry and inside the window; picks by
   path or id (`open_path`, `open_id`)
   ([picture and code](docs/COMPONENTS.md#submenus-long-menus)).
+- **Navigation sidebars** (`navtree::NavTree`, and `widgets::Sidebar` on
+  top of it): a model-based tree for a file manager's places or a coding
+  app's projects and threads — sections, sub-trees, badges, row actions,
+  ranked search, drag to reorder, file drops, a hover-expanding rail that
+  pushes or overlays, a resizable width, live updates with pause,
+  thousands of rows drawn virtually
+  ([pictures and code](docs/COMPONENTS.md#navtree-sections-trees-search-live-models),
+  `examples/navtree_files.rs`, `examples/navtree_o3.rs`).
 - **Components**: [docs/COMPONENTS.md](docs/COMPONENTS.md) (pictures,
   code, keys). **Keyboard**: [docs/KEYBOARD.md](docs/KEYBOARD.md).
 - **Platforms**: [docs/PLATFORMS.md](docs/PLATFORMS.md).

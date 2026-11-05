@@ -2,6 +2,56 @@
 
 ## Unreleased
 
+- **NavTree** (`navtree`): a model-based navigation sidebar for file
+  managers and chat / coding apps (Files' places, o3's projects and
+  threads). Items in a `ListModel<String, NavItem>` keyed by
+  `NavItem::key`, the tree by `NavItem::parent`, virtual (only rows in
+  view are drawn; 5 000 rows: 2.7 ms rebuild, 0.7 µs per update in place,
+  release). Rows with icon, title, dimmed detail, usage bar, `Badge`s
+  (text or pill in a theme role, status dot, spinner), shortcut hint,
+  several `RowAction`s (always or on hover, with tooltips), states
+  `active`, `dimmed`, `disabled`, `busy`, `attention`, a `summary` while
+  folded; sections with count, header actions and folding; separators;
+  custom renderers with their own height (`renderer`). Search field and
+  `set_query` with a ranking hook (`matcher`, `default_match`): matches
+  highlighted and ordered, ancestors kept. Drag to reorder among siblings
+  or anywhere (`reorder`, `on_move`, `accept_move`, `move_item`), file
+  drops (`on_drop_files`, `accept_drop`). Live updates keep selection,
+  cursor, folded branches and the first row in view; `pause_updates`
+  holds them. `reveal`, `scroll_to`, resizable width (`resizable`,
+  `bind_width`), `Presence::{Hidden, Rail, Expanded}`, `Side`, header /
+  footer widgets (`header`, `footer_widget`, ride in the overlay panel),
+  `open_menu` for context menus. Keys: arrows, Left / Right fold or go to
+  the parent / first child, type-ahead, Delete (first action), Menu /
+  Shift+F10, PageUp / PageDown, Home / End. Screen readers: a tree of
+  items with level, position, expanded / selected / current states and
+  named action buttons, rows near the view only.
+- **Sidebar** is built on `NavTree` (same API and look) and gains, for
+  Files: `SidebarItem::header` (section captions, `.collapsible()`,
+  `section_collapsed` / `set_section_collapsed` / `on_section_toggle`),
+  `.detail(..)` (two-line rows when expanded), `.usage(..)` (bar, urgent
+  color above 0.9), `.secondary(glyph, tooltip)` + `on_secondary` (eject;
+  Delete on the row), `.dimmed()`, `.disabled()`, `.busy(true)`,
+  `.key(..)` (`set_items` keeps selection, cursor and folded sections by
+  key and animates rows in and out), `on_context` (right click, Menu,
+  Shift+F10), `on_drop` / `on_drop_files` / `accept_drop`, scrolling when
+  the rows do not fit, `item_rect`, `scroll_position`, `drop_target`,
+  `tree()`. Indexes in callbacks are indexes into the app's items.
+  New `SidebarItem` fields: build items with the constructors (or
+  `..Default::default()`).
+- Fix: `Sidebar` overlay panel in a subwindow is placed in top-level
+  window coordinates and follows the rail when the window resizes;
+  `bind_pinned` is seen by every handler (Esc kept collapsing a pinned
+  rail bound after construction).
+- `TextField::on_key(|key| ..)`; Enter now submits even when the text did
+  not change since the last edit (`on_submit` used to need a change).
+- Wheel scrolling (`scroll::Scroll`) follows the animation clock, so
+  frozen-clock tests see its glide.
+- Test helpers: `focus::right_click_at`, `focus::wheel_at`,
+  `focus::mouse_drag` / `mouse_up`, `focus::drop_at` / `drag_leave`
+  (FLTK's DndEnter / DndDrag / DndRelease / Paste path); `keys::parse`
+  knows `Menu`. Glyphs `EJECT`, `HARDDISK`, `USB`, `HOME`, `DOWNLOAD`,
+  `BOOKMARK`.
 - **PopupMenu submenus** for long menus (the Files context menu):
   `PopupItem::submenu(icon, label, children)` (nested submenus work;
   `pub children: Vec<PopupItem>`, empty = an entry that is picked) draws a
