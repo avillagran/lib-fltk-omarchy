@@ -108,6 +108,15 @@ minimal and exactly the changed items are reported.
   nodes, cursor and selection.
 - `invalidations()` on each view counts full redraws, single rows and
   no-op notifications (tests, benchmarks).
+- `navtree::NavTree::new(&model, &selected)` shows a
+  `ListModel<String, NavItem>` as a sidebar tree (parent keys, sections,
+  search): an update in place that keeps the row's shape (title, badges,
+  states) repaints only if the row is in view; anything else rebuilds the
+  flattened rows (O(n), about 1.4 ms for 5 000 items in release), keeps
+  selection, cursor, folded branches and the first row in view, and
+  animates rows in and out. `pause_updates(true)` holds what is shown
+  while the model keeps changing; `navtree::move_item` applies a drag.
+  See [COMPONENTS.md](COMPONENTS.md#navtree-sections-trees-search-live-models).
 
 Count-based `List::new(&count, row)`, `Table::new` and `Tree::new` are
 unchanged.

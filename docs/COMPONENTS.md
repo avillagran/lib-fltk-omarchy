@@ -314,14 +314,257 @@ motion (190 ms OutCubic); `.mode(SidebarMode::Overlay)` slides the panel
 over the content instead of pushing it. The second picture is the same
 rail expanded (`side.expand()`, as hover or focus does it).
 
-More: `on_activate(|i| ..)`, `expanded()` (a `State<bool>`),
-`widths(rail, expanded)`, `set_items(..)`, `hover(bool)` (the pointer
-path, for tests), `footer()` items at the bottom, `badge("3")`.
+A file manager's places list (pinned here):
 
-**Keys:** Tab focuses it and it expands; Up/Down/Home/End move, Enter or
-Space picks, Esc collapses (focus stays). Right to left it sits on the
-right with the accent bar on its right edge. Screen readers: a tab list
-named "Sidebar" with its expanded state.
+![sidebar places](components/sidebar-places.png)
+
+```rust
+let view = State::new(1usize);
+let mut row = layout::row();
+let side = Sidebar::new(vec![
+    SidebarItem::header("Places"),
+    SidebarItem::new(glyph::HOME, "Home").key("home"),
+    SidebarItem::new(glyph::DOWNLOAD, "Downloads").key("downloads").badge("3"),
+    SidebarItem::header("Devices").collapsible(),
+    SidebarItem::new(glyph::HARDDISK, "System").key("nvme")
+        .detail("212 GB free of 512 GB").usage(0.59),
+    SidebarItem::new(glyph::USB, "KINGSTON").key("usb")
+        .detail("1.2 GB free of 16 GB").usage(0.93)
+        .secondary(glyph::EJECT, "Eject"),
+    SidebarItem::new(glyph::HARDDISK, "SD card").key("sd").busy(true),
+    SidebarItem::new(glyph::SETTINGS, "Settings").footer(),
+], &view)
+.on_secondary(|i| println!("eject item {i}"));
+row.fit(&*side);
+let mut content = layout::column();
+content.fit(&*Label::styled("Home", TextStyle::Title));
+content.end();
+row.end();
+col.fixed(&row, 330);
+side.set_pinned(true);
+```
+
+- `SidebarItem::header(label)`: a section caption (a hairline while the
+  rail is collapsed), not selectable; `.collapsible()` folds the rows
+  below it up to the next header (click, Enter / Space, Left / Right; the
+  rows below slide, 200 ms). `section_collapsed(i)`,
+  `set_section_collapsed(i, on)`, `on_section_toggle(|i, folded| ..)`.
+- `.detail(text)`: a dimmed second line, the row is two lines tall when
+  expanded; `.usage(0.0..=1.0)`: a thin bar under it, accent, the theme's
+  urgent color above 0.9.
+- `.secondary(glyph, tooltip)`: a trailing button (always shown while
+  expanded) with its own hover, the tooltip as tooltip and accessible
+  name; `on_secondary(|i| ..)` (click or Delete). The row is not activated.
+- `.dimmed()`: drawn dimmed, still activatable (an unmounted device);
+  `.disabled()`: dimmed, not activatable, skipped by the keyboard.
+- `.busy(true)`: a spinner in place of the badge and the secondary button
+  (of the icon while collapsed); it turns only while animations are on.
+- `.key(k)`: `set_items(..)` keeps the selection (`selected` gets the new
+  index; `on_activate` does not run), the cursor and folded sections on
+  the item with the same key, and rows that arrive or leave animate (the
+  list row motion). Without keys the selected index stays.
+- `on_context(|i, x, y| ..)`: right click, or Menu / Shift+F10 on the
+  cursor row (`x, y` at the row's bottom start corner), in top-level
+  window coordinates for `PopupMenu::open_at`.
+- `on_drop(|i, text| ..)` / `on_drop_files(|i, paths| ..)` with
+  `accept_drop(|i| ..)`: files dragged from a file manager onto a row
+  (highlighted while the drag is over it).
+- More: `on_activate(|i| ..)`, `expanded()` (a `State<bool>`),
+  `widths(rail, expanded)`, `items()`, `item_rect(i)`, `cursor()`,
+  `scroll_position()`, `hover(bool)` (the pointer path, for tests),
+  `footer()` items at the bottom, `badge("3")`, `tree()` (the `NavTree`
+  underneath). The rows scroll (wheel, keys) when they do not fit; footer
+  items stay at the bottom. **Indexes** in callbacks and methods are
+  indexes into the `Vec<SidebarItem>` the app passed, headers included.
+
+**Keys:** Tab focuses it and it expands; Up/Down/Home/End/PageUp/PageDown
+move (skipping plain headers, disabled and folded rows), Enter or Space
+picks (folds a collapsible header), Left/Right fold and unfold a header,
+Delete runs the secondary action, Menu or Shift+F10 opens the context
+menu, Esc collapses (focus stays). Right to left it sits on the right
+with the accent bar on its right edge. Screen readers: a tab list named
+"Sidebar" with its expanded state; headers are headings, secondary
+buttons are buttons named by their tooltip, disabled rows say so.
+
+## NavTree (sections, trees, search, live models)
+
+`navtree::NavTree` is the sidebar for apps whose navigation is data: a
+file manager's places, a chat or coding app's projects and threads. Its
+items live in a `ListModel<String, NavItem>` keyed by `NavItem::key`;
+`NavItem::parent` makes the tree. It is virtual (one widget draws the
+rows in view), has the same rail, hover expand, pin, push / overlay and
+right-to-left behavior as `Sidebar` (which is built on it), and adds:
+
+- **Rows** (`NavItem::row(key, glyph, title)`): `.detail(..)` (dimmed
+  second line), `.usage(..)`, `.badge(Badge::text | pill | dot | spinner)`
+  in theme roles (`ColorRole::Green`, `Red`, `Dim`…), `.shortcut("Ctrl+1")`,
+  `.icon_role(..)`, `.action(RowAction::new(id, glyph, tooltip))` (several;
+  `.on_hover()` shows one only on the hovered, selected or cursor row,
+  `.enabled(false)`), states `.active(true)` (the current item: accent bar
+  and icon, distinct from the selection), `.dimmed()`, `.disabled()`,
+  `.busy(true)`, `.attention(true)` (unread: a dot on the icon, bold
+  title), `.summary("+3 sub-threads")` while a parent is folded,
+  `.collapsed()` (folded the first time it is seen), `.footer()`.
+- **Sections** (`NavItem::section(key, title)`): `.count(..)`,
+  `.collapsible()`, header actions (`.action(..)`, e.g. "+"), their own
+  context menu. **Separators**: `NavItem::separator(key)`.
+- **Trees** of any depth: children follow their parent in model order
+  and are indented; a row with children shows a chevron and folds
+  (click the chevron, double click, Left / Right). Folding slides the rows
+  below (200 ms, as `Tree`).
+- **Custom rows**: `.renderer(name, |item| height, |p: &RowPaint| ..)`
+  paints the items whose `NavItem::renderer` is `name` (the selection or
+  hover fill and the focus ring are already drawn; `p.rect`, `p.state`,
+  `p.theme`, `p.under`, `p.rtl`).
+- **Search**: `.search(placeholder)` puts a field above the rows (Down
+  goes to the results, Enter opens the best match), or `set_query(..)`;
+  `.matcher(|item, query| Option<Match>)` scores items (`default_match`:
+  every word in the title or the detail, title start > word start >
+  inside), siblings are ordered by score, matches are highlighted
+  (`Match::ranges`), ancestors of matches stay and folded branches open
+  while searching. `on_query(..)`.
+- **Callbacks with keys**: `on_activate(|key| ..)` (after `selected:
+  State<String>` changed), `on_action(|key, id| ..)`,
+  `on_context(|key, x, y| ..)` + `open_menu(x, y, items, |i| ..)`
+  (a `PopupMenu`, submenus included), `on_toggle(|key, folded| ..)`.
+- **Drag and drop**: `.reorder(Reorder::Siblings | Anywhere)` drags rows
+  (a line shows where it goes, or the target row is outlined when
+  dropping into it); `on_move(|key, parent, index| ..)` reports it and
+  `navtree::move_item(&model, key, parent, index)` applies it;
+  `accept_move(|key, parent, index| ..)` decides. External drops:
+  `on_drop(|key, text| ..)`, `on_drop_files(|key, paths| ..)`,
+  `accept_drop(|key| ..)`.
+- **Live models**: diffs and `sync_from` keep selection, cursor, folded
+  branches, scroll (the first row in view stays put when rows are added
+  above) and focus; an update in place repaints only when the row is in
+  view; rows arrive, leave and slide. `pause_updates(true)` holds what is
+  shown (e.g. while a menu is open) until `pause_updates(false)`.
+- **Shell**: `widths(rail, expanded)`, `.resizable(min, max)` +
+  `.bind_width(&State<i32>)` (drag the edge facing the content),
+  `set_presence(Presence::Hidden | Rail | Expanded)`,
+  `.hover_expand(false)`, `.side(Side::Start | End | Left | Right)`,
+  `.mode(SidebarMode::Overlay)`, `.header(&widget)` /
+  `.footer_widget(&widget)` (shown while expanded; in overlay mode they
+  ride in the panel).
+- **Navigation**: `reveal(key)` opens its ancestors, puts the cursor on
+  it and scrolls to it (animated); `scroll_to(key)`, `set_cursor(key)`,
+  `cursor()`, `visible_keys()`, `item_rect(key)`, `focus_search()`,
+  `set_collapsed(key, on)`, `is_collapsed(key)`.
+
+A file manager's places, bookmarks (reorder by dragging, drop files on
+them) and devices (`examples/navtree_files.rs` runs it, with live free
+space and eject):
+
+![navtree files](components/navtree-files.png)
+
+```rust
+use fltk_omarchy::model::ListModel;
+use fltk_omarchy::navtree::{Badge, ColorRole, NavItem, NavTree, Reorder, RowAction};
+
+let places = ListModel::new(|t: &NavItem| t.key.clone());
+places.extend([
+    NavItem::section("fav", "Favorites"),
+    NavItem::row("home", glyph::HOME, "Home").parent("fav"),
+    NavItem::row("downloads", glyph::DOWNLOAD, "Downloads").parent("fav")
+        .badge(Badge::text("3", ColorRole::Dim)),
+    NavItem::section("marks", "Bookmarks").collapsible().count("2"),
+    NavItem::row("work", glyph::BOOKMARK, "Work").parent("marks"),
+    NavItem::row("media", glyph::BOOKMARK, "media").parent("marks")
+        .dimmed().detail("Not mounted"),
+    NavItem::section("dev", "Devices"),
+    NavItem::row("dev:nvme", glyph::HARDDISK, "System").parent("dev")
+        .detail("212 GB free of 512 GB").usage(0.59),
+    NavItem::row("dev:usb", glyph::USB, "KINGSTON").parent("dev")
+        .detail("1.2 GB free of 16 GB").usage(0.93)
+        .action(RowAction::new("eject", glyph::EJECT, "Eject")),
+    NavItem::row("dev:sd", glyph::HARDDISK, "SD card").parent("dev").busy(true),
+]);
+let place = State::new("downloads".to_string());
+let mut row = layout::row();
+let side = NavTree::new(&places, &place)
+    .reorder(Reorder::Siblings)
+    .on_action(|key, action| println!("{action} {key}"))
+    .on_drop_files(|key, files| println!("copy {files:?} to {key}"));
+row.fit(&*side);
+let mut content = layout::column();
+content.fit(&*Label::styled("Downloads", TextStyle::Title));
+content.end();
+row.end();
+col.fixed(&row, 400);
+side.set_pinned(true);
+```
+
+An o3-style sidebar: hosts, projects, threads and sub-threads, PR and
+status badges, a spinner, an unread thread, hover actions, a search
+field (`examples/navtree_o3.rs` runs it with a simulated server sending
+snapshots, a ranked `is:working` search and drag to move threads). The
+second picture is the same code with `side.set_query("sync")`:
+
+![navtree o3](components/navtree-o3.png)
+![navtree o3 search](components/navtree-o3-search.png)
+
+```rust
+let threads = ListModel::new(|t: &NavItem| t.key.clone());
+let archive = RowAction::new("archive", glyph::CHECK, "Archive").on_hover();
+threads.extend([
+    NavItem::section("h:local", "This computer").collapsible().count("5")
+        .action(RowAction::new("new", glyph::PLUS, "New thread")),
+    NavItem::row("p:omarchy", glyph::FOLDER, "omarchy").parent("h:local"),
+    NavItem::row("t:bar", glyph::FILE, "Fix the bar").parent("p:omarchy")
+        .badge(Badge::pill("PR #42", ColorRole::Green)).action(archive.clone()),
+    NavItem::row("t:icons", glyph::FILE, "Explore icons").parent("t:bar")
+        .badge(Badge::spinner()).detail("Working"),
+    NavItem::row("t:theme", glyph::FILE, "Theme picker").parent("p:omarchy")
+        .attention(true).action(archive.clone()),
+    NavItem::row("p:t3", glyph::FOLDER, "t3-code").parent("h:local")
+        .collapsed().summary("+2 threads"),
+    NavItem::row("t:sync", glyph::FILE, "Sync engine").parent("p:t3"),
+    NavItem::row("t:rank", glyph::FILE, "Search ranking").parent("p:t3"),
+    NavItem::section("h:box", "build-box").collapsible().count("1"),
+    NavItem::row("t:nav", glyph::FILE, "NavTree").parent("h:box").active(true)
+        .badge(Badge::pill("failed", ColorRole::Red)).shortcut("Ctrl+1"),
+]);
+let thread = State::new("t:bar".to_string());
+let mut row = layout::row();
+let side = NavTree::new(&threads, &thread)
+    .search("Search threads")
+    .reorder(Reorder::Anywhere)
+    .on_action(|key, action| println!("{action} {key}"))
+    .on_context(|key, x, y| println!("menu for {key} at {x},{y}"));
+row.fit(&*side);
+let mut content = layout::column();
+content.fit(&*Label::styled("Fix the bar", TextStyle::Title));
+content.end();
+row.end();
+col.fixed(&row, 360);
+side.set_pinned(true);
+```
+
+Strings in these snippets are literals for brevity; in an app they come
+from its catalog (`tr!`, `trn!("+{count} sub-threads", n)`).
+
+**Keys:** Up / Down, PageUp / PageDown, Home / End move over the rows the
+keyboard can use (not plain section headers, separators or disabled
+rows); Right opens a folded row (or goes to its first child), Left folds
+an open one (or goes to the parent); Enter or Space activates a row (folds
+a section); typing jumps to the next row whose title starts with the
+typed letters; Delete runs the row's first enabled action; Menu or
+Shift+F10 opens its context menu; Esc collapses the rail. In the search
+field: Down goes to the results, Enter opens the best match. Right to
+left, Left and Right swap.
+
+**Screen readers:** a tree (`Role::Tree`, named "Sidebar" or
+`accessible_as(false, name)`) of tree items with level, position among
+siblings, expanded, selected, current and disabled states; the detail,
+text badges, count and summary as description; actions as buttons named
+by their tooltip; the usage bar as a progress indicator. Only rows near
+the view are exposed (virtual children), whatever the size of the model.
+
+**Cost** (release, 5 000 rows, `cargo run --release --example
+navtree_bench`): rebuild 2.7 ms, an update in place 0.7 µs, an insert
+plus rebuild 1.4 ms, 16 rows drawn; with 50 000 rows the rebuild after a
+structural change is 22–37 ms (it is O(n)); see
+[PERFORMANCE.md](PERFORMANCE.md#navtree).
 
 ## Dropdown
 
@@ -874,6 +1117,8 @@ with an area limit and a time budget, and shape hit-testing: all in
 | F1 help | `popups::ShortcutHelp` | `open(&win, title, sections)` |
 | PanelToolTip | `tooltip` | automatic for `.tooltip()` / `.bind_tooltip()` / `set_tooltip`; `show(&w)`, `hide()`, `shown()`, `settings()`, `set_settings(..)` |
 | custom visuals | `gfx::View`, `gfx::Path`, `gfx::Paint`, `gfx::sl` | `View::new(w, h).paint(\|c, u\| ..)` / `.shader(sl::Shader)` / `.animate(Rate::Display)` / `.hit_shape(Hit::Fill(path))` / `.on_click(f)` — [SHADERS.md](SHADERS.md) |
+| navigation rail | `widgets::Sidebar` | `new(items, &State<usize>)`, `SidebarItem::new / header` + `.key .detail .usage .secondary .badge .dimmed .disabled .busy .collapsible .footer`, `.on_activate .on_secondary .on_context .on_drop_files .accept_drop .on_section_toggle .mode .widths .bind_pinned`, `set_items`, `item_rect` |
+| navigation tree | `navtree::NavTree` | `new(&ListModel<String, NavItem>, &State<String>)`, `NavItem::row / section / separator`, `Badge`, `RowAction`, `.search .matcher .renderer .reorder .on_move .on_action .on_context .on_drop_files .resizable .bind_width .side .header .footer_widget`, `reveal`, `scroll_to`, `pause_updates`, `set_presence`, `open_menu`, `move_item` |
 | window | `AppWindow` | `new`, `header().action(..)`, `body()`, `end()`, `show()`, `set_mode()`, `shortcut()`, `snapshot()` |
 
 Interior corners are an app preference: `theme::set_corners(Corners::Omarchy |
@@ -882,7 +1127,8 @@ previews use `theme.badge_radius()`, which stays curved. The focus ring is
 another preference: `theme::set_focus_ring(FocusRing::Accent | Theme)`.
 
 Glyphs: `widgets::glyph::*` (chevron, refresh, settings, wifi, bluetooth,
-volume, headphones, monitor, plus, play, stop, trash, search, folder, file…).
+volume, headphones, monitor, plus, play, stop, trash, search, folder, file,
+home, download, bookmark, harddisk, usb, eject…).
 
 ## Theme colors for custom painting
 

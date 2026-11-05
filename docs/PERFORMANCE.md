@@ -307,6 +307,29 @@ stops when the motion ends (`anim::pending() == 0`). The animations
 setting was read from Hyprland (`source: System`). Details:
 [ANIMATION.md](ANIMATION.md#cost).
 
+## NavTree
+
+`cargo run --release --example navtree_bench -- <rows>`, 2026-11-05, in a
+private Xvfb display (software rendering), offscreen 640×600 window,
+pinned tree of sections with 99 rows each (every 7th row with a detail
+line and a spinner badge). A "frame" is an offscreen snapshot: drawing
+plus the PNG encoding. Medians:
+
+| Rows | First rebuild | Frame | Update in place (`patch`) | Insert + rebuild | Rows drawn |
+|---|---|---|---|---|---|
+| 5 000 | 2.7 ms | 15.0 ms | 0.7 µs | 1.4 ms | 16 |
+| 50 000 | 37 ms | 13.1 ms | 1.1 µs | 22 ms | 16 |
+
+Drawing does not depend on the model size (only rows in view are
+painted). An update in place that keeps the row's shape costs a hash
+check and repaints only when the row is in view. A structural change
+(insert, remove, move, a changed parent, detail or height) re-flattens
+the tree on the next frame: linear in the item count, fine for thousands
+of rows at 60 updates per second, too slow for 50 000 at that rate
+(batch them: `model.transaction`, `Feed::max_rate`, or
+`NavTree::pause_updates`). The motion benchmark above was measured with
+the `Sidebar` before it moved onto `NavTree` and was not re-run.
+
 ## Window size matters
 
 Memory grows with window area for any software-rendered toolkit (two

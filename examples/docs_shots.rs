@@ -10,6 +10,8 @@ use fltk_omarchy::list::{List, ListRow};
 use fltk_omarchy::overlay::{ConfirmDialog, Dropdown, Menu, MenuItem, Notification, Urgency};
 use fltk_omarchy::popups::{OperationToast, PopupItem, PopupMenu, SearchableDropdown, ShortcutHelp};
 use fltk_omarchy::panel::KeyboardPanel;
+use fltk_omarchy::model::ListModel;
+use fltk_omarchy::navtree::{Badge, ColorRole, NavItem, NavTree, Reorder, RowAction};
 use fltk_omarchy::text::{RichLabel, RichText};
 use fltk_omarchy::paint;
 use std::rc::Rc;
@@ -175,6 +177,109 @@ fn main() {
         col.fixed(&row, 190);
         // picture: expanded (pointer resting on it, focus inside, or pinned)
         if open { side.expand(); }
+        save(&mut done(win, col), &dir, name);
+    }
+
+    // ---- sidebar: places with headers, free space, eject and a busy device
+    let (win, mut col) = frame(600, 370);
+    let view = State::new(1usize);
+    let mut row = layout::row();
+    let side = Sidebar::new(vec![
+        SidebarItem::header("Places"),
+        SidebarItem::new(glyph::HOME, "Home").key("home"),
+        SidebarItem::new(glyph::DOWNLOAD, "Downloads").key("downloads").badge("3"),
+        SidebarItem::header("Devices").collapsible(),
+        SidebarItem::new(glyph::HARDDISK, "System").key("nvme")
+            .detail("212 GB free of 512 GB").usage(0.59),
+        SidebarItem::new(glyph::USB, "KINGSTON").key("usb")
+            .detail("1.2 GB free of 16 GB").usage(0.93)
+            .secondary(glyph::EJECT, "Eject"),
+        SidebarItem::new(glyph::HARDDISK, "SD card").key("sd").busy(true),
+        SidebarItem::new(glyph::SETTINGS, "Settings").footer(),
+    ], &view)
+    .on_secondary(|i| println!("eject item {i}"));
+    row.fit(&*side);
+    let mut content = layout::column();
+    content.fit(&*Label::styled("Home", TextStyle::Title));
+    content.end();
+    row.end();
+    col.fixed(&row, 330);
+    side.set_pinned(true);
+    save(&mut done(win, col), &dir, "sidebar-places");
+
+    // ---- navtree: a file manager's places
+    let (win, mut col) = frame(600, 440);
+    let places = ListModel::new(|t: &NavItem| t.key.clone());
+    places.extend([
+        NavItem::section("fav", "Favorites"),
+        NavItem::row("home", glyph::HOME, "Home").parent("fav"),
+        NavItem::row("downloads", glyph::DOWNLOAD, "Downloads").parent("fav")
+            .badge(Badge::text("3", ColorRole::Dim)),
+        NavItem::section("marks", "Bookmarks").collapsible().count("2"),
+        NavItem::row("work", glyph::BOOKMARK, "Work").parent("marks"),
+        NavItem::row("media", glyph::BOOKMARK, "media").parent("marks")
+            .dimmed().detail("Not mounted"),
+        NavItem::section("dev", "Devices"),
+        NavItem::row("dev:nvme", glyph::HARDDISK, "System").parent("dev")
+            .detail("212 GB free of 512 GB").usage(0.59),
+        NavItem::row("dev:usb", glyph::USB, "KINGSTON").parent("dev")
+            .detail("1.2 GB free of 16 GB").usage(0.93)
+            .action(RowAction::new("eject", glyph::EJECT, "Eject")),
+        NavItem::row("dev:sd", glyph::HARDDISK, "SD card").parent("dev").busy(true),
+    ]);
+    let place = State::new("downloads".to_string());
+    let mut row = layout::row();
+    let side = NavTree::new(&places, &place)
+        .reorder(Reorder::Siblings)
+        .on_action(|key, action| println!("{action} {key}"))
+        .on_drop_files(|key, files| println!("copy {files:?} to {key}"));
+    row.fit(&*side);
+    let mut content = layout::column();
+    content.fit(&*Label::styled("Downloads", TextStyle::Title));
+    content.end();
+    row.end();
+    col.fixed(&row, 400);
+    side.set_pinned(true);
+    save(&mut done(win, col), &dir, "navtree-files");
+
+    // ---- navtree: o3-style threads (second picture: searching "sync")
+    for (name, query) in [("navtree-o3", ""), ("navtree-o3-search", "sync")] {
+        let (win, mut col) = frame(600, 400);
+        let threads = ListModel::new(|t: &NavItem| t.key.clone());
+        let archive = RowAction::new("archive", glyph::CHECK, "Archive").on_hover();
+        threads.extend([
+            NavItem::section("h:local", "This computer").collapsible().count("5")
+                .action(RowAction::new("new", glyph::PLUS, "New thread")),
+            NavItem::row("p:omarchy", glyph::FOLDER, "omarchy").parent("h:local"),
+            NavItem::row("t:bar", glyph::FILE, "Fix the bar").parent("p:omarchy")
+                .badge(Badge::pill("PR #42", ColorRole::Green)).action(archive.clone()),
+            NavItem::row("t:icons", glyph::FILE, "Explore icons").parent("t:bar")
+                .badge(Badge::spinner()).detail("Working"),
+            NavItem::row("t:theme", glyph::FILE, "Theme picker").parent("p:omarchy")
+                .attention(true).action(archive.clone()),
+            NavItem::row("p:t3", glyph::FOLDER, "t3-code").parent("h:local")
+                .collapsed().summary("+2 threads"),
+            NavItem::row("t:sync", glyph::FILE, "Sync engine").parent("p:t3"),
+            NavItem::row("t:rank", glyph::FILE, "Search ranking").parent("p:t3"),
+            NavItem::section("h:box", "build-box").collapsible().count("1"),
+            NavItem::row("t:nav", glyph::FILE, "NavTree").parent("h:box").active(true)
+                .badge(Badge::pill("failed", ColorRole::Red)).shortcut("Ctrl+1"),
+        ]);
+        let thread = State::new("t:bar".to_string());
+        let mut row = layout::row();
+        let side = NavTree::new(&threads, &thread)
+            .search("Search threads")
+            .reorder(Reorder::Anywhere)
+            .on_action(|key, action| println!("{action} {key}"))
+            .on_context(|key, x, y| println!("menu for {key} at {x},{y}"));
+        row.fit(&*side);
+        let mut content = layout::column();
+        content.fit(&*Label::styled("Fix the bar", TextStyle::Title));
+        content.end();
+        row.end();
+        col.fixed(&row, 360);
+        side.set_pinned(true);
+        side.set_query(query);
         save(&mut done(win, col), &dir, name);
     }
 

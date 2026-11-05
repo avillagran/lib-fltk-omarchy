@@ -790,6 +790,51 @@ pub fn right_click_at<W: WindowExt>(window: &W, x: i32, y: i32) {
     dispatch(Event::Released, win);
 }
 
+/// Presses the left button at `from` (window coordinates of `window`),
+/// drags to `to` in a few steps and, with `release`, lets go there; without
+/// it the button stays down (finish with [`mouse_up`]). Through fltk's
+/// normal event path (tests of drags: reordering, resizing).
+pub fn mouse_drag<W: WindowExt>(window: &W, from: (i32, i32), to: (i32, i32), release: bool) {
+    let win = window.as_widget_ptr() as app::WindowPtr;
+    let at = |x: i32, y: i32, state: i32| {
+        // SAFETY: fltk's event globals are plain data, used on the UI thread.
+        unsafe {
+            FL_E_X = x;
+            FL_E_Y = y;
+            FL_E_X_ROOT = window.x() + x;
+            FL_E_Y_ROOT = window.y() + y;
+            FL_E_CLICKS = 0;
+            FL_E_KEYSYM = Key::from_i32(0xfee8 + 1).bits(); // FL_Button + 1 (left)
+            FL_E_STATE = state;
+        }
+    };
+    at(from.0, from.1, 0x0100_0000);
+    dispatch(Event::Push, win);
+    for k in 1..=4 {
+        let x = from.0 + (to.0 - from.0) * k / 4;
+        let y = from.1 + (to.1 - from.1) * k / 4;
+        at(x, y, 0x0100_0000);
+        dispatch(Event::Drag, win);
+    }
+    if release {
+        mouse_up(window, to.0, to.1);
+    }
+}
+
+/// Releases the left button at `(x, y)` (after [`mouse_drag`] without release).
+pub fn mouse_up<W: WindowExt>(window: &W, x: i32, y: i32) {
+    let win = window.as_widget_ptr() as app::WindowPtr;
+    // SAFETY: as above.
+    unsafe {
+        FL_E_X = x;
+        FL_E_Y = y;
+        FL_E_X_ROOT = window.x() + x;
+        FL_E_Y_ROOT = window.y() + y;
+        FL_E_STATE = 0;
+    }
+    dispatch(Event::Released, win);
+}
+
 /// Turns the mouse wheel by `dy` notches (positive: down) at window
 /// coordinates `(x, y)` of `window`, through fltk's normal event path.
 /// Returns true when something used it.

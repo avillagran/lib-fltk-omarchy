@@ -39,12 +39,12 @@ impl Scroll {
     /// Add a signed pixel distance; preserve magnitude, not only direction.
     /// `position` is the last painted offset; `max` is the current scroll limit.
     pub fn wheel(&mut self, position: i64, delta: f64, max: i64) -> i64 {
-        self.wheel_at(position, delta, max, Instant::now(), crate::anim::enabled())
+        self.wheel_at(position, delta, max, crate::anim::now(), crate::anim::enabled())
     }
 
     /// Current painted offset. A changed external position cancels animation.
     pub fn position(&mut self, position: i64, max: i64) -> i64 {
-        self.position_at(position, max, Instant::now(), crate::anim::enabled())
+        self.position_at(position, max, crate::anim::now(), crate::anim::enabled())
     }
 
     /// Moves the motion by `delta` pixels, keeping a running animation:

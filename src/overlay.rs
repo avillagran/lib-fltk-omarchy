@@ -74,12 +74,32 @@ pub(crate) fn bg(t: &Theme) -> Rgb {
 /// everything; returns it. `modal` layers take keyboard focus (and give it
 /// back on close).
 pub(crate) fn open_layer<A: WidgetExt>(anchor: &A, rect: Option<(i32, i32, i32, i32)>, modal: bool) -> Option<Widget> {
+    open_layer_of(anchor, rect, modal, false).map(|(l, _)| l)
+}
+
+/// [`open_layer`] as a `Group`, for a layer that holds widgets (the
+/// overlay panel of a `NavTree` with header widgets). Not modal.
+pub(crate) fn open_group_layer<A: WidgetExt>(anchor: &A, rect: (i32, i32, i32, i32)) -> Option<fltk::group::Group> {
+    open_layer_of(anchor, Some(rect), false, true)?.1
+}
+
+/// The layer, and its `Group` handle (the one draw and handle callbacks
+/// can be set on) when `as_group`.
+fn open_layer_of<A: WidgetExt>(anchor: &A, rect: Option<(i32, i32, i32, i32)>, modal: bool, as_group: bool) -> Option<(Widget, Option<fltk::group::Group>)> {
     let win = anchor.top_window()?;
     install_redraw_guard();
     let mut group = fltk::group::Group::from_dyn_widget_ptr(win.as_widget_ptr())?;
     let prev = fltk::group::Group::try_current();
     fltk::group::Group::set_current(None::<&fltk::group::Group>);
-    let mut layer = Widget::default();
+    let mut grp = None;
+    let mut layer = if as_group {
+        let g = fltk::group::Group::default();
+        g.end();
+        grp = Some(g.clone());
+        g.as_base_widget()
+    } else {
+        Widget::default()
+    };
     let (x, y, w, h) = rect.unwrap_or((0, 0, win.w(), win.h()));
     layer.resize(x, y, w, h);
     layer.set_frame(FrameType::NoBox);
@@ -106,7 +126,7 @@ pub(crate) fn open_layer<A: WidgetExt>(anchor: &A, rect: Option<(i32, i32, i32, 
         crate::focus::sync_panels(crate::focus::PanelFocusCause::Overlay);
     }
     group.redraw();
-    Some(layer)
+    Some((layer, grp))
 }
 
 /// Removes and deletes a layer; if it had focus, focus goes back to the

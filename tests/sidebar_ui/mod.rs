@@ -98,8 +98,12 @@ fn places() -> Vec<SidebarItem> {
     vec![
         SidebarItem::header("Places").key("h:places"),
         SidebarItem::new(glyph::HOME, "Home").key("home"),
-        SidebarItem::new(glyph::DOWNLOAD, "Downloads").key("downloads").badge("3"),
-        SidebarItem::header("Devices").key("h:devices").collapsible(),
+        SidebarItem::new(glyph::DOWNLOAD, "Downloads")
+            .key("downloads")
+            .badge("3"),
+        SidebarItem::header("Devices")
+            .key("h:devices")
+            .collapsible(),
         SidebarItem::new(glyph::HARDDISK, "System")
             .key("sys")
             .detail("12 GB free of 32 GB")
@@ -109,16 +113,21 @@ fn places() -> Vec<SidebarItem> {
             .detail("1 GB free of 16 GB")
             .usage(0.94)
             .secondary(glyph::EJECT, "Eject"),
-        SidebarItem::new(glyph::HARDDISK, "Backup").key("backup").dimmed(),
-        SidebarItem::new(glyph::HARDDISK, "Locked").key("locked").disabled(),
-        SidebarItem::new(glyph::SETTINGS, "Settings").key("settings").footer(),
+        SidebarItem::new(glyph::HARDDISK, "Backup")
+            .key("backup")
+            .dimmed(),
+        SidebarItem::new(glyph::HARDDISK, "Locked")
+            .key("locked")
+            .disabled(),
+        SidebarItem::new(glyph::SETTINGS, "Settings")
+            .key("settings")
+            .footer(),
     ]
 }
 
 struct Shell {
     win: AppWindow,
     side: Sidebar,
-    content: Button,
     selected: State<usize>,
 }
 
@@ -131,15 +140,13 @@ fn shell(items: Vec<SidebarItem>, mode: SidebarMode, h: i32) -> Shell {
     let side = Sidebar::new(items, &selected).mode(mode);
     row.fit(&*side);
     let mut col = layout::column();
-    let content = Button::new("Content").bordered();
-    col.fit(&*content);
+    col.fit(&*Button::new("Content").bordered());
     col.end();
     row.end();
     win.end();
     Shell {
         win,
         side,
-        content,
         selected,
     }
 }
@@ -274,6 +281,12 @@ pub fn checks(run: &mut dyn FnMut(&str, Check)) {
             focus::click_at(&*s.win, x, y);
             check(take(&log) == ["activate 6"], "a dimmed row activates")?;
             // Secondary: its own hover, the tooltip, the callback, no activation.
+            // (Clicks mapped the window: let its position settle first.)
+            let settle = Instant::now() + Duration::from_millis(150);
+            while Instant::now() < settle {
+                App::pump();
+                std::thread::sleep(Duration::from_millis(5));
+            }
             let (bx, by) = secondary_point(r(USB)?);
             focus::hover_at(&*s.win, bx, by);
             check(s.side.tooltip().as_deref() == Some("Eject"), &format!("tooltip {:?}", s.side.tooltip()))?;
@@ -285,9 +298,11 @@ pub fn checks(run: &mut dyn FnMut(&str, Check)) {
             let shown = tooltip::shown().map(|t| t.text);
             check(shown.as_deref() == Some("Eject"), &format!("toolkit tooltip shows {shown:?}"))?;
             let p = shot(&s.win, shots, "sidebar-files-click-1-secondary-hover.png")?;
+            // The row is hovered too; the button gets a second hover fill.
             let hot = theme::with(|t| {
-                let row_under = t.palette.foreground.over(t.palette.background, 0.04);
-                rgb(t.fill(&t.controls.hover, row_under))
+                let surface = t.palette.foreground.over(t.palette.background, 0.04);
+                let row = t.fill(&t.controls.hover, surface);
+                rgb(t.fill(&t.controls.hover, row))
             });
             let hover_px = count(&p, (bx - 8, by - 8, 16, 16), hot)?;
             check(hover_px > 20, &format!("secondary hover fill: {hover_px} px"))?;
@@ -466,24 +481,32 @@ pub fn checks(run: &mut dyn FnMut(&str, Check)) {
             let _m = Motion::on();
             shot(&s.win, shots, "sidebar-files-fold-1.png")?;
             let mut more = places();
-            more.insert(SETTINGS, SidebarItem::new(glyph::BOOKMARK, "After").key("after"));
+            more.insert(SETTINGS, SidebarItem::header("Other").key("h:other"));
+            more.insert(
+                SETTINGS + 1,
+                SidebarItem::new(glyph::BOOKMARK, "After").key("after"),
+            );
+            let after = SETTINGS + 1;
             let mut side = s.side.clone();
             side.set_items(more);
             ms(900);
             shot(&s.win, shots, "sidebar-files-fold-2.png")?;
-            let open = s.side.item_rect(SETTINGS).ok_or("no After")?;
+            let open = s.side.item_rect(after).ok_or("no After")?;
             s.side.set_section_collapsed(DEVICES, true);
             shot(&s.win, shots, "sidebar-files-fold-3-t0.png")?;
-            let t0 = s.side.item_rect(SETTINGS).ok_or("no After t0")?;
+            let t0 = s.side.item_rect(after).ok_or("no After t0")?;
             ms(60);
             shot(&s.win, shots, "sidebar-files-fold-4-t60.png")?;
-            let mid = s.side.item_rect(SETTINGS).ok_or("no After mid")?;
+            let mid = s.side.item_rect(after).ok_or("no After mid")?;
             ms(400);
             shot(&s.win, shots, "sidebar-files-fold-5-end.png")?;
-            let end = s.side.item_rect(SETTINGS).ok_or("no After end")?;
+            let end = s.side.item_rect(after).ok_or("no After end")?;
             check(
                 t0.1 == open.1 && end.1 < mid.1 && mid.1 < open.1,
-                &format!("the row below slides up: {} -> {} -> {}", open.1, mid.1, end.1),
+                &format!(
+                    "the row below slides up: {} -> {} -> {}",
+                    open.1, mid.1, end.1
+                ),
             )?;
             delete(s.win);
             Ok(())
@@ -570,17 +593,30 @@ pub fn checks(run: &mut dyn FnMut(&str, Check)) {
             anim::set_enabled(false);
             let mut items = vec![SidebarItem::header("Bookmarks").key("h")];
             for i in 0..30 {
-                items.push(SidebarItem::new(glyph::BOOKMARK, &format!("Bookmark {i}")).key(&format!("b{i}")));
+                items.push(
+                    SidebarItem::new(glyph::BOOKMARK, &format!("Bookmark {i}"))
+                        .key(&format!("b{i}")),
+                );
             }
-            items.push(SidebarItem::new(glyph::SETTINGS, "Settings").key("s").footer());
+            items.push(
+                SidebarItem::new(glyph::SETTINGS, "Settings")
+                    .key("s")
+                    .footer(),
+            );
             let s = shell(items, SidebarMode::Push, 300);
             s.side.set_pinned(true);
             shot(&s.win, shots, "sidebar-files-scroll-0.png")?;
             let (sc, max) = s.side.scroll_position();
             check(sc == 0 && max > 0, &format!("scrollable: {sc}/{max}"))?;
             let foot = s.side.item_rect(31).ok_or("no footer")?;
-            check(foot.1 + foot.3 <= s.side.y() + s.side.h(), "footer at the bottom")?;
-            check(s.side.item_rect(30).is_none(), "the last bookmark is out of view")?;
+            check(
+                foot.1 + foot.3 <= s.side.y() + s.side.h(),
+                "footer at the bottom",
+            )?;
+            check(
+                s.side.item_rect(30).is_none(),
+                "the last bookmark is out of view",
+            )?;
             let _ = s.side.clone().take_focus();
             press("Down");
             for _ in 0..28 {
@@ -595,19 +631,25 @@ pub fn checks(run: &mut dyn FnMut(&str, Check)) {
             )?;
             let foot2 = s.side.item_rect(31).ok_or("no footer")?;
             check(foot2 == foot, "footer did not move")?;
-            let (x, y) = center(s.side.item_rect(20).ok_or("no row 20")?);
+            let (x, y) = center(s.side.item_rect(28).ok_or("no row 28")?);
             check(focus::wheel_at(&*s.win, x, y, -2), "wheel used")?;
             shot(&s.win, shots, "sidebar-files-scroll-2-wheel.png")?;
             let (sc2, _) = s.side.scroll_position();
             check(sc2 < sc, &format!("wheel up scrolls: {sc} -> {sc2}"))?;
             press("Home");
             shot(&s.win, shots, "sidebar-files-scroll-3-home.png")?;
-            check(s.side.scroll_position().0 == 0, "Home scrolls back to the top")?;
+            check(
+                s.side.scroll_position().0 == 0,
+                "Home scrolls back to the top",
+            )?;
             // Not scrollable: the wheel goes on to the content.
             let small = shell(places(), SidebarMode::Push, 460);
             shot(&small.win, shots, "sidebar-files-scroll-4-small.png")?;
             let (x, y) = center(small.side.item_rect(HOME).ok_or("no Home")?);
-            check(!focus::wheel_at(&*small.win, x, y, 1), "wheel not used when everything fits")?;
+            check(
+                !focus::wheel_at(&*small.win, x, y, 1),
+                "wheel not used when everything fits",
+            )?;
             delete(small.win);
             delete(s.win);
             Ok(())
@@ -668,6 +710,7 @@ pub fn checks(run: &mut dyn FnMut(&str, Check)) {
                 )?;
                 side.hover(false);
                 pump_until(|| !side.is_expanded());
+                shot(&win, shots, "sidebar-nested-4-closing.png")?;
                 ms(300);
                 shot(&win, shots, "sidebar-nested-4-closed.png")?;
                 check(side.w() == rail && content.x() == cx, "collapses back")?;
@@ -705,6 +748,7 @@ pub fn checks(run: &mut dyn FnMut(&str, Check)) {
             shot(&win, shots, "sidebar-nested-8-overlay-pinned.png")?;
             check(side.is_expanded() && side.overlay_width() > rail && content.x() == cx, "overlay pinned stays open")?;
             side.set_pinned(false);
+            shot(&win, shots, "sidebar-nested-9-overlay-unpinned.png")?;
             pump_until(|| side.overlay_width() == 0);
             check(side.overlay_width() == 0, "unpinned: closes")?;
             delete(win);
