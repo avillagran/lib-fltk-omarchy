@@ -570,11 +570,13 @@ pub fn checks(run: &mut dyn FnMut(&str, Check)) {
             let b = shot(&s.win, shots, "sidebar-files-busy-1.png")?;
             check(same_region(&a, &b, spot)?, "static spinner with animations off")?;
             check(anim::pending() == 0, "no frame scheduled when off")?;
-            let fg = theme::with(|t| rgb(t.palette.foreground));
+            // Ink that differs from the row background (renderer-neutral:
+            // Windows GDI draws the dots thinner, without antialiasing).
             let img = png_rgb(&a)?;
+            let back = img.at(spot.0 + 1, spot.1 + 1);
             let dots = (spot.0..spot.0 + spot.2)
                 .flat_map(|x| (spot.1..spot.1 + spot.3).map(move |y| (x, y)))
-                .filter(|&(x, y)| img.at(x, y).iter().zip(fg).all(|(p, q)| p.abs_diff(q) < 70))
+                .filter(|&(x, y)| img.at(x, y).iter().zip(back).map(|(p, q)| p.abs_diff(q) as u32).sum::<u32>() > 60)
                 .count();
             check(dots >= 4, &format!("spinner drawn ({dots} px)"))?;
             let _m = Motion::on();
