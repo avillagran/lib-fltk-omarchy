@@ -276,6 +276,7 @@ fn role_of(r: Role) -> ak::Role {
         Role::RadioGroup => A::RadioGroup,
         Role::Switch => A::Switch,
         Role::Slider => A::Slider,
+        Role::Splitter => A::Splitter,
         Role::SpinButton => A::SpinButton,
         Role::TextInput => A::TextInput,
         Role::PasswordInput => A::PasswordInput,

@@ -56,6 +56,9 @@ pub enum Role {
     RadioGroup,
     Switch,
     Slider,
+    /// A movable separator that resizes the panes around it (value: the
+    /// pane size in pixels).
+    Splitter,
     SpinButton,
     TextInput,
     PasswordInput,

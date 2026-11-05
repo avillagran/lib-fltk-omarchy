@@ -23,6 +23,7 @@ pub mod png;
 pub mod popups;
 pub mod scroll;
 pub mod sidebar;
+pub mod split;
 pub mod state;
 pub mod table;
 pub mod task;
