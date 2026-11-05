@@ -2,7 +2,7 @@
 //! painting and hit-testing, in left-to-right terms; `Mirror` flips it.
 
 use super::flat::FRow;
-use super::item::{Badge, NavItem, NavKind, RowPaint, RowState, Show};
+use super::item::{Badge, Meta, NavItem, NavKind, RowPaint, RowState, RowStyle, Show};
 use crate::anim;
 use crate::layout::Mirror;
 use crate::paint;
@@ -31,6 +31,14 @@ pub(crate) struct Metrics {
     pub cs: i32,
     /// One indentation step.
     pub ind: i32,
+    /// Card: vertical padding, gap between lines, the three line heights
+    /// and the icon cell.
+    pub cpad: i32,
+    pub cgap: i32,
+    pub l1: i32,
+    pub l2: i32,
+    pub l3: i32,
+    pub ci: i32,
 }
 
 pub(crate) fn metrics(t: &Theme) -> Metrics {
@@ -47,7 +55,20 @@ pub(crate) fn metrics(t: &Theme) -> Metrics {
         bs: t.spacing.control_height - 2 * t.spacing.xs,
         cs: t.font.body_small + 4,
         ind: (16.0 * t.font.base as f64 / 12.0).round() as i32,
+        // 82 px with the default tokens, like o3's thread card.
+        cpad: t.spacing.xxs + t.spacing.lg,
+        cgap: t.spacing.xxs,
+        l1: t.font.body + 8,
+        l2: t.font.body + 8,
+        l3: t.font.caption + 8,
+        ci: t.font.body + 4,
     }
+}
+
+/// A card's height: two lines, three with meta or a detail.
+pub(crate) fn card_h(it: &NavItem, m: &Metrics) -> i32 {
+    let third = !it.meta.is_empty() || !it.detail.is_empty();
+    2 * m.cpad + m.l1 + m.cgap + m.l2 + if third { m.cgap + m.l3 } else { 0 }
 }
 
 /// A custom row renderer: expanded height, and the painter.
@@ -64,6 +85,9 @@ pub(crate) fn heights(it: &NavItem, m: &Metrics, custom: Option<&Rc<Renderer>>) 
         NavKind::Row => {
             if let Some(r) = custom {
                 return (m.rh, (r.height)(it).max(1));
+            }
+            if it.style == RowStyle::Card {
+                return (m.rh, card_h(it, m));
             }
             let d = if it.detail.is_empty() { 0 } else { m.dh };
             let u = if it.usage.is_some() { m.gap + m.bar } else { 0 };
@@ -84,11 +108,16 @@ pub(crate) enum Part {
 #[derive(Default)]
 pub(crate) struct Lay {
     pub icon: (i32, i32),
+    /// Icon box (y, h): the row, or a card's first line.
+    pub icon_v: (i32, i32),
+    /// Icon glyph size.
+    pub icon_size: i32,
     pub tx: i32,
-    /// Right end of the title, and of the detail / usage lines.
+    /// Right end of the title (a card: of the overline), and of the
+    /// detail / usage lines.
     pub title_r: i32,
     pub line2_r: i32,
-    /// Title line box (y, h).
+    /// Title line box (y, h); a card's first line.
     pub line: (i32, i32),
     pub chevron: Option<(i32, i32, i32, i32)>,
     pub spin: Option<(i32, i32, i32, i32)>,
@@ -97,6 +126,21 @@ pub(crate) struct Lay {
     pub badges: Vec<(usize, i32, i32)>,
     pub summary: Option<(i32, i32)>,
     pub count: Option<(i32, i32)>,
+    /// The trailing text (and glyph) on the first line, when shown.
+    pub trailing: Option<(i32, i32)>,
+    pub card: Option<CardLay>,
+}
+
+/// The lines under a card's first line.
+#[derive(Default)]
+pub(crate) struct CardLay {
+    /// Start of the title and meta lines.
+    pub x: i32,
+    pub title: (i32, i32),
+    pub title_r: i32,
+    pub note: Option<(i32, i32)>,
+    pub meta: Option<(i32, i32)>,
+    pub meta_r: i32,
 }
 
 fn badge_w(t: &Theme, m: &Metrics, b: &Badge) -> i32 {
@@ -106,7 +150,32 @@ fn badge_w(t: &Theme, m: &Metrics, b: &Badge) -> i32 {
         }
         Badge::Dot(_) => 7,
         Badge::Spinner => m.dh,
+        Badge::Icon { .. } => t.font.body + 2,
     }
+}
+
+/// Width of the trailing glyph + text.
+fn trailing_w(t: &Theme, it: &NavItem) -> i32 {
+    let tw = if it.trailing.is_empty() {
+        0
+    } else {
+        paint::measure(&it.trailing, t.font.caption, false)
+    };
+    let iw = if it.trailing_icon.is_empty() {
+        0
+    } else {
+        t.font.caption + 4 + if tw > 0 { t.spacing.xs } else { 0 }
+    };
+    tw + iw
+}
+
+fn lerp(a: i32, b: i32, k: f64) -> i32 {
+    (a as f64 + (b - a) as f64 * k.clamp(0.0, 1.0)).round() as i32
+}
+
+/// x of a card's icon center from the start of its indentation.
+pub(crate) fn card_icon_center(t: &Theme, m: &Metrics, rail: i32, reveal: f64) -> i32 {
+    lerp(rail / 2, m.inset + t.spacing.lg + m.ci / 2, reveal)
 }
 
 /// Lays out a row at `(x, ry, w, rh)`. `hot`: hover-only actions show.
@@ -123,8 +192,11 @@ pub(crate) fn layout(
 ) -> Lay {
     let mut l = Lay::default();
     let ind = (row.indent as f64 * m.ind as f64 * reveal).round() as i32;
-    l.icon = (x + ind, rail);
     let section = it.kind == NavKind::Section;
+    let card = it.style == RowStyle::Card && it.kind == NavKind::Row;
+    l.icon = (x + ind, rail);
+    l.icon_v = (ry, rh);
+    l.icon_size = t.font.icon;
     l.tx = if section {
         x + m.inset + t.spacing.md + ind
     } else {
@@ -136,7 +208,25 @@ pub(crate) fn layout(
         (ry + (m.rh - m.lh) / 2, m.lh)
     };
     let mut right = x + w - m.inset - t.spacing.xs;
-    let mid = ry + rh / 2;
+    let mut mid = ry + rh / 2;
+    let pad_x = m.inset + t.spacing.lg;
+    if card {
+        let x0 = x + ind + pad_x;
+        let y1 = ry + m.cpad;
+        l.line = (y1, m.l1);
+        mid = y1 + m.l1 / 2;
+        // From the rail cell (collapsed) to the card's own icon cell.
+        let cx = x + ind + card_icon_center(t, m, rail, reveal);
+        l.icon = (cx - rail / 2, rail);
+        let cy = lerp(ry + rh / 2, mid, reveal);
+        l.icon_v = (cy - m.l1 / 2, m.l1);
+        if reveal >= 0.5 {
+            l.icon_size = t.font.body + 2;
+        }
+        l.tx = x0 + m.ci + t.spacing.md;
+        right = x + w - pad_x;
+    }
+    let mut hover_shown = false;
     if it.busy && !section {
         l.spin = Some((right - m.bs, mid - m.bs / 2, m.bs, m.bs));
         right -= m.bs + t.spacing.sm;
@@ -144,6 +234,7 @@ pub(crate) fn layout(
         let shown: Vec<usize> = (0..it.actions.len())
             .filter(|&i| it.actions[i].show == Show::Always || hot)
             .collect();
+        hover_shown = shown.iter().any(|&i| it.actions[i].show == Show::Hover);
         for &i in shown.iter().rev() {
             l.actions
                 .push((i, (right - m.bs, mid - m.bs / 2, m.bs, m.bs)));
@@ -159,12 +250,24 @@ pub(crate) fn layout(
         } else {
             right - m.cs
         };
-        l.chevron = Some((cx, ry, m.cs, if section { rh } else { m.rh }));
+        l.chevron = Some(if section {
+            (cx, ry, m.cs, rh)
+        } else if card {
+            (cx, l.line.0, m.cs, l.line.1)
+        } else {
+            (cx, ry, m.cs, m.rh)
+        });
         right = cx - t.spacing.sm;
     }
-    if it.actions.is_empty() && !row.folds && !(it.busy && !section) {
+    if it.actions.is_empty() && !row.folds && !(it.busy && !section) && !card {
         // Nothing trailing: text ends where the rail's badge always did.
         right = x + w - m.inset - t.spacing.md;
+    }
+    let has_trailing = !it.trailing.is_empty() || !it.trailing_icon.is_empty();
+    if has_trailing && !section && !hover_shown {
+        let tw = trailing_w(t, it);
+        l.trailing = Some((right - tw, tw));
+        right -= tw + t.spacing.md;
     }
     l.line2_r = right;
     if section && !it.count.is_empty() {
@@ -173,7 +276,7 @@ pub(crate) fn layout(
         right -= cw + t.spacing.md;
     }
     if !section {
-        if !it.shortcut.is_empty() {
+        if !it.shortcut.is_empty() && !card {
             let sw = paint::measure(&it.shortcut, t.font.caption, false);
             l.shortcut = Some((right - sw, sw));
             right -= sw + t.spacing.md;
@@ -193,7 +296,97 @@ pub(crate) fn layout(
         }
     }
     l.title_r = right;
+    if card {
+        let x0 = x + ind + pad_x;
+        let end = x + w - pad_x;
+        let mut c = CardLay {
+            x: x0,
+            title: (l.line.0 + m.l1 + m.cgap, m.l2),
+            ..Default::default()
+        };
+        let mut r2 = end;
+        if !it.note.is_empty() {
+            let nw = paint::measure(&it.note, t.font.caption, false);
+            c.note = Some((r2 - nw, nw));
+            r2 -= nw + t.spacing.md;
+        }
+        if !it.shortcut.is_empty() {
+            let sw = paint::measure(&it.shortcut, t.font.caption, false);
+            l.shortcut = Some((r2 - sw, sw));
+            r2 -= sw + t.spacing.md;
+        }
+        c.title_r = r2;
+        if !it.meta.is_empty() || !it.detail.is_empty() {
+            c.meta = Some((c.title.0 + m.l2 + m.cgap, m.l3));
+        }
+        c.meta_r = end;
+        l.line2_r = end;
+        l.card = Some(c);
+    }
     l
+}
+
+/// Spans of a card's meta entries in `[x, end)`: (index, icon x, text x,
+/// text w). The first entry with text takes the free width; entries
+/// after it go to the end.
+pub(crate) fn meta_spans(t: &Theme, metas: &[Meta], x: i32, end: i32) -> Vec<(usize, i32, i32, i32)> {
+    let iw = t.font.caption + 4;
+    let gap = t.spacing.xs;
+    let width = |mm: &Meta| {
+        let i = if mm.icon.is_empty() { 0 } else { iw };
+        let tw = if mm.text.is_empty() {
+            0
+        } else {
+            paint::measure(&mm.text, t.font.caption, false)
+        };
+        (i, tw)
+    };
+    let fill = metas.iter().position(|mm| !mm.text.is_empty());
+    let mut out = Vec::new();
+    // After the filling entry: from the end.
+    let mut r = end;
+    let split = fill.map_or(metas.len(), |f| f + 1);
+    for (i, mm) in metas.iter().enumerate().skip(split).rev() {
+        let (i_w, tw) = width(mm);
+        let g = if i_w > 0 && tw > 0 { gap } else { 0 };
+        let sx = r - (i_w + g + tw);
+        out.push((i, sx, sx + i_w + g, tw));
+        r = sx - t.spacing.md;
+    }
+    let mut cx = x;
+    for (i, mm) in metas.iter().enumerate().take(split) {
+        let (i_w, tw) = width(mm);
+        let tx = cx + i_w + if i_w > 0 && tw > 0 { gap } else { 0 };
+        let tw = if Some(i) == fill { (r - tx).max(0) } else { tw };
+        out.push((i, cx, tx, tw));
+        cx = tx + tw + t.spacing.md;
+    }
+    out.sort_by_key(|e| e.0);
+    out
+}
+
+/// Cuts the middle of `s` with "…" to fit `max_w` (branch names keep
+/// both ends; uses the current font).
+fn elide_middle(s: &str, max_w: i32) -> String {
+    if (fltk::draw::width(s).ceil() as i32) <= max_w {
+        return s.to_string();
+    }
+    let chars: Vec<char> = s.chars().collect();
+    let mut keep = chars.len();
+    while keep > 0 {
+        keep -= 1;
+        let head = keep.div_ceil(2);
+        let tail = keep / 2;
+        let c: String = chars[..head]
+            .iter()
+            .chain(std::iter::once(&'…'))
+            .chain(chars[chars.len() - tail..].iter())
+            .collect();
+        if (fltk::draw::width(&c).ceil() as i32) <= max_w {
+            return c;
+        }
+    }
+    String::new()
 }
 
 /// How a row looks now.
@@ -205,6 +398,9 @@ pub(crate) struct Look {
     pub drop: bool,
     /// Hover-only actions show (hovered, selected or cursor row).
     pub hot: bool,
+    /// Tree guides: x of the line from the start of each indentation
+    /// step (the parent's icon center); None draws none.
+    pub guide: Option<i32>,
 }
 
 thread_local! {
@@ -359,6 +555,13 @@ pub(crate) fn paint_row(
     if look.ring {
         ring(under);
     }
+    if let Some(off) = look.guide.filter(|_| row.indent > 0 && reveal > 0.0) {
+        let c = fg.over(under, 0.14 * reveal);
+        for lvl in 0..row.indent as i32 {
+            let gx = x + (lvl as f64 * m.ind as f64 * reveal).round() as i32 + off;
+            paint::fill(mir.x(gx, 1), ry, 1, rh, 0, c);
+        }
+    }
     if let Some(r) = custom {
         let state = RowState {
             selected: look.selected,
@@ -394,28 +597,37 @@ pub(crate) fn paint_row(
     } else {
         it.icon_role.map_or(base, |r| r.rgb(t))
     };
-    let l = layout(t, m, rail, it, row, rect, reveal, look.hot);
+    // Rows with a trailing text show their hover actions in its place
+    // only while hovered or under the keyboard cursor (o3).
+    let hot = if it.trailing.is_empty() && it.trailing_icon.is_empty() {
+        look.hot
+    } else {
+        look.hover.is_some() || look.ring
+    };
+    let l = layout(t, m, rail, it, row, rect, reveal, hot);
     let mut spun = false;
     let (ix, iw) = l.icon;
+    let (iy, ih) = l.icon_v;
+    let isz = l.icon_size;
     if it.busy && reveal < 0.5 {
         spinner(
             mir.x(ix, iw) + iw / 2,
-            ry + rh / 2,
-            t.font.icon / 2,
+            iy + ih / 2,
+            isz / 2,
             ink,
             under,
             phase,
         );
         spun = true;
     } else {
-        paint::glyph(&it.icon, mir.x(ix, iw), ry, iw, rh, t.font.icon, ink);
+        paint::glyph(&it.icon, mir.x(ix, iw), iy, iw, ih, isz, ink);
     }
     if it.attention {
         let d = 7;
-        let cx = ix + iw / 2 + t.font.icon / 2 - 1;
+        let cx = ix + iw / 2 + isz / 2 - 1;
         paint::fill(
             mir.x(cx - d / 2, d),
-            ry + rh / 2 - t.font.icon / 2 - 1,
+            iy + ih / 2 - isz / 2 - 1,
             d,
             d,
             d / 2,
@@ -428,13 +640,41 @@ pub(crate) fn paint_row(
     let k = reveal;
     spun |= paint_trailing(t, m, it, row, &l, look, mir, under, k, phase);
     let (ly, lh) = l.line;
+    let dim = base.darker(1.4).over(under, k);
+    if let Some((tx, tw)) = l.trailing {
+        let c = it.trailing_role.map_or(dim, |r| r.rgb(t).over(under, k));
+        let mut cx = tx;
+        if !it.trailing_icon.is_empty() {
+            let gw = t.font.caption + 4;
+            paint::glyph(&it.trailing_icon, mir.x(cx, gw), ly, gw, lh, t.font.caption + 2, c);
+            cx += gw + t.spacing.xs;
+        }
+        let rest = (tx + tw - cx).max(0);
+        if !it.trailing.is_empty() && rest > 0 {
+            paint::text(
+                &it.trailing,
+                mir.x(cx, rest),
+                ly,
+                rest,
+                lh,
+                t.font.caption,
+                false,
+                c,
+                mir.align(Align::Right),
+            );
+        }
+    }
+    let (shy, shh) = l
+        .card
+        .as_ref()
+        .map_or((ly, lh), |c| c.title);
     if let Some((sx, sw)) = l.shortcut {
         paint::text(
             &it.shortcut,
             mir.x(sx, sw),
-            ly,
+            shy,
             sw,
-            lh,
+            shh,
             t.font.caption,
             false,
             base.darker(1.5).over(under, k),
@@ -468,42 +708,50 @@ pub(crate) fn paint_row(
             mir.align(Align::Right),
         );
     }
-    let tw = (l.title_r - l.tx).max(0);
     let bold = look.selected || it.attention;
     let text = if it.disabled || it.dimmed { base } else { fg };
-    if let Some(hits) = hits.filter(|_| tw > 0) {
-        fltk::draw::push_clip(mir.x(l.tx, tw), ly, tw, lh);
-        for r in hits {
-            if r.end > it.title.len()
-                || !it.title.is_char_boundary(r.start)
-                || !it.title.is_char_boundary(r.end)
-            {
-                continue;
-            }
-            let hx = l.tx + paint::measure(&it.title[..r.start], t.font.body, bold);
-            let hw = paint::measure(&it.title[r.start..r.end], t.font.body, bold);
-            paint::fill(
-                mir.x(hx - 1, hw + 2),
-                ly + 2,
-                hw + 2,
-                lh - 4,
-                2,
-                t.palette.accent.over(under, 0.3 * k),
-            );
+    if let Some(c) = &l.card {
+        let ow = (l.title_r - l.tx).max(0);
+        paint::text_elided(
+            &it.overline,
+            mir.x(l.tx, ow),
+            ly,
+            ow,
+            lh,
+            t.font.caption,
+            false,
+            dim,
+            mir.align(Align::Left),
+        );
+        let (ty, th) = c.title;
+        paint_title(t, it, hits, (c.x, ty, (c.title_r - c.x).max(0), th), bold, text.over(under, k), under, k, mir);
+        if let Some((nx, nw)) = c.note {
+            paint::text(&it.note, mir.x(nx, nw), ty, nw, th, t.font.caption, false, dim, mir.align(Align::Right));
         }
-        fltk::draw::pop_clip();
+        if let Some((my, mh)) = c.meta {
+            let faint = base.over(under, 0.4 * k);
+            if it.meta.is_empty() {
+                let w3 = (c.meta_r - c.x).max(0);
+                paint::text_elided(&it.detail, mir.x(c.x, w3), my, w3, mh, t.font.caption, false, dim, mir.align(Align::Left));
+            }
+            for (i, gx, tx, tw) in meta_spans(t, &it.meta, c.x, c.meta_r) {
+                let mm = &it.meta[i];
+                let col = mm.role.map_or(faint, |r| r.rgb(t).over(under, k));
+                if !mm.icon.is_empty() {
+                    let gw = t.font.caption + 4;
+                    paint::glyph(&mm.icon, mir.x(gx, gw), my, gw, mh, t.font.caption + 1, col);
+                }
+                if tw > 0 && !mm.text.is_empty() {
+                    fltk::draw::set_font(paint::font(false), t.font.caption);
+                    let shown = elide_middle(&mm.text, tw);
+                    paint::text(&shown, mir.x(tx, tw), my, tw, mh, t.font.caption, false, col, mir.align(Align::Left));
+                }
+            }
+        }
+        return spun;
     }
-    paint::text_elided(
-        &it.title,
-        mir.x(l.tx, tw),
-        ly,
-        tw,
-        lh,
-        t.font.body,
-        bold,
-        text.over(under, k),
-        mir.align(Align::Left),
-    );
+    let tw = (l.title_r - l.tx).max(0);
+    paint_title(t, it, hits, (l.tx, ly, tw, lh), bold, text.over(under, k), under, k, mir);
     let mut y2 = ly + lh;
     let w2 = (l.line2_r - l.tx).max(0);
     if !it.detail.is_empty() {
@@ -544,6 +792,54 @@ pub(crate) fn paint_row(
         paint::fill(mir.x(l.tx, fw), by, fw, m.bar, m.bar / 2, c.over(under, k));
     }
     spun
+}
+
+/// The title in `(x, y, w, h)` with the search hits highlighted.
+#[allow(clippy::too_many_arguments)]
+fn paint_title(
+    t: &Theme,
+    it: &NavItem,
+    hits: Option<&[Range<usize>]>,
+    (tx, ly, tw, lh): (i32, i32, i32, i32),
+    bold: bool,
+    color: Rgb,
+    under: Rgb,
+    k: f64,
+    mir: &Mirror,
+) {
+    if let Some(hits) = hits.filter(|_| tw > 0) {
+        fltk::draw::push_clip(mir.x(tx, tw), ly, tw, lh);
+        for r in hits {
+            if r.end > it.title.len()
+                || !it.title.is_char_boundary(r.start)
+                || !it.title.is_char_boundary(r.end)
+            {
+                continue;
+            }
+            let hx = tx + paint::measure(&it.title[..r.start], t.font.body, bold);
+            let hw = paint::measure(&it.title[r.start..r.end], t.font.body, bold);
+            paint::fill(
+                mir.x(hx - 1, hw + 2),
+                ly + 2,
+                hw + 2,
+                lh - 4,
+                2,
+                t.palette.accent.over(under, 0.3 * k),
+            );
+        }
+        fltk::draw::pop_clip();
+    }
+    paint::text_elided(
+        &it.title,
+        mir.x(tx, tw),
+        ly,
+        tw,
+        lh,
+        t.font.body,
+        bold,
+        color,
+        mir.align(Align::Left),
+    );
 }
 
 /// Actions, chevron and the busy spinner at the end of a row.
@@ -672,6 +968,10 @@ fn paint_badge(
                 d / 2,
                 role.rgb(t).over(under, k),
             );
+            false
+        }
+        Badge::Icon { glyph, role, .. } => {
+            paint::glyph(glyph, x, ly, w, lh, t.font.body, role.rgb(t).over(under, k));
             false
         }
         Badge::Spinner => {

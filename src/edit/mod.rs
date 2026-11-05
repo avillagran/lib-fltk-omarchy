@@ -40,7 +40,7 @@ pub mod layout;
 pub use area::{TabKey, TextArea};
 pub use composer::{
     parse_files, size_text, Attachment, CompletionFeed, CompletionItem, CompletionState,
-    Completions, Composer, Query, SendKey, Trigger, SEND,
+    Completions, Composer, PromptHistory, Query, SendKey, Trigger, ATTACH, SEND,
 };
 
 pub use buffer::{Chip, EditBuffer, EditKind};
