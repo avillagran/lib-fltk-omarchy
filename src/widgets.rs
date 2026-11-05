@@ -39,6 +39,13 @@ pub mod glyph {
     pub const SEARCH: &str = "\u{f0349}";
     pub const FOLDER: &str = "\u{f024b}";
     pub const FILE: &str = "\u{f0214}";
+    /// Eject (a removable device in a sidebar).
+    pub const EJECT: &str = "\u{f01ea}";
+    pub const HARDDISK: &str = "\u{f02ca}";
+    pub const USB: &str = "\u{f0553}";
+    pub const HOME: &str = "\u{f02dc}";
+    pub const DOWNLOAD: &str = "\u{f01da}";
+    pub const BOOKMARK: &str = "\u{f00c0}";
     pub const WINDOW_FLOAT: &str = "\u{f05b2}";
     pub const CLOSE: &str = "\u{f0156}";
     pub const CHECKMARK: &str = "\u{2713}";
