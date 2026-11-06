@@ -70,7 +70,10 @@ pub(crate) fn endpoint(app_id: &str, runtime: &Path, create: bool) -> io::Result
     // only use it directly when it is private (XDG_RUNTIME_DIR is 0700).
     let meta = fs::metadata(runtime)?;
     if !meta.is_dir() {
-        return Err(io::Error::new(io::ErrorKind::NotFound, format!("{} is not a directory", runtime.display())));
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("{} is not a directory", runtime.display()),
+        ));
     }
     let base = if meta.uid() == euid() && meta.mode() & 0o077 == 0 {
         runtime.to_path_buf()
@@ -83,9 +86,15 @@ pub(crate) fn endpoint(app_id: &str, runtime: &Path, create: bool) -> io::Result
     private_dir(&dir, create)?;
     let sock = dir.join("instance.sock");
     if sock.as_os_str().len() > MAX_SOCKET_PATH {
-        return Err(io::Error::new(io::ErrorKind::InvalidInput, format!("socket path too long: {}", sock.display())));
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("socket path too long: {}", sock.display()),
+        ));
     }
-    Ok(Endpoint { lock: dir.join("instance.lock"), sock })
+    Ok(Endpoint {
+        lock: dir.join("instance.lock"),
+        sock,
+    })
 }
 
 impl Endpoint {
@@ -114,14 +123,24 @@ pub(crate) fn claim(ep: &Endpoint) -> io::Result<Option<Listener>> {
     // We hold the lock: a socket file left here belongs to a dead primary.
     match fs::symlink_metadata(&ep.sock) {
         Ok(m) if m.file_type().is_socket() => fs::remove_file(&ep.sock)?,
-        Ok(_) => return Err(denied(format!("{} exists and is not a socket", ep.sock.display()))),
+        Ok(_) => {
+            return Err(denied(format!(
+                "{} exists and is not a socket",
+                ep.sock.display()
+            )))
+        }
         Err(e) if e.kind() == io::ErrorKind::NotFound => {}
         Err(e) => return Err(e),
     }
     let listener = UnixListener::bind(&ep.sock)?;
     fs::set_permissions(&ep.sock, fs::Permissions::from_mode(0o600))?;
     let ino = fs::symlink_metadata(&ep.sock)?.ino();
-    Ok(Some(Listener { listener, sock: ep.sock.clone(), ino, _lock: lock }))
+    Ok(Some(Listener {
+        listener,
+        sock: ep.sock.clone(),
+        ino,
+        _lock: lock,
+    }))
 }
 
 pub(crate) struct Listener {
@@ -135,22 +154,48 @@ pub(crate) struct Listener {
 fn peer_uid(s: &UnixStream) -> Option<u32> {
     #[cfg(any(target_os = "linux", target_os = "android"))]
     {
-        let mut cred = libc::ucred { pid: 0, uid: 0, gid: 0 };
+        let mut cred = libc::ucred {
+            pid: 0,
+            uid: 0,
+            gid: 0,
+        };
         let mut len = std::mem::size_of::<libc::ucred>() as libc::socklen_t;
         // SAFETY: valid socket, out buffer of the size given.
         let rc = unsafe {
-            libc::getsockopt(s.as_raw_fd(), libc::SOL_SOCKET, libc::SO_PEERCRED, (&mut cred as *mut libc::ucred).cast(), &mut len)
+            libc::getsockopt(
+                s.as_raw_fd(),
+                libc::SOL_SOCKET,
+                libc::SO_PEERCRED,
+                (&mut cred as *mut libc::ucred).cast(),
+                &mut len,
+            )
         };
         (rc == 0).then_some(cred.uid)
     }
-    #[cfg(any(target_os = "macos", target_os = "ios", target_os = "freebsd", target_os = "openbsd", target_os = "netbsd", target_os = "dragonfly"))]
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly"
+    ))]
     {
         let (mut uid, mut gid) = (0, 0);
         // SAFETY: valid socket and out pointers.
         let rc = unsafe { libc::getpeereid(s.as_raw_fd(), &mut uid, &mut gid) };
         (rc == 0).then_some(uid)
     }
-    #[cfg(not(any(target_os = "linux", target_os = "android", target_os = "macos", target_os = "ios", target_os = "freebsd", target_os = "openbsd", target_os = "netbsd", target_os = "dragonfly")))]
+    #[cfg(not(any(
+        target_os = "linux",
+        target_os = "android",
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly"
+    )))]
     {
         let _ = s;
         None // the 0700 directory is the only guard here
@@ -181,7 +226,9 @@ impl Listener {
 impl Drop for Listener {
     fn drop(&mut self) {
         // Remove our socket file only (not one a successor bound since).
-        if fs::symlink_metadata(&self.sock).is_ok_and(|m| m.ino() == self.ino && m.file_type().is_socket()) {
+        if fs::symlink_metadata(&self.sock)
+            .is_ok_and(|m| m.ino() == self.ino && m.file_type().is_socket())
+        {
             let _ = fs::remove_file(&self.sock);
         }
         // The lock is released when `_lock` closes.
@@ -191,7 +238,10 @@ impl Drop for Listener {
 pub(crate) fn connect(ep: &Endpoint, timeout: Duration) -> io::Result<Conn> {
     let s = UnixStream::connect(&ep.sock)?;
     if !same_user(&s) {
-        return Err(denied(format!("{} is served by another user", ep.sock.display())));
+        return Err(denied(format!(
+            "{} is served by another user",
+            ep.sock.display()
+        )));
     }
     let mut c = Conn(s);
     c.set_timeout(Some(timeout))?;
@@ -248,7 +298,11 @@ pub(crate) fn raise_native<W: fltk::prelude::WindowExt>(_win: &W) {
         let send_bool: SendBool = std::mem::transmute(msg);
         let app = send0(cls, sel_registerName(c"sharedApplication".as_ptr()));
         if !app.is_null() {
-            send_bool(app, sel_registerName(c"activateIgnoringOtherApps:".as_ptr()), 1);
+            send_bool(
+                app,
+                sel_registerName(c"activateIgnoringOtherApps:".as_ptr()),
+                1,
+            );
         }
     }
 }

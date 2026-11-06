@@ -50,10 +50,27 @@ const BUFFER: u32 = 64 * 1024;
 
 #[link(name = "kernel32")]
 extern "system" {
-    fn CreateNamedPipeW(name: *const u16, open_mode: u32, pipe_mode: u32, max_instances: u32, out_size: u32, in_size: u32, default_timeout: u32, sa: *mut c_void) -> Handle;
+    fn CreateNamedPipeW(
+        name: *const u16,
+        open_mode: u32,
+        pipe_mode: u32,
+        max_instances: u32,
+        out_size: u32,
+        in_size: u32,
+        default_timeout: u32,
+        sa: *mut c_void,
+    ) -> Handle;
     fn ConnectNamedPipe(pipe: Handle, overlapped: *mut c_void) -> i32;
     fn DisconnectNamedPipe(pipe: Handle) -> i32;
-    fn CreateFileW(name: *const u16, access: u32, share: u32, sa: *mut c_void, disposition: u32, flags: u32, template: Handle) -> Handle;
+    fn CreateFileW(
+        name: *const u16,
+        access: u32,
+        share: u32,
+        sa: *mut c_void,
+        disposition: u32,
+        flags: u32,
+        template: Handle,
+    ) -> Handle;
     fn WaitNamedPipeW(name: *const u16, timeout_ms: u32) -> i32;
     fn CancelIoEx(file: Handle, overlapped: *mut c_void) -> i32;
     fn FlushFileBuffers(file: Handle) -> i32;
@@ -66,8 +83,23 @@ extern "system" {
 #[link(name = "advapi32")]
 extern "system" {
     fn OpenProcessToken(process: Handle, access: u32, token: *mut Handle) -> i32;
-    fn GetTokenInformation(token: Handle, class: u32, info: *mut c_void, len: u32, ret_len: *mut u32) -> i32;
-    fn GetSecurityInfo(handle: Handle, object_type: u32, info: u32, owner: *mut *mut c_void, group: *mut *mut c_void, dacl: *mut *mut c_void, sacl: *mut *mut c_void, sd: *mut *mut c_void) -> u32;
+    fn GetTokenInformation(
+        token: Handle,
+        class: u32,
+        info: *mut c_void,
+        len: u32,
+        ret_len: *mut u32,
+    ) -> i32;
+    fn GetSecurityInfo(
+        handle: Handle,
+        object_type: u32,
+        info: u32,
+        owner: *mut *mut c_void,
+        group: *mut *mut c_void,
+        dacl: *mut *mut c_void,
+        sacl: *mut *mut c_void,
+        sd: *mut *mut c_void,
+    ) -> u32;
     fn EqualSid(a: *mut c_void, b: *mut c_void) -> i32;
 }
 
@@ -85,7 +117,9 @@ fn wide(s: &str) -> Vec<u16> {
 
 /// FNV-1a, 64 bit: a stable short tag of the runtime dir.
 fn fnv(s: &str) -> u64 {
-    s.bytes().fold(0xcbf2_9ce4_8422_2325u64, |h, b| (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3))
+    s.bytes().fold(0xcbf2_9ce4_8422_2325u64, |h, b| {
+        (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
+    })
 }
 
 pub(crate) struct Endpoint {
@@ -96,7 +130,10 @@ pub(crate) struct Endpoint {
 pub(crate) fn endpoint(app_id: &str, runtime: &Path, _create: bool) -> io::Result<Endpoint> {
     let tag = fnv(&runtime.to_string_lossy().to_lowercase());
     let name = format!(r"\\.\pipe\fltk-omarchy-{app_id}-{tag:016x}");
-    Ok(Endpoint { wname: wide(&name), name })
+    Ok(Endpoint {
+        wname: wide(&name),
+        name,
+    })
 }
 
 impl Endpoint {
@@ -106,10 +143,26 @@ impl Endpoint {
 }
 
 fn create_instance(ep: &Endpoint, first: bool) -> io::Result<Handle> {
-    let open = PIPE_ACCESS_DUPLEX | if first { FILE_FLAG_FIRST_PIPE_INSTANCE } else { 0 };
+    let open = PIPE_ACCESS_DUPLEX
+        | if first {
+            FILE_FLAG_FIRST_PIPE_INSTANCE
+        } else {
+            0
+        };
     let mode = PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS;
     // SAFETY: NUL-terminated name; default security (only the creator writes).
-    let h = unsafe { CreateNamedPipeW(ep.wname.as_ptr(), open, mode, PIPE_UNLIMITED_INSTANCES, BUFFER, BUFFER, 0, std::ptr::null_mut()) };
+    let h = unsafe {
+        CreateNamedPipeW(
+            ep.wname.as_ptr(),
+            open,
+            mode,
+            PIPE_UNLIMITED_INSTANCES,
+            BUFFER,
+            BUFFER,
+            0,
+            std::ptr::null_mut(),
+        )
+    };
     if h == INVALID_HANDLE_VALUE {
         Err(io::Error::last_os_error())
     } else {
@@ -119,7 +172,13 @@ fn create_instance(ep: &Endpoint, first: bool) -> io::Result<Handle> {
 
 pub(crate) fn claim(ep: &Endpoint) -> io::Result<Option<Listener>> {
     match create_instance(ep, true) {
-        Ok(h) => Ok(Some(Listener { ep: Endpoint { name: ep.name.clone(), wname: ep.wname.clone() }, next: std::sync::Mutex::new(h as usize) })),
+        Ok(h) => Ok(Some(Listener {
+            ep: Endpoint {
+                name: ep.name.clone(),
+                wname: ep.wname.clone(),
+            },
+            next: std::sync::Mutex::new(h as usize),
+        })),
         // The pipe exists: another instance (ours or another user's; the
         // client side checks the owner).
         Err(e) if e.raw_os_error() == Some(ERROR_ACCESS_DENIED) => Ok(None),
@@ -161,7 +220,17 @@ impl Listener {
 
     pub(crate) fn wake(&self) {
         // SAFETY: NUL-terminated name; the handle is closed at once.
-        let h = unsafe { CreateFileW(self.ep.wname.as_ptr(), GENERIC_READ | GENERIC_WRITE, 0, std::ptr::null_mut(), OPEN_EXISTING, SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION, std::ptr::null_mut()) };
+        let h = unsafe {
+            CreateFileW(
+                self.ep.wname.as_ptr(),
+                GENERIC_READ | GENERIC_WRITE,
+                0,
+                std::ptr::null_mut(),
+                OPEN_EXISTING,
+                SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION,
+                std::ptr::null_mut(),
+            )
+        };
         if h != INVALID_HANDLE_VALUE {
             unsafe { CloseHandle(h) };
         }
@@ -188,7 +257,13 @@ fn owned_by_me(handle: Handle) -> bool {
         let mut len = 0u32;
         GetTokenInformation(token, TOKEN_USER_CLASS, std::ptr::null_mut(), 0, &mut len);
         let mut buf = vec![0u64; (len as usize).div_ceil(8).max(1)];
-        let ok = GetTokenInformation(token, TOKEN_USER_CLASS, buf.as_mut_ptr().cast(), len, &mut len) != 0;
+        let ok = GetTokenInformation(
+            token,
+            TOKEN_USER_CLASS,
+            buf.as_mut_ptr().cast(),
+            len,
+            &mut len,
+        ) != 0;
         CloseHandle(token);
         if !ok {
             return false;
@@ -196,7 +271,16 @@ fn owned_by_me(handle: Handle) -> bool {
         // TOKEN_USER { SID_AND_ATTRIBUTES { PSID Sid; DWORD Attributes } }
         let me = *(buf.as_ptr() as *const *mut c_void);
         let (mut owner, mut sd) = (std::ptr::null_mut(), std::ptr::null_mut());
-        let rc = GetSecurityInfo(handle, SE_KERNEL_OBJECT, OWNER_SECURITY_INFORMATION, &mut owner, std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut(), &mut sd);
+        let rc = GetSecurityInfo(
+            handle,
+            SE_KERNEL_OBJECT,
+            OWNER_SECURITY_INFORMATION,
+            &mut owner,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            &mut sd,
+        );
         let same = rc == 0 && !owner.is_null() && EqualSid(owner, me) != 0;
         if !sd.is_null() {
             LocalFree(sd);
@@ -209,7 +293,17 @@ pub(crate) fn connect(ep: &Endpoint, timeout: Duration) -> io::Result<Conn> {
     let deadline = std::time::Instant::now() + timeout;
     let h = loop {
         // SAFETY: NUL-terminated name. SQOS: the server may identify us, not impersonate us.
-        let h = unsafe { CreateFileW(ep.wname.as_ptr(), GENERIC_READ | GENERIC_WRITE, 0, std::ptr::null_mut(), OPEN_EXISTING, SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION, std::ptr::null_mut()) };
+        let h = unsafe {
+            CreateFileW(
+                ep.wname.as_ptr(),
+                GENERIC_READ | GENERIC_WRITE,
+                0,
+                std::ptr::null_mut(),
+                OPEN_EXISTING,
+                SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION,
+                std::ptr::null_mut(),
+            )
+        };
         if h != INVALID_HANDLE_VALUE {
             break h;
         }
@@ -221,21 +315,32 @@ pub(crate) fn connect(ep: &Endpoint, timeout: Duration) -> io::Result<Conn> {
                     return Err(io::Error::new(io::ErrorKind::TimedOut, "pipe busy"));
                 }
                 // SAFETY: NUL-terminated name.
-                if unsafe { WaitNamedPipeW(ep.wname.as_ptr(), left.as_millis().clamp(1, u32::MAX as u128) as u32) } == 0 {
+                if unsafe {
+                    WaitNamedPipeW(
+                        ep.wname.as_ptr(),
+                        left.as_millis().clamp(1, u32::MAX as u128) as u32,
+                    )
+                } == 0
+                {
                     let e = io::Error::last_os_error();
                     if e.raw_os_error() == Some(ERROR_SEM_TIMEOUT) {
                         return Err(io::Error::new(io::ErrorKind::TimedOut, "pipe busy"));
                     }
                 }
             }
-            Some(ERROR_FILE_NOT_FOUND) => return Err(io::Error::new(io::ErrorKind::NotFound, "no instance")),
+            Some(ERROR_FILE_NOT_FOUND) => {
+                return Err(io::Error::new(io::ErrorKind::NotFound, "no instance"))
+            }
             _ => return Err(e),
         }
     };
     if !owned_by_me(h) {
         // SAFETY: the handle we just opened.
         unsafe { CloseHandle(h) };
-        return Err(io::Error::new(io::ErrorKind::PermissionDenied, format!("{} is served by another user", ep.name)));
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!("{} is served by another user", ep.name),
+        ));
     }
     // Let the primary come to the foreground for this request (activation).
     let mut pid = 0u32;
@@ -292,7 +397,11 @@ impl Conn {
     fn new(h: Handle, server: bool) -> Conn {
         // SAFETY: we own the handle; File closes it.
         let file = unsafe { File::from_raw_handle(h) };
-        Conn { watchdog: Some(Watchdog::new(h as usize)), file, server }
+        Conn {
+            watchdog: Some(Watchdog::new(h as usize)),
+            file,
+            server,
+        }
     }
 
     pub(crate) fn set_timeout(&mut self, d: Option<Duration>) -> io::Result<()> {
