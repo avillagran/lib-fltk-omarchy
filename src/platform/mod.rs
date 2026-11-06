@@ -28,6 +28,9 @@ mod generic;
 pub(crate) mod instance;
 pub mod languages;
 pub mod memory;
+/// Child processes and audio outputs for `crate::media` playback.
+#[cfg(feature = "playback")]
+pub(crate) mod playback;
 pub(crate) mod poll;
 
 #[cfg(target_os = "linux")]

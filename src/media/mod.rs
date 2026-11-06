@@ -30,12 +30,16 @@
 mod cache;
 mod decode;
 mod image;
+#[cfg(feature = "playback")]
+pub mod playback;
 mod viewer;
 
 pub use cache::{cache_stats, forget, load, load_with, peek, set_cache_budget, CacheStats, Source};
 pub use decode::{decode, fitted_size, sniff};
 pub use image::Image;
 pub use viewer::{ImageViewer, ViewerHandle};
+#[cfg(feature = "playback")]
+pub use playback::{muted, Audio, PlayState, Video};
 
 use std::fmt;
 use std::sync::Arc;
