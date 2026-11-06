@@ -18,6 +18,15 @@ streaming loads.
 | CPU | Lifetime average ≈ 10 % (UI) + 9 % (client) of a core; 10 s sample while streaming: 30 % + 51 % | Idle 0 %; one streaming chat ≤ 5 % of a core |
 | Platforms | Linux/Omarchy only (Hyprland, Quickshell, layer-shell, wl-clipboard) | Linux Wayland/X11, macOS, Windows through `src/platform` |
 
+`examples/o3_shell.rs --bench` builds an o3-shaped window on the toolkit
+(sidebar of 231 card rows from a keyed model, 5 000-message transcript,
+Composer; a reply streaming at 60 Hz while the sidebar gets a snapshot
+every 1.5 s). Measured 2026-11-06 on NODE, Wayland, 1896×1030, release, two
+runs: build 37–39 ms, PSS 26.6–26.9 MB, idle 0.0 % CPU, streaming 12.5–14.7 %
+CPU (each pushed chunk repaints the window; moving the pixels when the
+growing message is stuck to the bottom is the next optimization), idle
+again 0.0 %. The UI process alone, without the backend.
+
 The two biggest costs are not the renderer: they are (1) full snapshots
 re-serialized and re-parsed many times per second, and (2) QtWebEngine
 helper processes (150–240 MB each) for HTML, Mermaid and the diff
