@@ -155,12 +155,15 @@ pub fn checks(run: &mut dyn FnMut(&str, Check)) {
         check(st.audio_out == Some("null"), &format!("silent test output: {:?}", st.audio_out))?;
         // Frames at the shown size in device pixels (never above the source).
         check(st.frame_size.0 <= 320 && st.frame_size.0 >= 200 && st.frame_size.0 % 2 == 0, &format!("frame size {:?}", st.frame_size))?;
-        // Paced: about 25 frames per second, not as fast as ffmpeg decodes.
-        let (f0, t0, p0) = (v.stats().frames, Instant::now(), v.position());
+        // Paced: the frame on screen follows the clock (25 fps from ffmpeg,
+        // not as fast as it decodes); the UI takes the latest frame.
+        let (f0, t0, p0, q0) = (v.stats().frames, Instant::now(), v.position(), v.frame_position().unwrap_or(0.0));
         play_until(&mut win, &shot, 1.0, || false);
         let (df, dt, dp) = (v.stats().frames - f0, t0.elapsed().as_secs_f64(), v.position() - p0);
-        check(df as f64 / dt > 12.0 && df as f64 / dt < 32.0, &format!("{df} frames in {dt:.2} s"))?;
+        let dq = v.frame_position().unwrap_or(0.0) - q0;
+        check(df as f64 / dt > 4.0 && df as f64 / dt < 32.0, &format!("{df} frames in {dt:.2} s"))?;
         check((dp - dt).abs() < 0.4, &format!("position moved {dp:.2} s in {dt:.2} s"))?;
+        check((dq - dt).abs() < 0.4, &format!("frames moved {dq:.2} s in {dt:.2} s"))?;
         check(media::playback::live_processes() == 2, &format!("video + audio: {}", media::playback::live_processes()))?;
         // The picture is drawn: the test pattern's colors are in the surface.
         win.snapshot(&shot).map_err(|e| e.to_string())?;
