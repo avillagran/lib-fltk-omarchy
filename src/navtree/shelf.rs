@@ -84,6 +84,8 @@ impl ShelfResizer {
         let (hv, dr) = (hover.clone(), drag.clone());
         inner.draw(move |w| {
             let focused = crate::focus::is_focused(w);
+            // The sidebar's surface, so the shelves read as one panel.
+            theme::with(|t| crate::glass::fill(w.x(), w.y(), w.w(), w.h(), 0, super::rows::surface(t)));
             if !(hv.get() || dr.get().is_some() || focused) {
                 return;
             }
