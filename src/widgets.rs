@@ -1862,7 +1862,16 @@ impl TabBar {
         let selected_cb=select.clone();
         inner.handle(move |w, ev| {
             let n = g.tabs.borrow().len();
-            let pick = |i: usize| if i < n { hit_cursor.set(hit_ids.borrow().get(i).copied()); v.set(i); fire(&selected_cb,i); };
+            let reveal_widget = w.clone();
+            let pick = |i: usize| if i < n {
+                hit_cursor.set(hit_ids.borrow().get(i).copied());
+                // Cursor-only navigation may have scrolled the active key
+                // out of view. Activation must reveal even the same key.
+                g.reveal(&reveal_widget, i);
+                reveal_widget.clone().redraw();
+                v.set(i);
+                fire(&selected_cb, i);
+            };
             match ev {
                 Event::Enter => true,
                 Event::Focus | Event::Unfocus => { if ev==Event::Unfocus {hit_press.borrow_mut().take();} w.redraw(); true }

@@ -4,6 +4,7 @@ import ctypes
 import json
 import os
 from pathlib import Path
+import select
 import subprocess
 import sys
 import time
@@ -90,6 +91,22 @@ def inside(binary, output):
             time.sleep(0.1)
         click(tabs[20], 1, True)
         click(tabs[30], 1)
+        (output / "reveal-request").write_text("reveal\n")
+        deadline = time.monotonic() + 3
+        while True:
+            try:
+                before_reveal = json.loads((output / "reveal-ready.json").read_text())
+                break
+            except (FileNotFoundError, json.JSONDecodeError):
+                if process.poll() is not None or time.monotonic() > deadline:
+                    raise RuntimeError("reveal scenario did not become ready")
+                time.sleep(0.02)
+        assert before_reveal["selected"] == 30 and not before_reveal["first_visible"] and before_reveal["offset"] > 0, before_reveal
+        home = x11.XKeysymToKeycode(d, ctypes.c_ulong(0xff50))
+        xt.XTestFakeKeyEvent(d, home, 1, 0)
+        xt.XTestFakeKeyEvent(d, home, 0, 0)
+        x11.XFlush(d)
+        time.sleep(0.1)
         (output / "done").write_text("done\n")
         process.wait(timeout=5)
         if process.returncode:
@@ -111,8 +128,9 @@ def inside(binary, output):
     assert [e["order"] for e in reorders] == [[10, 30, 20], [10, 20, 30]] and all(e["selected"] == 10 for e in reorders), report
     assert len(selects) == 1 and selects[0]["key"] == 30 and report["selected"] == 30, report
     assert report["backend"] == "CPU", report
+    assert report["reveal"] == {"first_visible": True, "offset": 0, "focused": 30}, report
     print(json.dumps(report))
-    print("PASS native buttons/context/drag/keyboard with stable keys:", output)
+    print("PASS native buttons/context/drag/keyboard and same-key Home reveal:", output)
 
 
 if __name__ == "__main__":
@@ -132,4 +150,30 @@ if __name__ == "__main__":
         env.pop("WAYLAND_DISPLAY", None)
         env.pop("HYPRLAND_INSTANCE_SIGNATURE", None)
         env.update(FLTK_BACKEND="x11", OMARCHY_PRIVATE_TAB_TEST=token, OMARCHY_TAB_TEST_BINARY=str(binary))
-        subprocess.run(["xvfb-run", "-a", "-s", "-screen 0 1280x800x24", sys.executable, "-I", str(Path(__file__).resolve()), "--inside", token, str(output)], env=env, check=True, timeout=30)
+        # Let the server atomically reserve a display. Two concurrent
+        # xvfb-run -a launchers can race while searching for a free number.
+        # Only this process owns/terminates the resulting private server.
+        env.pop("DISPLAY", None)
+        env.pop("XAUTHORITY", None)
+        read_fd, write_fd = os.pipe()
+        with (output / "xvfb.log").open("w") as log:
+            server = subprocess.Popen(["Xvfb", "-displayfd", str(write_fd), "-screen", "0", "1280x800x24", "-nolisten", "tcp", "-noreset"], pass_fds=(write_fd,), stdout=log, stderr=subprocess.STDOUT, env=env)
+            os.close(write_fd)
+            try:
+                if not select.select([read_fd], [], [], 8)[0]:
+                    raise RuntimeError("private Xvfb startup timed out; inspect xvfb.log")
+                display = os.read(read_fd, 32).strip()
+                if not display.isdigit() or server.poll() is not None:
+                    raise RuntimeError("private Xvfb failed; inspect xvfb.log")
+                env["DISPLAY"] = ":" + display.decode("ascii")
+                print(f"private Xvfb display={env['DISPLAY']} pid={server.pid}", flush=True)
+                subprocess.run([sys.executable, "-I", str(Path(__file__).resolve()), "--inside", token, str(output)], env=env, check=True, timeout=30)
+            finally:
+                os.close(read_fd)
+                if server.poll() is None:
+                    server.terminate()
+                    try:
+                        server.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        server.kill()
+                        server.wait(timeout=5)

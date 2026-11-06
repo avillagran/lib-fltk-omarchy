@@ -54,6 +54,7 @@ fn main() {
     win.show();
     let start = Instant::now();
     let mut ready = false;
+    let mut reveal_ready = false;
     while start.elapsed() < Duration::from_secs(10) && win.shown() {
         let _ = app::wait_for(0.01);
         if !ready && start.elapsed() > Duration::from_millis(200) {
@@ -65,10 +66,25 @@ fn main() {
             .unwrap();
             ready = true;
         }
+        if !reveal_ready && root.join("reveal-request").exists() {
+            // Keep the active key (30) while moving it to the first slot.
+            // Cursor-only focus scrolls it away; real Home must reveal it
+            // without another selection notification.
+            model.move_key(&30, 0);
+            for id in 40..56 {
+                model.push(Entry {
+                    id,
+                    title: format!("Overflow tab {id}"),
+                });
+            }
+            assert!(bar.focus_key(&55));
+            std::fs::write(root.join("reveal-ready.json"), serde_json::json!({"selected":selected.get(),"first_visible":bar.rect_for_key(&30).is_some(),"offset":bar.scroll_offset()}).to_string()).unwrap();
+            reveal_ready = true;
+        }
         if root.join("done").exists() {
             break;
         }
     }
-    std::fs::write(root.join("report.json"),serde_json::json!({"events":*events.borrow(),"selected":selected.get(),"order":(0..model.len()).filter_map(|i|model.key_at(i)).collect::<Vec<_>>(),"backend":"CPU"}).to_string()).unwrap();
+    std::fs::write(root.join("report.json"),serde_json::json!({"events":*events.borrow(),"selected":selected.get(),"order":(0..model.len()).filter_map(|i|model.key_at(i)).collect::<Vec<_>>(),"backend":"CPU","reveal":{"first_visible":bar.rect_for_key(&30).is_some(),"offset":bar.scroll_offset(),"focused":bar.focused_key()}}).to_string()).unwrap();
     win.hide();
 }

@@ -1,5 +1,6 @@
 //! Tab requests preserve app-owned pane/selection state and stable IDs.
 use super::*;
+mod plain_frames;
 #[derive(Clone, PartialEq)]
 struct Entry {
     key: u64,
@@ -25,6 +26,29 @@ fn point(bar: &KeyedTabBar<u64>, key: u64, close: bool) -> (i32, i32) {
 }
 
 pub fn checks(run: &mut dyn FnMut(&str, &dyn Fn(&Path) -> Result<(), String>)) {
+    plain_frames::checks(run);
+    run("tabs keyed: activating the same selected key reveals it after independent cursor scrolling", &|shots| {
+        struct Restore;impl Drop for Restore{fn drop(&mut self){i18n::set_locale("en");}}
+        let _restore=Restore;
+        let model=ListModel::new(|t:&Entry|t.key);
+        for key in 0..16 {model.push(Entry{key,title:format!("Tab {key:02}")});}
+        let selected=State::new(Some(0));let changes=Rc::new(Cell::new(0));let c=changes.clone();
+        selected.subscribe(move |_|c.set(c.get()+1)).forever();
+        let mut win=AppWindow::new("Cursor scroll",320,160);let mut body=win.body();
+        let bar=TabBar::from_model(&model,&selected,|t|t.title.clone());body.fit(&*bar);win.end();
+        for locale in ["en","ar"]{
+            i18n::set_locale(locale);
+            win.snapshot(shots.join(format!("tabs-same-key-before-{locale}.png"))).map_err(|e|e.to_string())?;
+            check(bar.focus_key(&15),"focus/reveal last without selection")?;
+            win.snapshot(shots.join(format!("tabs-same-key-scrolled-{locale}.png"))).map_err(|e|e.to_string())?;
+            check(selected.get()==Some(0)&&bar.rect_for_key(&0).is_none()&&bar.scroll_offset()>0,"independent cursor leaves first active key offscreen")?;
+            focus::press("Home");
+            check(bar.rect_for_key(&0).is_some()&&bar.scroll_offset()==0,"Home reveals same selected key immediately, without waiting for a draw")?;
+            win.snapshot(shots.join(format!("tabs-same-key-home-{locale}.png"))).map_err(|e|e.to_string())?;
+            check(selected.get()==Some(0)&&bar.focused_key()==Some(0)&&bar.rect_for_key(&0).is_some()&&changes.get()==0,"same-key activation restores viewport/cursor without owner selection notification")?;
+        }
+        fltk::window::DoubleWindow::delete((*win).clone());Ok(())
+    });
     #[cfg(feature = "a11y")]
     run(
         "tabs keyed: accessible IDs survive rename/reorder and focus does not activate",

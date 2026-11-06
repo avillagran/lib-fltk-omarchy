@@ -68,6 +68,11 @@ drop indicators and Left/Right. Scroll arrows respond only to the primary
 mouse button. When using the component, include its enabled actions in the
 app's F1 shortcut help.
 
+Activation reveals its target and repaints even when it is already the
+selected key. For example, `focus_key(&last)` can scroll the active first
+tab out of view without selecting; Home brings that first tab back without
+emitting a redundant selection change.
+
 Ctrl+Shift+PageUp/PageDown are left to the app's controller (for example,
 Files' Move commands); they never fall through to next/previous selection.
 
@@ -95,6 +100,42 @@ handler. Hit testing returns `None` for scroll arrows, gaps and outside
 points. Middle-click routing uses the returned key for either tab part.
 Context requests provide the same coordinate system in `request.x/y`.
 
+## Transparent drawing in plain FLTK
+
+TabBar uses `NoBox`: its parent owns the background. `AppWindow` already
+restores that background on partial redraws. In a plain FLTK window, put
+the strip in a background-owning group and draw its children after the
+background on **every** group draw, including animation timer frames:
+
+```rust
+use fltk::{group::Group, prelude::*};
+use fltk_omarchy::{paint, theme, widgets::TabBar, State};
+
+let mut host = Group::new(8, 8, 300, 32, None);
+let active = State::new(0usize);
+let mut tabs = TabBar::new(&["First", "Second", "Third"], &active);
+tabs.resize(8, 8, 300, 32);
+host.end();
+host.draw(|g| {
+    theme::with(|t| paint::fill(g.x(), g.y(), g.w(), g.h(), 0,
+                              t.palette.background));
+    for i in 0..g.children() {
+        if let Some(mut child) = g.child(i) {
+            if child.visible() { g.draw_child(&mut child); }
+        }
+    }
+});
+host.super_draw(false);
+```
+
+Use the owning pane's actual theme surface in place of `background` when
+appropriate. This restores transparent fills without painting across
+neighboring panes. Disable the group's default pre-draw as above to avoid
+drawing its children once before clearing the background. The strip needs
+no `on_render` callback. Do not replace its own `draw` callback: that
+would replace the toolkit renderer. Query the geometry APIs when needed;
+there is no per-frame geometry notification.
+
 ## Validation
 
 `tests/tabs_ui` covers mouse-button separation, duplicate titles, compound
@@ -102,6 +143,12 @@ pane/tab keys, focus preservation, updates during a press, removal and
 reinsertion, pending model notifications, snapshots, cursor reorder,
 cancellation, scrolling and RTL hit geometry. It uses the normal event
 dispatcher and CPU snapshots.
+
+The plain-FLTK host regression also reads the mapped window's actual RGB
+buffer after hover enter/leave and start/middle/end timer frames, compares
+each against a fresh full-background render, and checks that rendering
+stops once motion settles. These are render checks using testkit input;
+they are separate from the native XTest input check below.
 
 For real X11 mouse/key events on a fresh private display:
 
@@ -112,6 +159,9 @@ script/tabs-input-check
 
 The driver uses XTest, reads tab/close geometry from the actual widget and
 checks right-click body/cross, real button 2, drag and keyboard reorder,
-then explicit primary selection. It records requests and selection state
+then explicit primary selection. A final overflow scenario scrolls that
+active first key away with cursor-only focus, sends real Home, and verifies
+that it is visible again with zero offset and no extra selection change.
+It records requests and selection state
 in `build/tabs-input-*`, never injects input into the user's display and
 does not enable GPU rendering or effects.
