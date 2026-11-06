@@ -236,3 +236,20 @@ on the GPU backend than on the CPU backend; idle stays 0 %; total PSS
    they remove the heaviest processes.
 5. GPU scene (section 4) as a measured spike in parallel with P1, made
    the default only if the gates hold.
+
+## 7. Status (branch `o3-port`)
+
+| Item | State |
+|---|---|
+| P0 1–3 transcript in `RichText` (embeds, keyed messages, anchors, actions, find) | in progress |
+| P0 4 Composer additions | done on its branch, to merge |
+| P0 5–6 `media::Image`, SVG icons | in progress |
+| P0 7 single instance and app IPC (`instance`) | merged (Windows/macOS not type-checked locally) |
+| P0 8 NavTree rows like o3 | done on its branch, to merge |
+| P1 12 splitter (`split::Split`) | merged |
+| P1 13 reorder in plain lists (`List::reorderable`) | merged |
+| P1 14 nested scroll hand-off (`Scroll::passes`; List, Table, Tree) | merged; RichText and NavTree after their merges |
+| P1 17 keys: command tables, record, repeat, suspend | merged |
+| P1 18 font weights, letter spacing, named and terminal colors, project colors | merged |
+| P1 19 charts (`chart`) | merged; masked input and QR pending |
+| P1 9–11, 15, 16, 20 | not started |
