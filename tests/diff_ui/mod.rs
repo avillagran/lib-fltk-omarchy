@@ -742,4 +742,24 @@ pub fn a11y_checks(run: &mut dyn FnMut(&str, Check)) {
         let bad: Vec<&str> = ok.iter().filter(|(_, v)| !v).map(|(n, _)| *n).collect();
         check(bad.is_empty(), &format!("missing {bad:?}:\n{snap}"))
     });
+    run("a11y: diff comment buttons are named after the lines and file; painted annotations are read; Click comments", &|_| {
+        use fltk_omarchy::a11y::testing::{self, accesskit::{Action as A, Role as R}};
+        let comments = Rc::new(RefCell::new(Vec::<LineRange>::new()));
+        let c2 = comments.clone();
+        let f = fixture_with(900, 420, false, PATCH, move |v| v.on_comment(move |r| c2.borrow_mut().push(r)).annotation_painter(|_| {}));
+        let v = &f.view;
+        let rec = testing::record(&*f.win);
+        v.set_annotations(vec![Annotation::new(0, LineRef::new(Side::New, 13), "t", 40).label("Thread: 2 comments"), Annotation::new(0, LineRef::new(Side::New, 16), "u", 30)]);
+        v.set_selected_range(Some(LineRange { file: 0, side: Side::New, start: 12, end: 14 }));
+        f.win.clone().snapshot(Path::new("build/test-ui/shots/a11y-diff-review.png")).ok();
+        rec.sync();
+        let snap = fltk_omarchy::a11y::snapshot(&*f.win).ok_or("no tree")?;
+        for want in ["Button \"Comment on lines 12–14 of src/player.rs\"", "Button \"Comment on line 15 of src/player.rs\"", "Group \"Thread: 2 comments\"", "Group \"Note under line 16\""] {
+            check(snap.contains(want), &format!("has {want:?}:\n{snap}"))?;
+        }
+        rec.act(rec.find(R::Button, "Comment on line 15 of src/player.rs").ok_or("button")?, A::Click, None);
+        let ok = comments.borrow().last() == Some(&LineRange { file: 0, side: Side::New, start: 15, end: 15 });
+        close(f);
+        check(ok, &format!("AT click comments: {:?}", comments.borrow()))
+    });
 }
