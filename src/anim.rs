@@ -694,7 +694,7 @@ thread_local! {
     static SCHEDULE: RefCell<Schedule> = RefCell::new(Schedule::default());
     /// Widgets with a pending frame, with their id (a deleted widget has no
     /// pointer to ask for).
-    static WIDGETS: RefCell<Vec<(usize, Widget)>> = const { RefCell::new(Vec::new()) };
+    static WIDGETS: RefCell<Vec<(usize, Widget, bool)>> = const { RefCell::new(Vec::new()) };
     static DISPLAY_HZ: Cell<(f64, Option<Instant>)> = const { Cell::new((60.0, None)) };
 }
 
@@ -718,21 +718,34 @@ pub fn request_redraw<W: WidgetExt>(w: &W) {
 /// [`PaceMode`]). One shared timer serves every pace and stops when no
 /// widget waits.
 pub fn request_redraw_at<W: WidgetExt>(w: &W, pace: Pace) {
+    request(w, pace, false);
+}
+
+/// Like [`request_redraw`], but the frame only reports a scroll
+/// (`Damage::Scroll`): a view that can move its pixels (`fl_scroll`) and
+/// paint the exposed strip does so. Any full redraw of the widget wins.
+pub fn request_scroll_frame<W: WidgetExt>(w: &W) {
+    request(w, Pace::Normal, true);
+}
+
+fn request<W: WidgetExt>(w: &W, pace: Pace, scroll_only: bool) {
     // SAFETY: `w` is a live widget; the copy only tracks its deletion.
     let w = unsafe { <Widget as WidgetBase>::from_widget_ptr(w.as_widget_ptr()) };
     let id = w.as_widget_ptr() as usize;
     WIDGETS.with(|list| {
         let mut list = list.borrow_mut();
         // Widgets deleted mid-transition (a closed window) leave the list first.
-        list.retain(|(i, x)| {
+        list.retain(|(i, x, _)| {
             let keep = !x.was_deleted();
             if !keep {
                 SCHEDULE.with(|s| s.borrow_mut().forget(*i));
             }
             keep
         });
-        if !list.iter().any(|(i, _)| *i == id) {
-            list.push((id, w));
+        match list.iter_mut().find(|(i, _, _)| *i == id) {
+            // A full redraw request wins over a scroll-only one.
+            Some(e) => e.2 = e.2 && scroll_only,
+            None => list.push((id, w, scroll_only)),
         }
     });
     SCHEDULE.with(|s| s.borrow_mut().request(id, pace.under(pace_mode()), Instant::now()));
@@ -751,16 +764,20 @@ fn arm() {
         TIMER.with(|t| t.set(false));
         let hz = display_hz();
         let due = SCHEDULE.with(|s| s.borrow_mut().take_due(Instant::now(), hz));
-        let list: Vec<Widget> = WIDGETS.with(|l| {
+        let list: Vec<(Widget, bool)> = WIDGETS.with(|l| {
             let mut l = l.borrow_mut();
-            let picked = l.iter().filter(|(i, _)| due.contains(i)).map(|(_, w)| w.clone()).collect();
+            let picked = l.iter().filter(|(i, _, _)| due.contains(i)).map(|(_, w, s)| (w.clone(), *s)).collect();
             let waiting: Vec<usize> = SCHEDULE.with(|s| s.borrow().waiting.iter().map(|w| w.0).collect());
-            l.retain(|(i, _)| waiting.contains(i));
+            l.retain(|(i, _, _)| waiting.contains(i));
             picked
         });
-        for mut w in list {
+        for (mut w, scroll_only) in list {
             if !w.was_deleted() {
-                w.redraw();
+                if scroll_only {
+                    w.set_damage_type(w.damage_type() | fltk::enums::Damage::Scroll);
+                } else {
+                    w.redraw();
+                }
             }
         }
         arm();

@@ -343,3 +343,27 @@ mapping with a fixed size so Hyprland floats it at the requested size.
 Other workloads, other machines, GPU-heavy content, and long-running
 memory behaviour were not measured. Numbers from the abandoned Ruby
 prototype are not comparable and are not used here.
+
+## Scrolling: moving pixels instead of repainting (2026-11-06)
+
+A `RichText` frame that only scrolled (wheel glide, `scroll_to`) moves the
+pixels already in the window buffer with FLTK's `fl_scroll` and paints only
+the strip it exposed, the 2 px rows of the focus ring and the scrollbar
+column (no text there). Any other change in the frame, a hosted widget or a
+fade in view, an open popup, or a jump of about a screen paints in full.
+`tests/scroll_ui` checks that moved pixels + strips equal a full repaint,
+pixel for pixel (read back from the real window), scrolling down and up.
+
+`richtext_bench --messages 5000 --scroll 20 --hz 60 --size 1896x1030`,
+release, NODE (1920×1080 @ 60 Hz); two runs each:
+
+| Backend | Repaint every frame | Move pixels + strip |
+|---|---|---|
+| X11 (Xvfb) | 8.9–9.0 % CPU, 1.48–1.55 ms per frame | 2.6–3.4 % CPU, 0.65–0.97 ms |
+| Wayland (Hyprland, hidden workspace) | 12.3 % CPU, 2.11–2.12 ms | 5.6–6.0 % CPU, 0.96–0.98 ms |
+
+On by default; `OMARCHY_FLTK_SCROLL_BLIT=off` repaints instead. MSVC builds
+(no `fl_scroll` symbol bound yet) repaint. The window takes part: when
+only such views scrolled, `AppWindow` skips repainting the background under
+them and draws other damaged widgets that do not overlap them on their own
+background.

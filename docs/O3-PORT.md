@@ -218,6 +218,12 @@ would need about 4.3 ms per frame: ≈ 26 % of a core at 60 Hz and ≈ 52 % at
 overall than a GL context (+35–40 MB PSS for the driver), which is why it
 stays the default; the GPU scene pays off on 4K and high-refresh displays.
 
+Before any GPU work, scrolling now moves pixels instead of repainting
+(`fl_scroll` + the exposed strip, docs/PERFORMANCE.md): 2–3× less CPU at
+1896×1030 (Wayland 12.3 % → 5.6–6.0 %, X11 9 % → 2.6–3.4 %), so the cost of
+a scroll no longer grows with the window size. That moves the point where a
+GPU scene pays off further out.
+
 Gates before the GPU scene becomes a default for o3: on a 4K/120 Hz
 display, scrolling a 5 000-message transcript must cost clearly less CPU
 on the GPU backend than on the CPU backend; idle stays 0 %; total PSS

@@ -220,6 +220,14 @@ impl AppWindow {
         });
         let m3 = mode.clone();
         win.draw(move |w| {
+            // Only views that can move their own pixels scrolled: let FLTK
+            // update just them, without repainting the background under them.
+            if w.damage_type() == Damage::Child && scroll_only(w) {
+                // SAFETY: the window being drawn, only read.
+                let root = unsafe { fltk::group::Group::from_widget_ptr(w.as_widget_ptr()) };
+                theme::with(|t| draw_planned(&root, t.palette.background));
+                return;
+            }
             // The window background is Omarchy's glass under Glassy windows.
             theme::with(|t| crate::glass::fill(0, 0, w.w(), w.h(), 0, t.palette.background));
             draw_stack(w);
@@ -437,6 +445,31 @@ impl AppWindow {
     }
 }
 
+extern "C" {
+    // cfltk wrapper of fl_read_image (linked through fltk-sys).
+    fn Fl_read_image(p: *mut u8, x: i32, y: i32, w: i32, h: i32, alpha: i32) -> *mut u8;
+}
+
+/// The RGB pixels the window shows now (`w × h × 3`), read back from its
+/// buffer without raising it — unlike [`snapshot`], which renders the
+/// widgets offscreen, this sees what the real draw path produced (partial
+/// redraws, scroll blits). For tests; `None` if the window is not shown.
+/// Each call leaves FLTK's small read buffer allocated (test use).
+pub fn read_pixels(win: &mut DoubleWindow) -> Option<Vec<u8>> {
+    if !win.shown() {
+        return None;
+    }
+    let (w, h) = (win.w(), win.h());
+    win.make_current();
+    // SAFETY: a shown window made current; FLTK returns a w*h*3 buffer.
+    let p = unsafe { Fl_read_image(std::ptr::null_mut(), 0, 0, w, h, 0) };
+    if p.is_null() {
+        return None;
+    }
+    // SAFETY: as above, the buffer holds w*h*3 bytes.
+    Some(unsafe { std::slice::from_raw_parts(p, (w * h * 3) as usize) }.to_vec())
+}
+
 /// Offscreen render of any window into a PNG.
 pub fn snapshot(win: &mut DoubleWindow, path: &Path) -> std::io::Result<()> {
     use fltk::surface::ImageSurface;
@@ -459,6 +492,99 @@ pub fn snapshot(win: &mut DoubleWindow, path: &Path) -> std::io::Result<()> {
     let img = img.ok_or_else(|| std::io::Error::other("offscreen render failed"))?;
     let data = img.to_rgb_data();
     png::write(path, img.data_w() as u32, img.data_h() as u32, img.depth() as u8, &data)
+}
+
+thread_local! {
+    /// Views that paint a scroll by moving their pixels (`RichText`).
+    static BLITTERS: RefCell<Vec<(usize, fltk::widget::Widget)>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Registers a view whose `Damage::Scroll` frames move pixels and paint
+/// only what they expose, so its window may skip repainting under it.
+pub(crate) fn register_blitter<W: WidgetExt>(w: &W) {
+    // SAFETY: a live widget; the copy only tracks its deletion.
+    let wid = unsafe { fltk::widget::Widget::from_widget_ptr(w.as_widget_ptr()) };
+    BLITTERS.with(|b| {
+        let mut b = b.borrow_mut();
+        b.retain(|(_, x)| !x.was_deleted());
+        b.push((w.as_widget_ptr() as usize, wid));
+    });
+}
+
+fn is_blitter(id: usize) -> bool {
+    BLITTERS.with(|b| b.borrow().iter().any(|(i, x)| *i == id && !x.was_deleted()))
+}
+
+type Rect4 = (i32, i32, i32, i32);
+
+fn overlaps(a: Rect4, b: Rect4) -> bool {
+    a.0 < b.0 + b.2 && b.0 < a.0 + a.2 && a.1 < b.1 + b.3 && b.1 < a.1 + a.3
+}
+
+/// Plan for a frame where registered views only scrolled: the damaged
+/// widgets under `g` are such views (`update`), groups leading to them
+/// (`descend`), or other widgets that do not overlap any of them
+/// (`repaint`: background under them + full draw). None when something
+/// damaged overlaps a scrolled view (the frame is painted in full).
+#[derive(Default)]
+struct ScrollPlan {
+    scrolled: Vec<Rect4>,
+    others: Vec<Rect4>,
+}
+
+fn plan(g: &fltk::group::Group, p: &mut ScrollPlan) -> bool {
+    for i in 0..g.children() {
+        let Some(c) = g.child(i) else { continue };
+        if !c.visible() || !c.damage() {
+            continue;
+        }
+        let d = c.damage_type();
+        let r = (c.x(), c.y(), c.w(), c.h());
+        if d == Damage::Scroll && is_blitter(c.as_widget_ptr() as usize) {
+            p.scrolled.push(r);
+        } else if d == Damage::Child && c.as_group().is_some() {
+            if !plan(&c.as_group().unwrap(), p) {
+                return false;
+            }
+        } else {
+            p.others.push(r);
+        }
+    }
+    true
+}
+
+/// Draws a frame planned by [`plan`]: scrolled views update themselves,
+/// other damaged widgets get their background and a full draw.
+fn draw_planned(g: &fltk::group::Group, bg: crate::theme::Rgb) {
+    for i in 0..g.children() {
+        let Some(mut c) = g.child(i) else { continue };
+        if !c.visible() || !c.damage() {
+            continue;
+        }
+        let d = c.damage_type();
+        if d == Damage::Scroll && is_blitter(c.as_widget_ptr() as usize) {
+            g.update_child(&mut c);
+        } else if d == Damage::Child && c.as_group().is_some() {
+            draw_planned(&c.as_group().unwrap(), bg);
+            c.clear_damage();
+        } else {
+            fltk::draw::push_clip(c.x(), c.y(), c.w(), c.h());
+            crate::glass::fill(c.x(), c.y(), c.w(), c.h(), 0, bg);
+            g.draw_child(&mut c);
+            fltk::draw::pop_clip();
+        }
+    }
+}
+
+/// True when the frame can be drawn by [`draw_planned`]: at least one
+/// registered view only scrolled and nothing else damaged overlaps it.
+fn scroll_only(g: &impl GroupExt) -> bool {
+    // SAFETY: a live group, only read.
+    let root = unsafe { fltk::group::Group::from_widget_ptr(g.as_widget_ptr()) };
+    let mut p = ScrollPlan::default();
+    plan(&root, &mut p)
+        && !p.scrolled.is_empty()
+        && !p.others.iter().any(|o| p.scrolled.iter().any(|s| overlaps(*o, *s)))
 }
 
 /// Draws the window's children over a freshly painted background.

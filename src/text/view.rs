@@ -367,6 +367,15 @@ pub(super) struct Inner {
     /// Embeds are Tab stops (an activate callback is set).
     embed_focus: bool,
     hosted: Vec<(Arc<str>, Widget)>,
+    /// Scroll offset and geometry of the last frame drawn (scroll blits).
+    drawn: Option<(i64, i32, i32, i32, i32, i32)>,
+    /// While the pixels move: draw with this exact offset (no motion step).
+    hold_motion: bool,
+    /// Paint only the background, scrollbar and ring (the scrollbar column
+    /// after a scroll blit): the text never reaches it.
+    chrome_only: bool,
+    /// Frames drawn by moving pixels (`fl_scroll`) instead of repainting.
+    blits: u64,
     host: Option<fltk::group::Group>,
     pub(super) find: Option<Find>,
     notes: Vec<Note>,
@@ -424,6 +433,10 @@ impl Inner {
             extra_table_actions: None,
             embed_focus: false,
             hosted: Vec::new(),
+            drawn: None,
+            hold_motion: false,
+            chrome_only: false,
+            blits: 0,
             host: None,
             find: None,
             notes: Vec::new(),
@@ -1654,6 +1667,7 @@ impl RichText {
             hooks: Rc::default(),
         };
         rt.install();
+        crate::window::register_blitter(&rt.widget);
         rt
     }
 
@@ -1664,7 +1678,13 @@ impl RichText {
             let t0 = Instant::now();
             {
                 let mut i = inn.borrow_mut();
-                theme::with(|t| draw_view(w, &mut i, t));
+                // Only scrolled since the last frame: move the pixels.
+                let only_scroll = w.damage_type() == Damage::Scroll;
+                theme::with(|t| {
+                    if !(only_scroll && blit_scroll(w, &mut i, t)) {
+                        draw_view(w, &mut i, t);
+                    }
+                });
                 i.frames += 1;
                 i.paint_time += t0.elapsed();
             }
@@ -1941,7 +1961,15 @@ impl RichText {
             i.set_top(top);
             i.stuck = i.stick && i.top >= max;
         }
-        self.changed();
+        // Only the offset changed: the next frame may move pixels.
+        let mut w = self.widget.clone();
+        w.set_damage_type(w.damage_type() | Damage::Scroll);
+    }
+
+    /// Frames drawn by moving the pixels already on screen instead of
+    /// repainting the view (benchmarks, tests).
+    pub fn scroll_blits(&self) -> u64 {
+        self.inner.borrow().blits
     }
 
     pub fn scroll_to_bottom(&self) {
@@ -2148,16 +2176,19 @@ fn draw_view(w: &mut Widget, i: &mut Inner, t: &Theme) {
         i.width = width;
         i.relayout_all();
     }
-    let max = i.max_top();
-    let top = i.top;
-    let moved = i.motion.position(top, max);
-    if moved != top {
-        i.top = moved;
-        i.anchor = i.locate(moved);
+    if !i.hold_motion {
+        let max = i.max_top();
+        let top = i.top;
+        let moved = i.motion.position(top, max);
+        if moved != top {
+            i.top = moved;
+            i.anchor = i.locate(moved);
+        }
     }
     i.ensure_visible(&mut m);
-    if i.motion.running() {
-        crate::anim::request_redraw(w);
+    if i.motion.running() && !i.hold_motion {
+        // Wheel glide: frames that only move the content.
+        crate::anim::request_scroll_frame(w);
     }
     let under = i.surface.map_or(t.palette.background, |r| r.rgb(t));
     draw::push_clip(w.x(), w.y(), w.w(), w.h());
@@ -2172,7 +2203,15 @@ fn draw_view(w: &mut Widget, i: &mut Inner, t: &Theme) {
     let mut pictures: Vec<(Arc<str>, i32, i32, i32, i32)> = Vec::new();
     let foot = i.foot_h();
     for k in vis.clone() {
+        if i.chrome_only {
+            break;
+        }
         let by = i.screen_y(k, w.y());
+        // Strips painted after a scroll blit: skip blocks outside the clip.
+        let next = if k + 1 < i.store.len() { i.screen_y(k + 1, w.y()) } else { w.y() + w.h() };
+        if !draw::not_clipped(w.x(), by - 16, w.w(), (next - by).max(1) + 32) {
+            continue;
+        }
         let Some((b, l)) = i.laid(k) else { continue };
         let range = sel.and_then(|(a, b)| {
             if k < a.block || k > b.block {
@@ -2303,8 +2342,10 @@ fn draw_view(w: &mut Widget, i: &mut Inner, t: &Theme) {
             draw::pop_clip();
         }
     }
-    place_hosted(w, i, &vis);
-    track_visible(i, &vis);
+    if !i.chrome_only {
+        place_hosted(w, i, &vis);
+        track_visible(i, &vis);
+    }
     // A new message fading in over what is under it.
     if let Some((start, tw)) = i.reveal {
         if tw.done() || !crate::anim::enabled() || start >= i.store.len() {
@@ -2347,6 +2388,90 @@ fn draw_view(w: &mut Widget, i: &mut Inner, t: &Theme) {
             c,
         );
     }
+    i.drawn = Some((i.top, w.x(), w.y(), w.w(), w.h(), i.width));
+}
+
+/// Whether scroll-only frames move pixels (`OMARCHY_FLTK_SCROLL_BLIT=on|off`,
+/// read once; default from [`crate::platform::scroll_blit_default`]).
+fn scroll_blit_enabled() -> bool {
+    thread_local! {
+        static ON: bool = match std::env::var("OMARCHY_FLTK_SCROLL_BLIT").ok().as_deref() {
+            Some("on" | "1") => true,
+            Some("off" | "0") => false,
+            _ => crate::platform::scroll_blit_default(),
+        };
+    }
+    ON.with(|v| *v)
+}
+
+/// A frame that only scrolled: moves the pixels already on screen
+/// (`fl_scroll`) and paints the strip it exposed, the frame around the
+/// moved area and the scrollbar. False when a full paint is needed (first
+/// frame, new size, hosted widgets or a fade in view, a jump of about a
+/// screen, or a backend without `fl_scroll`).
+fn blit_scroll(w: &mut Widget, i: &mut Inner, t: &Theme) -> bool {
+    if !scroll_blit_enabled() {
+        return false;
+    }
+    let Some((top0, x, y, ww, hh, width)) = i.drawn else { return false };
+    if (x, y, ww, hh) != (w.x(), w.y(), w.w(), w.h()) || width != i.width || i.reveal.is_some() {
+        return false;
+    }
+    if i.hosted.iter().any(|(_, h)| !h.was_deleted() && h.visible()) {
+        return false;
+    }
+    let max = i.max_top();
+    let moved = i.motion.position(i.top, max);
+    if moved != i.top {
+        i.top = moved;
+        i.anchor = i.locate(moved);
+    }
+    if i.motion.running() {
+        crate::anim::request_scroll_frame(w);
+    }
+    let dy = i.top - top0;
+    // The moved area: the text column (the text never reaches the
+    // scrollbar column), inside 2 px rows at the top and bottom (focus
+    // ring), above the bottom inset (a composer drawn over the view).
+    let (cx, cy) = (w.x(), w.y() + 2);
+    let (cw, ch) = (w.w() - BAR - 2, w.h() - 4 - i.inset);
+    if dy == 0 {
+        return true;
+    }
+    if cw <= 0 || ch <= 8 || dy.abs() >= (ch - 8) as i64 {
+        return false;
+    }
+    i.hold_motion = true;
+    let inset = i.inset;
+    let wc = w.clone();
+    let mut strip = |sx: i32, sy: i32, sw: i32, sh: i32| {
+        if sw <= 0 || sh <= 0 {
+            return;
+        }
+        draw::push_clip(sx, sy, sw, sh);
+        let mut w2 = wc.clone();
+        draw_view(&mut w2, i, t);
+        draw::pop_clip();
+    };
+    let moved_pixels = crate::platform::fl_abi::scroll_pixels(cx, cy, cw, ch, 0, -(dy as i32), &mut strip);
+    if moved_pixels {
+        // Around the moved area: the ring rows, the inset, and the
+        // scrollbar column (background, thumb and ring only).
+        strip(w.x(), w.y(), w.w(), 2);
+        strip(w.x(), w.y() + w.h() - 2 - inset, w.w(), 2 + inset);
+        i.chrome_only = true;
+        draw::push_clip(cx + cw, w.y(), w.x() + w.w() - (cx + cw), w.h());
+        let mut w2 = w.clone();
+        draw_view(&mut w2, i, t);
+        draw::pop_clip();
+        i.chrome_only = false;
+    }
+    i.hold_motion = false;
+    if moved_pixels {
+        i.blits += 1;
+        i.drawn = Some((i.top, w.x(), w.y(), w.w(), w.h(), i.width));
+    }
+    moved_pixels
 }
 
 /// Moves hosted widgets over their embeds in view and hides the others.

@@ -64,3 +64,69 @@ extern "C" {
     /// `Fl::belowmouse(w)`; null clears it (fltk-rs only sets a widget).
     pub(crate) fn Fl_set_belowmouse(w: *mut std::ffi::c_void);
 }
+
+/// `void fl_scroll(int X, int Y, int W, int H, int dx, int dy,
+/// void (*draw_area)(void*, int, int, int, int), void* data)`: moves the
+/// pixels of a window area by (dx, dy) and calls `draw_area` for the parts
+/// it exposed (what `Fl_Scroll` uses). Present on every FLTK backend.
+#[cfg(not(target_env = "msvc"))]
+pub(crate) type DrawArea = extern "C" fn(*mut std::ffi::c_void, i32, i32, i32, i32);
+
+#[cfg(not(target_env = "msvc"))]
+extern "C" {
+    #[link_name = "_Z9fl_scrolliiiiiiPFvPviiiiES_"]
+    pub(crate) fn fl_scroll(
+        x: i32,
+        y: i32,
+        w: i32,
+        h: i32,
+        dx: i32,
+        dy: i32,
+        draw_area: DrawArea,
+        data: *mut std::ffi::c_void,
+    );
+}
+
+/// Moves the pixels of a window area by (dx, dy) with FLTK's `fl_scroll`
+/// and calls `draw` for each exposed rectangle; false when this build
+/// cannot (MSVC: the caller redraws everything, as before).
+pub(crate) fn scroll_pixels(
+    x: i32,
+    y: i32,
+    w: i32,
+    h: i32,
+    dx: i32,
+    dy: i32,
+    draw: &mut dyn FnMut(i32, i32, i32, i32),
+) -> bool {
+    #[cfg(not(target_env = "msvc"))]
+    {
+        extern "C" fn trampoline(data: *mut std::ffi::c_void, x: i32, y: i32, w: i32, h: i32) {
+            // SAFETY: `data` is the `&mut &mut dyn FnMut` passed below, alive
+            // for the duration of the fl_scroll call that invokes us.
+            let f = unsafe { &mut *(data as *mut &mut dyn FnMut(i32, i32, i32, i32)) };
+            f(x, y, w, h);
+        }
+        let mut f: &mut dyn FnMut(i32, i32, i32, i32) = draw;
+        // SAFETY: FLTK's own function, on the UI thread inside a draw; the
+        // callback data outlives the call.
+        unsafe {
+            fl_scroll(
+                x,
+                y,
+                w,
+                h,
+                dx,
+                dy,
+                trampoline,
+                &mut f as *mut _ as *mut std::ffi::c_void,
+            )
+        };
+        true
+    }
+    #[cfg(target_env = "msvc")]
+    {
+        let _ = (x, y, w, h, dx, dy, draw);
+        false
+    }
+}

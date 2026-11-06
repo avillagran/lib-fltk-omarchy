@@ -228,7 +228,7 @@ fn main() {
             let (_, c0) = s.phase_start.take().unwrap();
             s.idle2_cpu = (cpu_ticks() - c0) as f64 / tps;
             let json = format!(
-                "{{\"lang\":\"{}\",\"messages\":{messages},\"blocks\":{},\"transcript_kb\":{},\"build_ms\":{build_ms:.0},\"via\":\"{}\",\"rate_bps\":{rate},\"hz\":{hz},\"secs\":{secs},\"streamed_kb\":{},\"pushes\":{},\"push_avg_us\":{:.0},\"push_max_us\":{},\"laid_out\":{},\"idle_cpu_pct_before\":{:.1},\"stream_cpu_pct\":{:.1},\"idle_cpu_pct_after\":{:.1},\"pss_idle_kb\":{},\"pss_after_stream_kb\":{},\"at_bottom\":{},\"frames\":{},\"paint_avg_us\":{:.0},\"paint_cpu_pct\":{:.1},\"push_cpu_pct\":{:.1}}}",
+                "{{\"lang\":\"{}\",\"messages\":{messages},\"blocks\":{},\"transcript_kb\":{},\"build_ms\":{build_ms:.0},\"via\":\"{}\",\"rate_bps\":{rate},\"hz\":{hz},\"secs\":{secs},\"streamed_kb\":{},\"pushes\":{},\"push_avg_us\":{:.0},\"push_max_us\":{},\"laid_out\":{},\"idle_cpu_pct_before\":{:.1},\"stream_cpu_pct\":{:.1},\"idle_cpu_pct_after\":{:.1},\"pss_idle_kb\":{},\"pss_after_stream_kb\":{},\"at_bottom\":{},\"frames\":{},\"paint_avg_us\":{:.0},\"paint_cpu_pct\":{:.1},\"push_cpu_pct\":{:.1},\"scroll_blits\":{}}}",
                 if arabic { "ar" } else { "en" },
                 v.block_count(),
                 transcript_bytes / 1024,
@@ -248,6 +248,7 @@ fn main() {
                 if s.frames > 0 { s.paint.as_secs_f64() * 1e6 / s.frames as f64 } else { 0.0 },
                 s.paint.as_secs_f64() / secs * 100.0,
                 s.push_total.as_secs_f64() / secs * 100.0,
+                v.scroll_blits(),
             );
             println!("{json}");
             if let Some(dir) = std::path::Path::new(&out2).parent() {

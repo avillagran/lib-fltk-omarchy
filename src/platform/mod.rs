@@ -176,3 +176,11 @@ pub(crate) mod glass {
         begin, current_surface, end, set_opaque_region, target, Target,
     };
 }
+
+/// Whether views move their pixels for scroll-only frames (`fl_scroll`)
+/// by default: on (measured 2–3× less CPU than repainting while scrolling
+/// on X11 and Wayland, docs/PERFORMANCE.md). Builds without `fl_scroll`
+/// (MSVC) repaint anyway.
+pub fn scroll_blit_default() -> bool {
+    true
+}
