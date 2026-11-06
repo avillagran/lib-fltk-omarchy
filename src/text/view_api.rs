@@ -524,6 +524,34 @@ impl RichText {
         self
     }
 
+    // ------------------------------------------------------------- mermaid
+
+    /// Draws closed ```` ```mermaid ```` code blocks as native diagrams
+    /// (feature `mermaid`): flowcharts, sequence and state diagrams under
+    /// the code header, which keeps the language, the copy button and a
+    /// "Show source" action ([`crate::mermaid::SHOW_SOURCE`]; then "Show
+    /// diagram", [`crate::mermaid::SHOW_DIAGRAM`]; both also reach
+    /// [`on_block_action`](Self::on_block_action)). A fence still
+    /// streaming shows its code and becomes a diagram when it closes; a
+    /// source that does not render stays code. Diagrams are laid out for
+    /// the column width and cached by source until the width or the theme
+    /// change.
+    #[cfg(feature = "mermaid")]
+    pub fn native_mermaid(self, on: bool) -> Self {
+        {
+            let mut i = self.inner.borrow_mut();
+            i.mermaid = on.then(Default::default);
+            i.relayout_all();
+        }
+        self
+    }
+
+    /// The diagram drawn for Mermaid source `src` (tests, tours).
+    #[cfg(feature = "mermaid")]
+    pub fn mermaid_diagram(&self, src: &str) -> Option<crate::mermaid::Diagram> {
+        self.inner.borrow().mermaid.as_ref().and_then(|n| n.diagram(src).cloned())
+    }
+
     // ------------------------------------------------------------- actions
 
     /// App actions in each code block's header, before the copy button:

@@ -386,6 +386,9 @@ pub(super) struct Inner {
     /// `pace_words`: text from a sender waits for the end of its last word.
     pace_words: bool,
     seen_sel: Option<(TextPos, TextPos)>,
+    /// `native_mermaid`: closed Mermaid fences drawn as diagrams.
+    #[cfg(feature = "mermaid")]
+    pub(super) mermaid: Option<Box<crate::mermaid::rich::Native>>,
 }
 
 impl Inner {
@@ -449,6 +452,8 @@ impl Inner {
             far: None,
             pace_words: false,
             seen_sel: None,
+            #[cfg(feature = "mermaid")]
+            mermaid: None,
         }
     }
 
@@ -924,6 +929,40 @@ impl Inner {
         if d != 0 {
             self.counts.add(j, d);
         }
+        #[cfg(feature = "mermaid")]
+        self.mermaid_closed();
+    }
+
+    /// Whether block `k` is a code block whose fence is still streaming
+    /// (the last block of a message whose open tail has an odd number of
+    /// fence lines).
+    #[cfg(feature = "mermaid")]
+    fn fence_open(&self, k: usize) -> bool {
+        let Some(j) = self.msg_of(k) else { return false };
+        let Some(s) = self.msgs[j].stream.as_ref() else { return false };
+        if k + 1 != self.msg_start(j) + self.msg_len(j) {
+            return false;
+        }
+        let fences = s
+            .tail()
+            .lines()
+            .filter(|l| {
+                let t = l.trim_start();
+                t.starts_with("```") || t.starts_with("~~~")
+            })
+            .count();
+        fences % 2 == 1
+    }
+
+    /// Relays out Mermaid blocks laid out while streaming whose fence closed.
+    #[cfg(feature = "mermaid")]
+    fn mermaid_closed(&mut self) {
+        let Some(mut n) = self.mermaid.take() else { return };
+        let done = n.closed(|b| b < self.store.len() && self.store.shape(b).is_code() && self.fence_open(b));
+        self.mermaid = Some(n);
+        for b in done {
+            self.invalidate(b);
+        }
     }
 
     fn remove_msg(&mut self, j: usize) {
@@ -1028,6 +1067,8 @@ impl Inner {
             }
         }
         self.msgs[j].src = None;
+        #[cfg(feature = "mermaid")]
+        self.mermaid_closed();
     }
 
     fn clear(&mut self) {
@@ -1120,9 +1161,20 @@ impl Inner {
         let mut actions = Vec::new();
         match &block.kind {
             BlockKind::Code { lang } => {
+                let mut acts = Vec::new();
+                #[cfg(feature = "mermaid")]
+                if crate::mermaid::rich::is_mermaid(lang) && self.mermaid.is_some() {
+                    let open = self.fence_open(i);
+                    if let Some(n) = self.mermaid.as_mut() {
+                        acts.extend(n.layout(i, block.text(), open, &self.typo, &mut l));
+                    }
+                }
                 if let Some(f) = &self.code_actions {
+                    acts.extend(f(lang, block.text()));
+                }
+                if !acts.is_empty() {
                     let right = l.left + l.box_w - self.typo.code_header - 2;
-                    actions = measure(f(lang, block.text()), right);
+                    actions = measure(acts, right);
                 }
             }
             BlockKind::Table(_) if self.table_actions => {
@@ -1474,6 +1526,14 @@ impl Inner {
             Target::Action { block, slot } => {
                 let id = self.actions_of(block).get(slot).map(|a| a.id.clone())?;
                 let ev = self.action_event(block, &id);
+                #[cfg(feature = "mermaid")]
+                if id == crate::mermaid::rich::SHOW_SOURCE || id == crate::mermaid::rich::SHOW_DIAGRAM {
+                    if let Some(n) = self.mermaid.as_mut() {
+                        n.toggle(&ev.text);
+                        self.invalidate(block);
+                        self.reanchor();
+                    }
+                }
                 let builtin = matches!(self.store.shape(block).kind, ShapeKind::Table(_))
                     && (id == BlockAction::COPY_MARKDOWN || id == BlockAction::COPY_CSV);
                 if builtin {
@@ -2423,7 +2483,21 @@ fn draw_view(w: &mut Widget, i: &mut Inner, t: &Theme) {
             foot: if matches!(b.kind, BlockKind::Table(_)) { foot } else { 0 },
             marks: &marks,
         };
+        #[cfg(feature = "mermaid")]
+        let native = match &b.kind {
+            BlockKind::Code { lang } if l.lines.is_empty() && crate::mermaid::rich::is_mermaid(lang) => {
+                Some((b.text().to_string(), bx + l.left, by, l.box_w))
+            }
+            _ => None,
+        };
         draw_block(&ctx, b, l, bx, by, &mut m);
+        #[cfg(feature = "mermaid")]
+        if let Some((src, x, y, ww)) = native {
+            let unit = crate::native::pixels_per_unit(w);
+            if let Some(n) = i.mermaid.as_mut() {
+                n.paint(&src, x, y, ww, &i.typo, unit, t.palette.lighter_background);
+            }
+        }
     }
     for (src, x, y, ww, hh) in pictures {
         if let Some(ImageState::Pixels(_, _, img)) = i.images.get_mut(&src) {

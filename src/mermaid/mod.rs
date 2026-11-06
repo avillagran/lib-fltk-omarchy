@@ -38,6 +38,7 @@ mod flowchart;
 mod graph;
 mod layered;
 pub(crate) mod paint;
+pub(crate) mod rich;
 mod route;
 mod sequence;
 mod shapes;
@@ -45,6 +46,7 @@ mod state;
 mod view;
 
 pub use paint::{color, Picture};
+pub use rich::{is_mermaid, SHOW_DIAGRAM, SHOW_SOURCE};
 pub use view::MermaidView;
 
 use std::hash::{Hash, Hasher};
