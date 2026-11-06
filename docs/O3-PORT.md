@@ -294,3 +294,36 @@ on the GPU backend than on the CPU backend; idle stays 0 %; total PSS
 Verified locally on the merged branch: unit, doc and UI tests on X11
 (default, `a11y`, `images`, `qr`), CI clippy, platform rustfmt,
 Windows/macOS type checks, MSRV builds (1.80 default, 1.85 `a11y`).
+
+## 8. Lessons from Rune for chat views
+
+Rune (github.com/anomalyco/rune, MIT, by the opencode team) is a GPU Rust UI
+framework with its own text, layout and springs; its opencode client was the
+reference for its chat pieces. Reviewed 2026-11-06 (read only) as a guide
+for o3's chat views. What to adopt, in order:
+
+| # | Idea | Rune source | Effort | Fits CPU/FLTK |
+|---|---|---|---|---|
+| 1 | Streaming tail settling: draw an open `**`, `` ` ``, `~~`, `[link](` already closed in a display copy of the tail; hold back a trailing run of markers and an unconfirmed `\|` line; keep table column widths while the last row is still arriving | `rune-kit/src/markdown/stream.rs` | S–M | yes |
+| 2 | A `4. ` line inside a paragraph continues the list (models write lists that way) | `markdown/interrupt.rs` | S | yes |
+| 3 | `on_far_from_bottom(min_px)` for the jump-to-latest button, separate from following; a long jump to the end cuts to two viewports above it, then glides | `runtime/scroll/bottom.rs` | S | yes |
+| 4 | Bottom slack: when the composer shrinks after a send, keep the freed room under the last block until growth stops (~120 ms) | `bottom.rs` | S–M | yes |
+| 5 | Stream pacing at word boundaries: backlogs under 512 chars at once, else ~24 ms chunks cut at words; hold back a trailing partial word | `research/18` | S | yes (fewer reflows) |
+| 6 | Native Mermaid (flowchart, sequence, state) as polygons/polylines + labels drawn with `gfx` in an embed, instead of a 150–240 MB helper | `crates/rune-mermaid` (layered layout, cubic routing) | L | yes |
+| 7 | Diff annotations under lines and line comments (`on_comment(range)`), selection by (side, line) | `rune-kit/src/diff` | M | yes |
+| 8 | A composer that fits passes PageUp/PageDown/Home/End to the transcript | rune README | S | yes |
+| 9 | Chips in read-only text, matching the composer's | `el/pills.rs` | S–M | yes |
+| 10 | `task::Latest<T>`: latest-wins background requests with debounce (`@` search) | `latest.rs` | S | yes |
+| 11 | Frame log (paint / wall / CPU per frame) and a warning when a UI callback blocks | `RUNE_FRAME_LOG` | S | yes |
+| 12 | Scripted agent harness (input by accessible name, element dump with rects) and a motion gate (no jumps on prepend/stream/follow) | `--script`, `--tree`, `motion_gate` | M | yes |
+
+Not adopted: spring-driven growth of every row (each animation frame is a
+repaint on the CPU backend).
+
+Where this toolkit is already ahead: O(log n) height index (Fenwick) vs a
+prefix-sum rebuild per height change; streaming keeps only the open tail's
+source (1.5 B per Markdown byte) vs rebuilding and hashing the whole message
+per update; idle 0 % CPU at 12.6–26.9 MB PSS vs ~34 MB RSS / 92–95 MB
+footprint; a 1.78 MB minimal binary vs 9.3 MB; scrolls move pixels instead
+of re-emitting every glyph; one-document transcript (selection, find, a11y
+across messages); code/table actions, alerts, math in Markdown.

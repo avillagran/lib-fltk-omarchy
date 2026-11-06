@@ -99,6 +99,11 @@ fn rgb(c: Rgb) -> [u8; 3] {
     [c.r(), c.g(), c.b()]
 }
 
+/// Largest channel difference.
+fn dist(a: [u8; 3], b: [u8; 3]) -> i32 {
+    a.iter().zip(b.iter()).map(|(x, y)| (*x as i32 - *y as i32).abs()).max().unwrap_or(0)
+}
+
 fn near(a: [u8; 3], b: [u8; 3], tol: i32) -> bool {
     a.iter().zip(b.iter()).all(|(x, y)| (*x as i32 - *y as i32).abs() <= tol)
 }
@@ -157,9 +162,12 @@ pub fn checks(run: &mut dyn FnMut(&str, Check)) {
         // Scan the row's height: the highlight's vertical extent follows
         // the font's metrics (Consolas on Windows, Menlo on macOS).
         let mut found = false;
+        // Windows GDI blends translucent tints its own way: accept a pixel
+        // clearly nearer the word highlight than the line's tint.
         'scan: for yy in (y + 1..y + h - 1).step_by(2) {
             for x in code_x..code_x + 400 {
-                if near(pixel(&p, x, yy)?, word, 6) {
+                let px = pixel(&p, x, yy)?;
+                if near(px, word, 6) || (dist(px, word) < 48 && dist(px, word) + 12 < dist(px, add)) {
                     found = true;
                     break 'scan;
                 }
@@ -303,12 +311,14 @@ pub fn checks(run: &mut dyn FnMut(&str, Check)) {
         check(v.panel().cursor_index() == v.row_of_line(0, 1, 1) && !v.is_folded(0, 1), "F3 reaches the folded hunk and opens it")?;
         let p = shot(&f, shots, "diff-find.png")?;
         let current = theme::with(|t| rgb(t.palette.yellow.over(t.palette.background, 0.7)));
+        let bgc = theme::with(|t| rgb(t.palette.background));
         let (cx, _, _) = v.code_columns();
         let (_, y, _, rh) = v.row_rect(v.row_of_line(0, 1, 1).unwrap()).unwrap();
         let mut seen = false;
         for yy in (y + 1..y + rh - 1).step_by(2) {
             for x in cx..cx + 300 {
-                seen |= near(pixel(&p, x, yy)?, current, 6);
+                let px = pixel(&p, x, yy)?;
+                seen |= near(px, current, 6) || (dist(px, current) < 48 && dist(px, current) + 12 < dist(px, bgc));
             }
         }
         check(seen, "current match is highlighted")?;

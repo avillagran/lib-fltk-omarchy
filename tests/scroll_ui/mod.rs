@@ -48,8 +48,11 @@ pub fn checks(run: &mut dyn FnMut(&str, Check)) {
             settle();
             let b = grab(&mut dw)?;
             check(a.len() == b.len() && !a.is_empty(), "captures")?;
+            // X11 matches exactly; Cairo on Wayland can antialias a glyph cut
+            // by the strip's edge a level or two differently (a handful of
+            // pixels). A seam or a shifted line would be thousands of bytes.
             let diff = a.iter().zip(&b).filter(|(x, y)| x.abs_diff(**y) > 2).count();
-            check(diff == 0, &format!("step {step} (top {top}, blit {blitted}): {diff} bytes differ from a full repaint"))?;
+            check(diff <= 96, &format!("step {step} (top {top}, blit {blitted}): {diff} bytes differ from a full repaint"))?;
         }
         if supported {
             check(blits == 3, &format!("scroll-only frames moved pixels ({blits} of 3 small steps)"))?;
