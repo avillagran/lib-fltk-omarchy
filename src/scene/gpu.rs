@@ -8,7 +8,7 @@
 use super::{Command, Image, Layer, Rect, Scene, NodeId, NodeError, MAX_IMAGE_BYTES};
 use crate::gfx::{Color, Uniforms};
 use glow::HasContext;
-use std::{collections::{HashMap, HashSet}, rc::Rc};
+use std::{collections::{HashMap, HashSet}, rc::Rc, sync::Arc};
 
 const VERTEX: &str = r#"#version 330 core
 uniform vec2 u_view;
@@ -43,14 +43,27 @@ vec4 shade(vec2 p);
 void main() { vec4 c = shade(uv * u_size); output_color = vec4(c.rgb * c.a, c.a); }
 "#;
 
+// Public Image resources stay straight RGBA. Native fallback textures
+// retain premultiplied bytes separately to avoid a lossy round trip.
+#[derive(Clone)]
+struct Texture { width: u32, height: u32, pixels: Arc<[u8]>, premultiplied: bool }
+impl Texture {
+    fn straight(image: Image) -> Self {
+        Self { width: image.width(), height: image.height(), pixels: image.shared_pixels(), premultiplied: false }
+    }
+    fn pixels(&self) -> &[u8] { &self.pixels }
+    fn width(&self) -> u32 { self.width }
+    fn height(&self) -> u32 { self.height }
+}
+
 #[derive(Clone)]
 enum Paint {
     Solid(Color),
-    Image(Image, f32),
+    Image(Texture, f32),
     Shader(String, Uniforms),
 }
 #[derive(Clone)]
-struct Item { rect: Rect, clip: Rect, paint: Paint, id: Option<NodeId> }
+struct Item { rect: Rect, clip: Rect, paint: Paint, id: Option<NodeId>, order: super::node::Order }
 
 /// CPU preparation, including bounded native fallbacks. Rebuild on
 /// theme/font/layout/language/scale changes. No GL calls here.
@@ -59,17 +72,24 @@ pub struct PreparedScene { items: Vec<Item>, nodes: HashMap<NodeId, usize> }
 
 impl PreparedScene {
     pub fn new(scene: &Scene, viewport: Rect) -> Result<Self, String> {
+        Self::with_node_ceiling(scene, viewport, scene.commands().len())
+    }
+    // Managed focus chrome remains above root nodes, even when raised.
+    pub(crate) fn with_node_ceiling(scene: &Scene, viewport: Rect, ceiling: usize) -> Result<Self, String> {
         if viewport.w <= 0 || viewport.h <= 0 { return Err("empty scene viewport".into()); }
         scene.validate_nodes().map_err(|e| e.to_string())?;
+        let ends = super::node::scope_ends(scene.commands());
+        let mut scopes = Vec::with_capacity(4);
+        scopes.push(0..ceiling);
         let mut nodes = HashMap::new();
         let mut clips = vec![viewport];
         let mut items = Vec::new();
         let mut resources = HashSet::new();
         let mut resource_bytes = 0usize;
-        for command in scene.commands() {
+        for (source, command) in scene.commands().iter().enumerate() {
             match command {
-                Command::PushClip(r) => { clips.push(intersection(*clips.last().unwrap(), *r)); continue; }
-                Command::PopClip => { if clips.len() > 1 { clips.pop(); } continue; }
+                Command::PushClip(r) => { clips.push(intersection(*clips.last().unwrap(), *r)); scopes.push(source + 1..ends[source]); continue; }
+                Command::PopClip => { if clips.len() > 1 { clips.pop(); scopes.pop(); } continue; }
                 _ => {}
             }
             let Some(rect) = command.bounds() else { continue };
@@ -81,14 +101,15 @@ impl PreparedScene {
             let paint = match command {
                 Command::Fill { radius: 0, color, .. } => Paint::Solid((*color).into()),
                 Command::AlphaFill { color, alpha, .. } => Paint::Solid(Color::from(*color).with_alpha(alpha.clamp(0.0, 1.0) as f32)),
-                Command::Image { image, .. } if image.width() == rect.w as u32 && image.height() == rect.h as u32 => Paint::Image(image.clone(), 1.0),
-                Command::Layer { layer, opacity, .. } => Paint::Image(layer.image().ok_or("scene layer raster failed")?, *opacity as f32 / 255.0),
+                Command::Image { image, .. } if image.width() == rect.w as u32 && image.height() == rect.h as u32 => Paint::Image(Texture::straight(image.clone()), 1.0),
+                Command::Layer { layer, opacity, .. } => Paint::Image(Texture::straight(layer.image().ok_or("scene layer raster failed")?), *opacity as f32 / 255.0),
                 Command::Shader { program, uniforms, .. } => Paint::Shader(program.glsl().to_owned(), *uniforms),
                 _ => {
                     let mut one = Scene::default();
                     one.commands.push(command.clone());
                     let layer = Layer::new(rect, one).map_err(|e| e.to_string())?;
-                    Paint::Image(layer.image().ok_or("scene primitive raster failed")?, 1.0)
+                    Paint::Image(Texture { width: rect.w as u32, height: rect.h as u32,
+                        pixels: layer.premultiplied_pixels().ok_or("scene primitive raster failed")?.into(), premultiplied: true }, 1.0)
                 }
             };
             if let Paint::Image(image, _) = &paint {
@@ -98,7 +119,7 @@ impl PreparedScene {
                 }
             }
             if let Some(id) = id { nodes.insert(id, items.len()); }
-            items.push(Item { rect, clip, paint, id });
+            items.push(Item { rect, clip, paint, id, order: super::node::Order { source, scope: scopes.last().unwrap().clone() } });
         }
         Ok(Self { items, nodes })
     }
@@ -116,6 +137,11 @@ impl PreparedScene {
         *alpha = opacity;
         Ok(())
     }
+    /// Raises within the recorded parent clip scope. Retained resources
+    /// and the original source/clip identity stay unchanged.
+    pub fn raise_node(&mut self, id: NodeId) -> Result<(), NodeError> {
+        super::node::raise(&mut self.items, &mut self.nodes, id, |item| &item.order)
+    }
     pub fn primitive_count(&self) -> usize { self.items.len() }
 }
 
@@ -127,7 +153,7 @@ fn intersection(a: Rect, b: Rect) -> Rect {
     Rect::new(x as i32, y as i32, (right - x).max(0) as i32, (bottom - y).max(0) as i32)
 }
 
-struct Draw { rect: Rect, clip: Rect, texture: Option<glow::Texture>, program: glow::Program, color: Color, uniforms: Option<Uniforms> }
+struct Draw { rect: Rect, clip: Rect, texture: Option<glow::Texture>, program: glow::Program, color: Color, uniforms: Option<Uniforms>, order: super::node::Order }
 
 /// GL resources for one retained scene. Textures/programs upload only in
 /// `new`; draws update uniforms and submit quads, without CPU rasterizing.
@@ -177,11 +203,18 @@ impl Renderer {
                         // Linear filtering must interpolate premultiplied
                         // colors; straight RGBA leaks colors from transparent
                         // texels into the edge of scaled sprites.
-                        let mut premultiplied = image.pixels().to_vec();
-                        for pixel in premultiplied.chunks_exact_mut(4) {
-                            for channel in 0..3 { pixel[channel] = ((pixel[channel] as u32 * pixel[3] as u32 + 127) / 255) as u8; }
-                        }
-                        renderer.gl.tex_image_2d(glow::TEXTURE_2D, 0, glow::RGBA8 as i32, image.width() as i32, image.height() as i32, 0, glow::RGBA, glow::UNSIGNED_BYTE, glow::PixelUnpackData::Slice(Some(&premultiplied)));
+                        // Match FLTK image-cache truncation. Rounding up
+                        // here biases each translucent edge brighter and
+                        // accumulates across overlapping native fallbacks.
+                        let mut upload = Vec::new();
+                        let pixels = if image.premultiplied { image.pixels() } else {
+                            upload.extend_from_slice(image.pixels());
+                            for pixel in upload.chunks_exact_mut(4) {
+                                for channel in 0..3 { pixel[channel] = ((pixel[channel] as u32 * pixel[3] as u32) / 255) as u8; }
+                            }
+                            &upload
+                        };
+                        renderer.gl.tex_image_2d(glow::TEXTURE_2D, 0, glow::RGBA8 as i32, image.width() as i32, image.height() as i32, 0, glow::RGBA, glow::UNSIGNED_BYTE, glow::PixelUnpackData::Slice(Some(pixels)));
                         renderer.texture_bytes += image.pixels().len();
                         textures.insert(key, t);
                         t
@@ -199,7 +232,7 @@ impl Renderer {
                 }
             };
             debug_assert!(item.id.map_or(true, |id| renderer.nodes.get(&id) == Some(&renderer.draws.len())));
-            renderer.draws.push(Draw { rect: item.rect, clip: item.clip, texture, program, color, uniforms });
+            renderer.draws.push(Draw { rect: item.rect, clip: item.clip, texture, program, color, uniforms, order: item.order });
         }
         Ok(renderer)
     }
@@ -212,8 +245,9 @@ impl Renderer {
     pub fn texture_bytes(&self) -> usize { self.texture_bytes }
 
     /// Moves one prepared primitive without rasterization, compilation or
-    /// texture upload. Indexes follow PreparedScene's visible paint order;
-    /// its viewport/ancestor clip stays fixed. This does not reflow text.
+    /// texture upload. Indexes follow current prepared paint order and can
+    /// change after raise_node; prefer keys for application identities.
+    /// The viewport/ancestor clip stays fixed. This does not reflow text.
     pub fn move_to(&mut self, index: usize, x: i32, y: i32) -> bool {
         let Some(draw) = self.draws.get_mut(index) else { return false };
         draw.rect.x = x;
@@ -244,6 +278,12 @@ impl Renderer {
         let i = *self.nodes.get(&id).ok_or(NodeError::NotFound(id))?;
         self.set_opacity(i, opacity);
         Ok(())
+    }
+
+    /// Raises within the node's original parent clip scope. O(draws +
+    /// nodes), no GL calls/uploads; stable IDs are reindexed after motion.
+    pub fn raise_node(&mut self, id: NodeId) -> Result<(), NodeError> {
+        super::node::raise(&mut self.draws, &mut self.nodes, id, |draw| &draw.order)
     }
 
     /// Render to the current framebuffer; caller clears/retains it.

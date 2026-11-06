@@ -12,7 +12,7 @@ use std::{
 };
 
 type Painter = Box<dyn FnMut(Rect, &theme::Theme)>;
-type Events = Box<dyn FnMut(Event, i32, i32) -> bool>;
+type Events = Box<dyn FnMut(&Surface, Event, i32, i32) -> bool>;
 thread_local! { static CPU_SCOPE: Cell<bool> = const { Cell::new(false) }; }
 struct Reset(bool);
 impl Drop for Reset {
@@ -234,6 +234,24 @@ impl Surface {
     pub fn node_bounds(&self, id: NodeId) -> Result<Rect, NodeError> {
         self.st.borrow().scene.node_bounds(id)
     }
+    pub fn raise_node(&self, id: NodeId) -> Result<(), NodeError> {
+        {
+            let mut s = self.st.borrow_mut();
+            Rc::make_mut(&mut s.scene).raise_node(id)?;
+        }
+        #[cfg(feature = "gpu")]
+        native::raise_node(&self.st, id);
+        self.redraw_content();
+        Ok(())
+    }
+    /// Topmost keyed rectangular hit in local surface coordinates. Outside
+    /// points are excluded before consulting the scene's ancestor clips.
+    pub fn hit_node(&self, x: i32, y: i32) -> Result<Option<NodeId>, NodeError> {
+        if !Rect::new(0, 0, self.group.w(), self.group.h()).contains(x, y) {
+            return Ok(None);
+        }
+        self.st.borrow().scene.hit_node(x, y)
+    }
     fn redraw_content(&self) {
         #[cfg(feature = "gpu")]
         if self.active_backend() == Backend::Gpu {
@@ -294,7 +312,15 @@ impl Surface {
             false
         }
     }
-    pub fn on_event(self, events: impl FnMut(Event, i32, i32) -> bool + 'static) -> Self {
+    pub fn on_event(self, mut events: impl FnMut(Event, i32, i32) -> bool + 'static) -> Self {
+        self.on_event_with(move |_, event, x, y| events(event, x, y))
+    }
+    /// The callback receives its surface for hit testing and retained
+    /// updates, avoiding a captured strong clone of the callback's owner.
+    pub fn on_event_with(
+        self,
+        events: impl FnMut(&Surface, Event, i32, i32) -> bool + 'static,
+    ) -> Self {
         self.st.borrow_mut().events = Some(Box::new(events));
         self
     }
@@ -331,7 +357,11 @@ fn dispatch(g: &mut Group, st: &Rc<RefCell<State>>, ev: Event, x: i32, y: i32) -
         let _ = g.take_focus();
     }
     let mut callback = st.borrow_mut().events.take();
-    let used = callback.as_mut().is_some_and(|f| f(ev, x, y));
+    let view = Surface {
+        group: g.clone(),
+        st: st.clone(),
+    };
+    let used = callback.as_mut().is_some_and(|f| f(&view, ev, x, y));
     if st.borrow().events.is_none() {
         st.borrow_mut().events = callback;
     }
@@ -544,6 +574,17 @@ mod native {
             }
         }
     }
+    pub fn raise_node(st: &Rc<RefCell<State>>, id: NodeId) {
+        let gl = st.borrow().native.as_ref().and_then(|n| n.gl.upgrade());
+        let Some(gl) = gl else { return };
+        let mut gl = gl.borrow_mut();
+        if let Some(prepared) = gl.prepared.as_mut() {
+            let _ = prepared.raise_node(id);
+        }
+        if let Some(renderer) = gl.renderer.as_mut() {
+            let _ = renderer.raise_node(id);
+        }
+    }
     pub fn hide(st: &Rc<RefCell<State>>) {
         let native = st
             .borrow()
@@ -585,7 +626,9 @@ mod native {
             let s = st.borrow();
             with_ring(&s.scene, s.ring, g.w(), g.h())
         };
-        let result = PreparedScene::new(&scene, Rect::new(0, 0, g.w(), g.h()));
+        let ceiling = st.borrow().scene.commands().len();
+        let result =
+            PreparedScene::with_node_ceiling(&scene, Rect::new(0, 0, g.w(), g.h()), ceiling);
         let mut s = st.borrow_mut();
         s.stats.gpu_preparations += 1;
         match result {
@@ -652,7 +695,12 @@ mod native {
                 with_ring(&s.scene, s.ring, group.w(), group.h())
             };
             st.borrow_mut().stats.gpu_preparations += 1;
-            let prepared = match PreparedScene::new(&scene, Rect::new(0, 0, group.w(), group.h())) {
+            let ceiling = st.borrow().scene.commands().len();
+            let prepared = match PreparedScene::with_node_ceiling(
+                &scene,
+                Rect::new(0, 0, group.w(), group.h()),
+                ceiling,
+            ) {
                 Ok(p) => p,
                 Err(e) => {
                     st.borrow_mut().error = Some(e);

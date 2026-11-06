@@ -30,6 +30,7 @@ fn main() {
         assert!(card.draw_keyed(NodeId(91),-200,-200,0.0).unwrap());
         scene::clip(Rect::new(90, 60, 150, 115), || {
         scene::clip(Rect::new(100, 65, 120, 105), || {
+            assert!(card.draw_keyed(NodeId(33), 110, 80, 1.0).unwrap());
             paint::fill(90, 65, 140, 48, 9, t.palette.accent);
             paint::text(&tr!("@layer café"), 106, 73, 110, 30, 13, false, t.palette.background, Align::Left);
             paint::alpha_fill(140, 110, 100, 60, t.palette.foreground, 0.3);
@@ -51,14 +52,24 @@ fn main() {
     let mut updated_scene = scene.clone();
     updated_scene.move_node(NodeId(7), 36, 25).unwrap();
     updated_scene.set_node_opacity(NodeId(7), 0.4).unwrap();
-    updated_scene.move_node(NodeId(91), 185, 158).unwrap();
+    updated_scene.move_node(NodeId(91), 80, 36).unwrap();
     updated_scene.set_node_opacity(NodeId(91), 0.6).unwrap();
+    updated_scene.raise_node(NodeId(7)).unwrap();
+    updated_scene.raise_node(NodeId(91)).unwrap();
+    updated_scene.raise_node(NodeId(7)).unwrap();
+    updated_scene.move_node(NodeId(33), 105, 100).unwrap();
+    updated_scene.raise_node(NodeId(33)).unwrap();
     let updated_cpu = render_cpu(&updated_scene);
     let mut deferred = PreparedScene::new(&scene, Rect::new(0, 0, W, H)).unwrap();
     deferred.move_node(NodeId(7), 36, 25).unwrap();
     deferred.set_node_opacity(NodeId(7), 0.4).unwrap();
-    deferred.move_node(NodeId(91), 185, 158).unwrap();
+    deferred.move_node(NodeId(91), 80, 36).unwrap();
     deferred.set_node_opacity(NodeId(91), 0.6).unwrap();
+    deferred.raise_node(NodeId(7)).unwrap();
+    deferred.raise_node(NodeId(91)).unwrap();
+    deferred.raise_node(NodeId(7)).unwrap();
+    deferred.move_node(NodeId(33), 105, 100).unwrap();
+    deferred.raise_node(NodeId(33)).unwrap();
     let mut deferred = Some(deferred);
     fltk_omarchy::png::write(&output.join("cpu.png"), W as u32, H as u32, 3, &cpu).unwrap();
     let prepared = PreparedScene::new(&scene, Rect::new(0, 0, W, H)).unwrap();
@@ -101,8 +112,13 @@ fn main() {
                 let bytes = renderer.texture_bytes();
                 renderer.move_node(NodeId(7), 36, 25).unwrap();
                 renderer.set_node_opacity(NodeId(7), 0.4).unwrap();
-                renderer.move_node(NodeId(91), 185, 158).unwrap();
+                renderer.move_node(NodeId(91), 80, 36).unwrap();
                 renderer.set_node_opacity(NodeId(91), 0.6).unwrap();
+                renderer.raise_node(NodeId(7)).unwrap();
+                renderer.raise_node(NodeId(91)).unwrap();
+                renderer.raise_node(NodeId(7)).unwrap();
+                renderer.move_node(NodeId(33), 105, 100).unwrap();
+                renderer.raise_node(NodeId(33)).unwrap();
                 renderer.draw((W, H), (W, H), None);
                 let mut moved = vec![0; rgba.len()];
                 gl.read_pixels(0, 0, W, H, glow::RGBA, glow::UNSIGNED_BYTE, glow::PixelPackData::Slice(Some(&mut moved)));

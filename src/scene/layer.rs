@@ -102,7 +102,16 @@ impl Layer {
         self.0.image.borrow().clone()
     }
 
+    #[cfg(feature = "gpu")]
+    pub(super) fn premultiplied_pixels(&self) -> Option<Vec<u8>> {
+        self.rasterize_pixels(true)
+    }
+
     fn rasterize(&self) -> Option<Image> {
+        Image::rgba(self.0.bounds.w as u32, self.0.bounds.h as u32, self.rasterize_pixels(false)?).ok()
+    }
+
+    fn rasterize_pixels(&self, premultiplied: bool) -> Option<Vec<u8>> {
         let black = self.0.scene.render(self.0.bounds, Some(Rgb(0)))?;
         let white = self.0.scene.render(self.0.bounds, Some(Rgb(0xffffff)))?;
         if black.depth() != ColorDepth::Rgb8 || white.depth() != ColorDepth::Rgb8 { return None; }
@@ -113,12 +122,19 @@ impl Layer {
             // different channel alphas. This keeps premultiplied channels
             // within alpha and avoids colored halos on other backdrops.
             let a = 255 - (0..3).map(|i| w[i].saturating_sub(b[i])).min().unwrap();
-            for value in b {
-                rgba.push(if a == 0 { 0 } else { ((*value as u32 * 255 + a as u32 / 2) / a as u32).min(255) as u8 });
+            if premultiplied {
+                // Preserve the native black pass exactly for a GPU-only
+                // fallback texture. Unpremultiplying and premultiplying
+                // again loses low-alpha color precision at each overlap.
+                rgba.extend_from_slice(b);
+            } else {
+                for value in b {
+                    rgba.push(if a == 0 { 0 } else { ((*value as u32 * 255 + a as u32 / 2) / a as u32).min(255) as u8 });
+                }
             }
             rgba.push(a);
         }
-        Image::rgba(self.0.bounds.w as u32, self.0.bounds.h as u32, rgba).ok()
+        Some(rgba)
     }
 }
 

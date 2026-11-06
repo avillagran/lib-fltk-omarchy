@@ -349,7 +349,8 @@ Continue section 4 without changing the CPU default:
    single framebuffer (read-back check added). Managed `scene::Surface` now owns CPU/GL lifecycle, snapshots, input,
    invalidation and paced shader frames. Stable keyed position/opacity updates
    now preserve initially culled/zero-alpha cards without preparation/uploads.
-   Next: batched quads, glyph/image atlases, keyed order/hit testing,
+   Scoped keyed raising and rectangular clipped hit testing are now included.
+   Next: managed node motion, batched quads, glyph/image atlases,
    CPU widget/overlay texture bridge and
    native isolated shader layers.
 4. Exercise a live version of the video interaction; measure CPU, GPU and

@@ -37,6 +37,13 @@ pub struct Rect {
 impl Rect {
     pub const fn new(x: i32, y: i32, w: i32, h: i32) -> Self { Self { x, y, w, h } }
 
+    /// Half-open bounds, computed without overflowing logical coordinates.
+    pub fn contains(self, x: i32, y: i32) -> bool {
+        self.w > 0 && self.h > 0 && x >= self.x && y >= self.y
+            && (x as i64) < self.x as i64 + self.w as i64
+            && (y as i64) < self.y as i64 + self.h as i64
+    }
+
     pub fn intersects(self, other: Self) -> bool {
         self.w > 0 && self.h > 0 && other.w > 0 && other.h > 0
             && (self.x as i64) < other.x as i64 + other.w as i64

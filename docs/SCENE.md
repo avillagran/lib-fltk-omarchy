@@ -137,6 +137,8 @@ surface: it clears its background with the theme background before replay.
 Translucent cards blend with earlier commands in that same scene.
 
 `on_event` receives local pointer coordinates and normal FLTK events.
+`on_event_with` also passes `&Surface`, so a callback can hit-test and
+update its owner without capturing a strong clone of that same owner.
 The surface is one keyboard stop; its GL child never owns logical focus.
 Native input is delivered once even when an unhandled event traverses both
 the group and GL child. Return true for handled actions, false to let app
@@ -255,7 +257,7 @@ later update can make it visible without preparing/uploading a texture.
 This retention uses the same 64 MiB resource budget: use keyed layers for
 the composed region, not every row in a large virtual collection.
 
-Updates preserve size, paint order and ancestor clips. Opacity applies
+Position/opacity updates preserve size, paint order and ancestor clips. Opacity applies
 once to the isolated group and uses the same quantized 8-bit value on CPU
 and GL. NaN/infinity, missing IDs and duplicate IDs produce `NodeError`;
 duplicate detection precedes mutation, and GL preparation also rejects
@@ -265,11 +267,33 @@ GL updates change retained draw values only, without context calls,
 preparation, rasterization or uploads; a managed surface redraws its GL
 child only. Updates also reach a prepared scene awaiting its first upload.
 
+`raise_node(id)` moves a keyed layer to the end of its immediate clip
+scope, above that scope's other content. A root node moves to the end of
+the scene. Raising a child cannot escape its clip or pass later content
+outside that scope. It preserves the layer's position/opacity/resources
+and updates ID indexes in O(commands + nodes) on CPU or O(draws + nodes)
+after preparation. Repeated raises, including before the first GL upload,
+change ordering only; managed focus chrome stays above raised root nodes.
+A drag preview that leaves a list's clip should be recorded as a separate
+root keyed layer; the original item keeps its list clipping.
+
+`Scene::hit_node(x, y)` / `Surface::hit_node(x, y)` return the last painted
+keyed layer whose rectangular bounds contain the point, respecting all
+ancestor clips and zero group opacity. Surface coordinates are local and
+also constrained to its viewport. Hit testing scans the retained commands
+without per-query allocations after ID validation. It deliberately uses
+rectangular semantic targets: rounded/transparent texels do not shrink
+them, unkeyed visuals do not block them, and nested isolated layers are
+not traversed. Use the returned ID with a `KeyboardPanel`/app model for
+selection, drag state and accessibility; drawing alone does not implement
+those behaviors.
+
 `Surface` updates affect the currently retained scene. A painter rebuild
 or `set_scene` supplies new node properties: keep durable positions in app
 state and use them in the painter. This is not automatic keyed layout or
-selection, a z-order/reflow operation, a nested-node update API or affine
-transformation. The falling/reorder interaction still needs those pieces.
+selection, a reflow operation, a nested-node update API or affine
+transformation. Automatic motion and the complete falling/reorder
+interaction remain work.
 
 ## Single-surface GL compositor spike
 
@@ -285,8 +309,8 @@ AppWindow controls keep their CPU renderer.
    shader sources and caps retained textures at 64 MiB.
 3. `Renderer::move_to` and `set_opacity` update a prepared card/sprite
    without reflow, rasterization or uploads. Indexes use visible prepared
-   paint order; prefer the keyed methods above for application identities.
-   Keyed hit testing is still pending.
+   paint order, which can change after raising a node; prefer the keyed
+   methods above for application identities.
    Top-level shader opacity changes are not yet supported.
 4. `Renderer::draw(logical_size, framebuffer_size, time_override)` submits
    quads in scene order to the bound framebuffer, using scissor clips and
@@ -305,8 +329,12 @@ the renderer can override time independently of the retained scene.
 Text runs, rounded primitives, isolated layers and scaled source images
 currently use native CPU raster fallbacks uploaded once as RGBA textures.
 Scaled images use the native resampler during preparation to preserve CPU
-sampling parity. GL textures use premultiplied colors before filtering,
-which avoids halos from transparent texels. This is not a glyph/image
+sampling parity. Direct native fallback textures preserve the black pass's
+premultiplied RGB instead of unpremultiplying and premultiplying it again;
+that round trip otherwise loses color precision at overlapping edges.
+Public `Image` and isolated-layer resources remain straight RGBA. GL
+textures use premultiplied colors before filtering, which avoids halos from
+transparent texels. This is not a glyph/image
 atlas, geometry batching or native GPU layer rendering. A shader inside an
 isolated CPU layer is flattened at preparation time; draw-time animation
 currently affects only top-level shader commands. Rebuild preparation when

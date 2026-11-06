@@ -41,6 +41,8 @@ impl Image {
     pub fn width(&self) -> u32 { self.width as u32 }
     pub fn height(&self) -> u32 { self.height as u32 }
     pub fn pixels(&self) -> &[u8] { &self.pixels }
+    #[cfg(feature = "gpu")]
+    pub(super) fn shared_pixels(&self) -> Arc<[u8]> { self.pixels.clone() }
 
     /// Source-over onto the current surface, stretched to `rect`. Uses
     /// FLTK's image sampling, like existing image widgets. Recorded scenes

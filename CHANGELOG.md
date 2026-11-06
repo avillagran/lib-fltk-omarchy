@@ -2,13 +2,23 @@
 
 ## Unreleased
 
+- **Scoped scene order and hit testing**: `raise_node` lifts a keyed layer
+  within its parent clip without new resources, and `hit_node` returns the
+  topmost keyed rectangular target through ancestor clips and group opacity.
+  CPU, prepared GL and live GL orders stay aligned, including deferred
+  uploads; raised root nodes stay below managed focus chrome.
+  `Surface::on_event_with` passes its owner for safe hit/update callbacks.
+  Native fallback textures preserve premultiplied raster precision at
+  overlapping translucent edges; expanded read-back parity keeps the same
+  maximum difference of two levels per RGB channel. docs/SCENE.md.
+
 - **Stable scene node updates**: `Layer::draw_keyed(NodeId, ..)` and
   `Scene` / `Surface` / prepared GL `move_node` / `set_node_opacity`.
   Initially clipped and zero-alpha cards retain their identities/resources;
   moving or fading changes draw values without rebuilding, preparation,
   uploads or CPU parent redraws. Shared CPU/GL opacity, duplicate/invalid
   ID errors and damage cache invalidation; pixel read-back and lifecycle
-  checks. Paint order, size and ancestor clips remain fixed. docs/SCENE.md.
+  checks. Position/opacity updates preserve paint order, size and ancestor clips. docs/SCENE.md.
 
 - **Managed scene surface** (`scene::Surface`): retained local-coordinate
   painter, explicit CPU/GL policy with CPU default/fallback, automatic
