@@ -31,6 +31,13 @@ pub enum Badge {
     Dot(ColorRole),
     /// A small spinner (turns while animations are on).
     Spinner,
+    /// A Nerd Font glyph in `role` (a pin, a lock); `label` is read by
+    /// screen readers (translated by the app; may be empty).
+    Icon {
+        glyph: String,
+        label: String,
+        role: ColorRole,
+    },
 }
 
 impl Badge {
@@ -55,6 +62,52 @@ impl Badge {
     }
     pub fn spinner() -> Badge {
         Badge::Spinner
+    }
+    /// A glyph in a role (`Badge::icon(glyph::BOOKMARK, &tr!("Pinned"), ColorRole::Dim)`).
+    pub fn icon(glyph: &str, label: &str, role: ColorRole) -> Badge {
+        Badge::Icon {
+            glyph: glyph.into(),
+            label: label.into(),
+            role,
+        }
+    }
+}
+
+/// How a row is laid out (see [`NavItem::card`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RowStyle {
+    /// One line (icon, title, badges, trailing text or actions), plus the
+    /// optional detail and usage lines.
+    #[default]
+    Line,
+    /// o3's thread card, up to three lines: the icon, the
+    /// [`NavItem::overline`], badges and the trailing text (or the hover
+    /// actions) on top; the title and its [`NavItem::note`] in the
+    /// middle; [`NavItem::meta`] (or the detail) at the bottom.
+    Card,
+}
+
+/// One entry of a card's bottom line: a glyph and an optional text
+/// (branch, host, provider). See [`NavItem::meta`].
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Meta {
+    pub icon: String,
+    pub text: String,
+    /// Tint (default: dimmed text).
+    pub role: Option<ColorRole>,
+}
+
+impl Meta {
+    pub fn new(icon: &str, text: &str) -> Meta {
+        Meta {
+            icon: icon.into(),
+            text: text.into(),
+            role: None,
+        }
+    }
+    pub fn role(mut self, role: ColorRole) -> Self {
+        self.role = Some(role);
+        self
     }
 }
 
@@ -149,6 +202,24 @@ pub struct NavItem {
     pub attention: bool,
     /// Name of a custom renderer ([`super::NavTree::renderer`]).
     pub renderer: String,
+    /// Built-in layout: one line (default) or an o3 card.
+    pub style: RowStyle,
+    /// A card's small top line (project, host), after the icon.
+    pub overline: String,
+    /// Text at the end of the first line ("3m", "Working 2m"): the
+    /// hover-only actions take its place while the row is hovered or
+    /// has the keyboard cursor.
+    pub trailing: String,
+    /// A glyph before [`NavItem::trailing`] (a state icon).
+    pub trailing_icon: String,
+    /// Tint of the trailing glyph and text (default: dimmed text).
+    pub trailing_role: Option<ColorRole>,
+    /// A dimmed text at the end of a card's title line (an age).
+    pub note: String,
+    /// A card's bottom line: glyphs and texts (branch, host, provider).
+    /// The first entry with text takes the free width (elided in the
+    /// middle); the entries after it are aligned to the end.
+    pub meta: Vec<Meta>,
 }
 
 impl NavItem {
@@ -248,6 +319,36 @@ impl NavItem {
     }
     pub fn renderer(mut self, name: &str) -> Self {
         self.renderer = name.into();
+        self
+    }
+    /// Lays the row out as an o3 thread card ([`RowStyle::Card`]).
+    pub fn card(mut self) -> Self {
+        self.style = RowStyle::Card;
+        self
+    }
+    pub fn overline(mut self, text: &str) -> Self {
+        self.overline = text.into();
+        self
+    }
+    /// Text at the end of the first line; hover-only actions replace it.
+    pub fn trailing(mut self, text: &str) -> Self {
+        self.trailing = text.into();
+        self
+    }
+    /// A state glyph and text at the end of the first line, in `role`
+    /// ("Working 2m" in yellow); hover-only actions replace it.
+    pub fn status(mut self, icon: &str, text: &str, role: ColorRole) -> Self {
+        self.trailing_icon = icon.into();
+        self.trailing = text.into();
+        self.trailing_role = Some(role);
+        self
+    }
+    pub fn note(mut self, text: &str) -> Self {
+        self.note = text.into();
+        self
+    }
+    pub fn meta(mut self, m: Meta) -> Self {
+        self.meta.push(m);
         self
     }
 }

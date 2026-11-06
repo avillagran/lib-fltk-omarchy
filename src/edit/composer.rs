@@ -2,6 +2,7 @@
 
 use super::area::{Hook, TextArea};
 use crate::a11y::{self, Action, Role};
+use crate::layout::FlexExt;
 use crate::model::ListModel;
 use crate::overlay::{bg, card, close_layer, open_layer};
 use crate::paint;
@@ -16,6 +17,70 @@ use std::rc::Rc;
 
 /// Nerd Font "send" (paper plane) used by the send button.
 pub const SEND: &str = "\u{f048a}";
+/// Nerd Font paperclip of the attach button ([`Composer::attach_button`]).
+pub const ATTACH: &str = "\u{f03e2}";
+
+/// Up/Down through the prompts sent before (newest first), o3's rules:
+/// the first step up keeps the draft being written, stepping back down
+/// past the newest prompt restores it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PromptHistory {
+    /// -1: the draft; 0: the newest prompt.
+    index: isize,
+    scratch: String,
+}
+
+impl Default for PromptHistory {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl PromptHistory {
+    pub fn new() -> Self {
+        PromptHistory {
+            index: -1,
+            scratch: String::new(),
+        }
+    }
+
+    /// The text to show after one step (`up`: older), or None when there
+    /// is nowhere to go. `draft` is the text now in the input.
+    pub fn step(&mut self, list: &[String], up: bool, draft: &str) -> Option<String> {
+        if up {
+            if self.index + 1 >= list.len() as isize {
+                return None;
+            }
+            if self.index < 0 {
+                self.scratch = draft.to_string();
+            }
+            self.index += 1;
+            Some(list[self.index as usize].clone())
+        } else {
+            if self.index < 0 {
+                return None;
+            }
+            self.index -= 1;
+            Some(if self.index < 0 {
+                std::mem::take(&mut self.scratch)
+            } else {
+                list[self.index as usize].clone()
+            })
+        }
+    }
+
+    /// Showing a prompt of the list (not the draft).
+    pub fn browsing(&self) -> bool {
+        self.index >= 0
+    }
+
+    /// Back to the draft's place (the user edited, sent, or the list
+    /// changed).
+    pub fn reset(&mut self) {
+        self.index = -1;
+        self.scratch.clear();
+    }
+}
 
 /// Where a trigger character starts a completion.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -332,6 +397,24 @@ struct Data {
     attachments: ListModel<String, Attachment>,
     dnd: Cell<bool>,
     laying_out: Cell<bool>,
+    history: RefCell<Option<State<Vec<String>>>>,
+    hist: RefCell<PromptHistory>,
+    /// True while the composer itself replaces the text (history).
+    setting: Cell<bool>,
+    expanded: State<bool>,
+    pick: Hook<(), Vec<PathBuf>>,
+    attach: RefCell<Option<Button>>,
+}
+
+/// The row under the input: `lead` (flexible) holds the attach button
+/// and the app's widgets at its start, `end` (fitted) the app's end
+/// widgets. Children are only ever appended or inserted: moving a child
+/// of a `Flex` drops its fixed size.
+struct Bottom {
+    row: Flex,
+    lead: Flex,
+    end: Flex,
+    used: bool,
 }
 
 /// Chat input (the most used control of an agent client): a [`TextArea`]
@@ -340,11 +423,15 @@ struct Data {
 /// characters (`@files`, `$skills`, `/commands`) in a list at the caret,
 /// and file drops / pastes reported with [`Composer::on_files`].
 ///
-/// Keys: Enter sends (Shift+Enter new line; [`SendKey::ModEnter`] swaps
-/// them), Mod+Enter always sends, Mod+Shift+Enter is the alternate send
-/// when set; with the completion list open Up/Down move, Enter or Tab
-/// accept, Esc closes it (a second Esc goes on to the app). Everything
-/// else is [`TextArea`]. Draft persistence is the app's: bind a State.
+/// Keys: Enter sends (Shift+Enter new line; [`SendKey::ModEnter`] or the
+/// expanded editor, [`Composer::expanded`], swap them), Mod+Enter always
+/// sends, Mod+Shift+Enter is the alternate send when set; with
+/// [`Composer::history`], Up on the first line and Down on the last one
+/// walk the prompts sent before; with the completion list open Up/Down
+/// move, Enter or Tab accept, Esc closes it (a second Esc goes on to the
+/// app); Mod+Shift+A attaches files ([`Composer::attach_button`]).
+/// Everything else is [`TextArea`]. Draft persistence is the app's: bind
+/// a State.
 #[derive(Clone)]
 pub struct Composer {
     inner: fltk::group::Group,
@@ -355,7 +442,7 @@ pub struct Composer {
     /// primary button still paints the accent fill).
     idle: Button,
     stop: Button,
-    toolbar: Rc<RefCell<Option<Flex>>>,
+    toolbar: Rc<RefCell<Option<Bottom>>>,
     d: Rc<Data>,
 }
 fltk::widget_extends!(Composer, fltk::group::Group, inner);
@@ -396,6 +483,12 @@ impl Composer {
             attachments: ListModel::new(|a: &Attachment| a.id.clone()),
             dnd: Cell::new(false),
             laying_out: Cell::new(false),
+            history: RefCell::new(None),
+            hist: RefCell::new(PromptHistory::new()),
+            setting: Cell::new(false),
+            expanded: State::new(false),
+            pick: Hook::default(),
+            attach: RefCell::new(None),
         });
         let me = Composer {
             inner,
@@ -423,16 +516,18 @@ impl Composer {
             // The send button follows the reading direction.
             me.layout();
         });
-        let (s1, s2, s3) = (self.send.clone(), self.stop.clone(), self.idle.clone());
-        crate::i18n::bind(&*self.send, move || {
-            let (mut a, mut b, mut c) = (s1.clone(), s2.clone(), s3.clone());
-            let (send, stop) = (crate::tr!("Send"), crate::tr!("Stop"));
-            a.set_tooltip(&send);
-            c.set_tooltip(&send);
-            b.set_tooltip(&stop);
-            a11y::set_name(&*a, &send);
-            a11y::set_name(&*c, &send);
-            a11y::set_name(&*b, &stop);
+        let me = self.clone();
+        crate::i18n::bind(&*self.send, move || me.label_buttons());
+        let me = self.clone();
+        crate::state::bind_widget(&self.inner, &self.d.expanded, false, move |_| {
+            me.label_buttons()
+        });
+        // An edit by the user leaves the prompt history.
+        let me = self.clone();
+        let _ = self.area.clone().on_change(move |_| {
+            if !me.d.setting.get() {
+                me.d.hist.borrow_mut().reset();
+            }
         });
         let me = self.clone();
         let send = self.send.clone().on_click(move || me.submit(false));
@@ -531,8 +626,134 @@ impl Composer {
     /// Enter sends (default) or Mod+Enter sends.
     pub fn send_key(self, k: SendKey) -> Self {
         self.d.send_key.set(k);
+        self.label_buttons();
         self
     }
+
+    /// The expanded editor (o3's full-height Edit mode) while `on` is
+    /// true: Enter is a new line and Mod+Enter sends, whatever
+    /// [`Composer::send_key`] says; the send button's tooltip shows the
+    /// key that sends. The app gives the editor its room (`lines`, layout).
+    pub fn expanded(self, on: &State<bool>) -> Self {
+        let me = self.clone();
+        crate::state::bind_widget(&self.inner, on, true, move |v| me.d.expanded.set(*v));
+        self
+    }
+
+    /// True while the expanded editor's keys apply.
+    pub fn is_expanded(&self) -> bool {
+        self.d.expanded.get()
+    }
+
+    /// The key that sends now (expanded: Mod+Enter).
+    pub fn effective_send_key(&self) -> SendKey {
+        if self.d.expanded.get() {
+            SendKey::ModEnter
+        } else {
+            self.d.send_key.get()
+        }
+    }
+
+    /// Prompts sent before, newest first (the app keeps the list, e.g.
+    /// the user messages of the thread). Up on the input's first line
+    /// shows the previous one (the draft being written is kept), Down on
+    /// the last line the next one, and past the newest the draft comes
+    /// back. Typing, sending or a new list go back to the draft's place.
+    pub fn history(self, list: &State<Vec<String>>) -> Self {
+        *self.d.history.borrow_mut() = Some(list.clone());
+        let me = self.clone();
+        crate::state::bind_widget(&self.inner, list, false, move |_| {
+            me.d.hist.borrow_mut().reset()
+        });
+        self
+    }
+
+    /// True while the input shows a prompt from [`Composer::history`].
+    pub fn browsing_history(&self) -> bool {
+        self.d.hist.borrow().browsing()
+    }
+
+    /// One history step, as Up (`up`) or Down would take it (without the
+    /// caret checks); false when it did nothing.
+    pub fn history_step(&self, up: bool) -> bool {
+        let Some(list) = self.d.history.borrow().clone() else {
+            return false;
+        };
+        let draft = self.area.value();
+        let next = list.with(|l| self.d.hist.borrow_mut().step(l, up, &draft));
+        let Some(text) = next else { return false };
+        self.d.setting.set(true);
+        self.area.set_value(&text);
+        self.d.setting.set(false);
+        // o3: an older prompt starts at the top, a newer one at the end.
+        self.area.set_caret(if up { 0 } else { text.len() });
+        true
+    }
+
+    /// A paperclip button at the start of the bottom row (also
+    /// Mod+Shift+A in the input) that opens the system's file chooser;
+    /// the picked paths go to [`Composer::on_files`], like drops.
+    pub fn attach_button(self) -> Self {
+        if self.d.attach.borrow().is_some() {
+            return self;
+        }
+        let me = self.clone();
+        let b = Button::icon(ATTACH, "").on_click(move || me.pick_files());
+        let b2 = b.clone();
+        crate::i18n::bind(&*b, move || {
+            let tip = crate::tr!("Attach files");
+            let mut b = b2.clone();
+            b.set_tooltip(&format!("{tip} · {}", crate::keys::label("Mod+Shift+A")));
+            a11y::set_name(&*b, &tip);
+        });
+        let mut row = self.bottom();
+        crate::layout::remember(&*b);
+        row.insert(&*b, 0);
+        row.fit(&*b);
+        if let Some(t) = self.toolbar.borrow_mut().as_mut() {
+            t.used = true;
+        }
+        *self.d.attach.borrow_mut() = Some(b);
+        self.layout();
+        self
+    }
+
+    /// The attach button, when [`Composer::attach_button`] added it.
+    pub fn attach(&self) -> Option<Button> {
+        self.d.attach.borrow().clone()
+    }
+
+    /// Replaces the system file chooser of [`Composer::pick_files`]
+    /// (a portal, a remote picker, tests): `f()` returns the picked paths
+    /// (empty: cancelled).
+    pub fn on_pick_files(self, mut f: impl FnMut() -> Vec<PathBuf> + 'static) -> Self {
+        self.d.pick.set(move |_| f());
+        self
+    }
+
+    /// Opens the file chooser (several files; [`Composer::on_pick_files`]
+    /// replaces it) and gives the picked paths to [`Composer::on_files`].
+    pub fn pick_files(&self) {
+        if !self.d.files.is_set() {
+            return;
+        }
+        let paths = match self.d.pick.call(()) {
+            Some(p) => p,
+            None => {
+                let mut fc = fltk::dialog::NativeFileChooser::new(
+                    fltk::dialog::NativeFileChooserType::BrowseMultiFile,
+                );
+                fc.set_title(&crate::tr!("Attach files"));
+                fc.show();
+                fc.filenames()
+            }
+        };
+        if !paths.is_empty() {
+            self.d.files.call(paths);
+        }
+        let _ = self.area.clone().take_focus();
+    }
+
 
     /// Clear the text and the attachments after `on_submit` (default true).
     pub fn clear_on_submit(self, on: bool) -> Self {
@@ -620,35 +841,95 @@ impl Composer {
         self.d.attachments.clone()
     }
 
-    /// A row under the input for the app's buttons (attach, model picker):
-    /// `build` fills it like any row (`row.fit(&*button)`); the send
-    /// button stays at the input's end.
+    /// The bottom row under the input for the app's widgets (model,
+    /// permission and branch pickers, a dictation level ring): `build`
+    /// fills it like any row (`row.fit(&*button)`), at its start, after
+    /// the attach button. The send button stays at the input's end. The
+    /// row mirrors in a right-to-left language; Tab goes input → send →
+    /// the row's widgets in the order they were added.
     pub fn toolbar(self, build: impl FnOnce(&mut Flex)) -> Self {
-        let existing = self.toolbar.borrow().clone();
-        let mut t = match existing {
-            Some(t) => t,
-            None => {
-                let prev = fltk::group::Group::try_current();
-                fltk::group::Group::set_current(None::<&fltk::group::Group>);
-                let t = crate::layout::row();
-                t.end();
-                self.inner.clone().add(&t);
-                if let Some(g) = prev {
-                    g.begin();
-                }
-                *self.toolbar.borrow_mut() = Some(t.clone());
-                t
-            }
-        };
+        let mut t = self.bottom();
         let prev = fltk::group::Group::try_current();
         t.begin();
         build(&mut t);
         t.end();
+        if let Some(b) = self.toolbar.borrow_mut().as_mut() {
+            b.used = true;
+        }
         if let Some(g) = prev {
             g.begin();
         }
         self.layout();
         self
+    }
+
+    /// Widgets at the end of the bottom row (a context meter, draft
+    /// status, an expand button), before nothing but the row's end:
+    /// `build` fills them like [`Composer::toolbar`].
+    pub fn toolbar_end(self, build: impl FnOnce(&mut Flex)) -> Self {
+        let _ = self.bottom();
+        let end = self.toolbar.borrow().as_ref().map(|b| b.end.clone());
+        let Some(mut end) = end else { return self };
+        let prev = fltk::group::Group::try_current();
+        end.begin();
+        build(&mut end);
+        end.close_fitted();
+        if let Some(g) = prev {
+            g.begin();
+        }
+        if let Some(b) = self.toolbar.borrow_mut().as_mut() {
+            b.used = true;
+        }
+        self.layout();
+        self
+    }
+
+    /// The start of the bottom row (made on first use).
+    fn bottom(&self) -> Flex {
+        if let Some(b) = self.toolbar.borrow().as_ref() {
+            return b.lead.clone();
+        }
+        let prev = fltk::group::Group::try_current();
+        fltk::group::Group::set_current(None::<&fltk::group::Group>);
+        let mut row = crate::layout::row();
+        let lead = crate::layout::row();
+        lead.end();
+        let end = crate::layout::row();
+        end.end();
+        row.fixed(&end, 0);
+        row.end();
+        self.inner.clone().add(&row);
+        if let Some(g) = prev {
+            g.begin();
+        }
+        *self.toolbar.borrow_mut() = Some(Bottom {
+            row,
+            lead: lead.clone(),
+            end,
+            used: false,
+        });
+        lead
+    }
+
+
+    /// Tooltips and names of the send and stop buttons; the send tooltip
+    /// shows the key that sends.
+    fn label_buttons(&self) {
+        let (mut a, mut b, mut c) = (self.send.clone(), self.stop.clone(), self.idle.clone());
+        let (send, stop) = (crate::tr!("Send"), crate::tr!("Stop"));
+        let key = match self.effective_send_key() {
+            SendKey::Enter => "Enter".to_string(),
+            SendKey::ModEnter => crate::keys::label("Mod+Enter"),
+        };
+        let tip = format!("{send} · {key}");
+        a.set_tooltip(&tip);
+        c.set_tooltip(&tip);
+        b.set_tooltip(&stop);
+        a11y::set_name(&*a, &send);
+        a11y::set_name(&*c, &send);
+        a11y::set_name(&*b, &stop);
+        a11y::set_description(&*a, &key);
+        a11y::set_description(&*c, &key);
     }
 
     pub fn value(&self) -> String {
@@ -717,10 +998,14 @@ impl Composer {
         } else {
             self.d.submit.call(text);
         }
+        self.d.hist.borrow_mut().reset();
         if self.d.clear_on_submit.get() {
+            self.d.setting.set(true);
             self.area.set_value("");
+            self.d.setting.set(false);
             self.d.attachments.clear();
         }
+
     }
 
     // ------------------------------------------------------------ layout
@@ -797,13 +1082,12 @@ impl Composer {
         self.idle.clone().resize(bx, by, bh, bh);
         self.stop.clone().resize(bx, by, bh, bh);
         cy += ah;
-        if let Some(mut tb) = self.toolbar.borrow().clone() {
-            if tb.children() > 0 {
+        if let Some((mut tb, used)) = self.toolbar.borrow().as_ref().map(|b| (b.row.clone(), b.used)) {
+            if used {
                 tb.show();
                 cy += gap;
                 tb.resize(x, cy, w, bh);
-                tb.layout();
-                cy += bh;
+                tb.layout();                cy += bh;
             } else {
                 tb.hide();
             }
@@ -876,6 +1160,17 @@ impl Composer {
                 _ => {}
             }
         }
+        if plain && matches!(k, Key::Up | Key::Down) && self.history_key(k) {
+            return true;
+        }
+        if crate::keys::is_primary(m)
+            && m.contains(Shortcut::Shift)
+            && (k == Key::from_char('a') || k == Key::from_char('A'))
+            && self.d.attach.borrow().is_some()
+        {
+            self.pick_files();
+            return true;
+        }
         if matches!(k, Key::Enter | Key::KPEnter) {
             if self.area.is_composing() {
                 return false; // the input method commits first
@@ -900,13 +1195,31 @@ impl Composer {
                 self.submit(true);
                 return true;
             }
-            let sends = primary || (!shift && self.d.send_key.get() == SendKey::Enter);
+            let sends = primary || (!shift && self.effective_send_key() == SendKey::Enter);
             if sends {
                 self.submit(false);
                 return true;
             }
         }
         false
+    }
+
+    /// Up/Down through the prompt history (o3: the caret on the first /
+    /// last line, nothing selected, no input method composing).
+    fn history_key(&self, k: Key) -> bool {
+        if self.d.history.borrow().is_none() || self.area.is_composing() {
+            return false;
+        }
+        if !self.area.selection().is_empty() {
+            return false;
+        }
+        let up = k == Key::Up;
+        let edge = if up {
+            self.area.caret_on_first_line()
+        } else {
+            self.area.caret_on_last_line()
+        };
+        edge && self.history_step(up)
     }
 
     fn pasted(&self, text: &str, dropped: bool) -> bool {
@@ -1833,6 +2146,27 @@ mod tests {
                 .text,
             "に"
         );
+    }
+
+    #[test]
+    fn prompt_history_keeps_the_draft() {
+        let list: Vec<String> = vec!["newest".into(), "older".into()];
+        let mut h = PromptHistory::new();
+        assert_eq!(h.step(&list, false, "draft"), None);
+        assert_eq!(h.step(&list, true, "draft").as_deref(), Some("newest"));
+        assert!(h.browsing());
+        assert_eq!(h.step(&list, true, "newest").as_deref(), Some("older"));
+        assert_eq!(h.step(&list, true, "older"), None);
+        assert_eq!(h.step(&list, false, "older").as_deref(), Some("newest"));
+        assert_eq!(h.step(&list, false, "newest").as_deref(), Some("draft"));
+        assert!(!h.browsing());
+        assert_eq!(h.step(&list, false, "draft"), None);
+        // An edit resets: the edited text becomes the draft.
+        h.step(&list, true, "draft");
+        h.reset();
+        assert_eq!(h.step(&list, true, "edited").as_deref(), Some("newest"));
+        assert_eq!(h.step(&list, false, "newest").as_deref(), Some("edited"));
+        assert_eq!(PromptHistory::new().step(&[], true, "x"), None);
     }
 
     #[test]

@@ -19,6 +19,12 @@
 //!   `attention`), and a `summary` while a parent is folded.
 //! - **Sections** ([`NavItem::section`]): caption, count, header actions,
 //!   foldable. **Separators** ([`NavItem::separator`]).
+//! - **o3 thread rows**: [`NavItem::card`] (three lines: overline,
+//!   badges and status; title and note; [`Meta`] icons), slim rows with
+//!   [`NavItem::trailing`] / [`NavItem::status`] text that the hover
+//!   actions replace, [`NavTree::tree_guides`], a delayed hover card
+//!   ([`NavTree::preview`]), [`NavTree::action_menu`], and shelves with
+//!   their own heights ([`ShelfResizer`]).
 //! - **Custom rows**: [`NavTree::renderer`] paints items whose
 //!   [`NavItem::renderer`] names it (variable height).
 //! - **Search**: [`NavTree::search`] adds a filter field (or call
@@ -57,12 +63,18 @@
 
 mod flat;
 mod item;
+mod preview;
 mod rows;
+mod shelf;
+
+pub use preview::{CLOSE_MS as PREVIEW_CLOSE_MS, OPEN_MS as PREVIEW_OPEN_MS};
+pub use shelf::ShelfResizer;
 
 pub use crate::sidebar::SidebarMode;
 pub use crate::text::ColorRole;
 pub use item::{
-    default_match, Badge, Match, NavItem, NavKind, RowAction, RowPaint, RowState, Show,
+    default_match, Badge, Match, Meta, NavItem, NavKind, RowAction, RowPaint, RowState, RowStyle,
+    Show,
 };
 
 use crate::a11y::{self, Action, Role};
@@ -226,6 +238,12 @@ struct Nt {
     on_drop_files: Option<Box<FilesFn>>,
     accept_drop: Option<Rc<KeyFilter>>,
     on_query: KeyCb,
+    /// Tree guides under rows with children.
+    guides: bool,
+    /// Without `on_context`: right-click, Menu and Shift+F10 list the
+    /// row's actions.
+    action_menu: bool,
+    pv: preview::Pv,
     _sub: Option<Subscription>,
 }
 
@@ -434,6 +452,13 @@ fn rebuild(s: &mut Nt, model: &ListModel<String, NavItem>) {
             s.hover = None;
         }
     }
+    // The previewed row went away (removed, folded, filtered out).
+    if let Some((id, l)) = s.pv.open.clone() {
+        if !s.flat.at.contains_key(&id) {
+            s.pv.open = None;
+            app::add_timeout3(0.0, move |_| crate::overlay::close_layer(&l));
+        }
+    }
     let ins = std::mem::take(&mut s.inserted);
     if std::mem::replace(&mut s.moved, false) || !ins.is_empty() {
         s.rm_rail.changed(&ins, &[]);
@@ -535,12 +560,24 @@ fn paint_surface(
             let hovered = s.hover.filter(|(id, _)| *id == row.id).map(|(_, p)| p);
             let is_cursor = s.cursor == Some(row.id);
             let selected = sel_id == Some(row.id) && row.kind == NavKind::Row;
+            let guide = (s.guides && row.indent > 0 && row.kind == NavKind::Row).then(|| {
+                let parent_card = row
+                    .parent
+                    .and_then(|p| item_of(s, model, p))
+                    .is_some_and(|p| p.style == RowStyle::Card);
+                if parent_card {
+                    rows::card_icon_center(t, &m, s.rail, v.reveal)
+                } else {
+                    s.rail / 2
+                }
+            });
             let look = Look {
                 selected,
                 hover: hovered,
                 ring: ring && is_cursor,
                 drop: s.drop_target == Some(row.id) || s.spot == Some((row.id, Place::Into)),
                 hot: hovered.is_some() || selected || (ring && is_cursor),
+                guide,
             };
             let custom = (!it.renderer.is_empty())
                 .then(|| s.renderers.get(&it.renderer))
@@ -759,6 +796,9 @@ impl NavTree {
             on_drop_files: None,
             accept_drop: None,
             on_query: None,
+            guides: false,
+            action_menu: false,
+            pv: preview::Pv::default(),
             _sub: None,
         }));
         let t = NavTree {
@@ -966,6 +1006,26 @@ impl NavTree {
     /// Runs when the search text changes (built-in field or `set_query`).
     pub fn on_query(self, f: impl FnMut(&str) + 'static) -> Self {
         self.st.borrow_mut().on_query = Some(Box::new(f));
+        self
+    }
+
+    /// Thin vertical lines in the indentation of child rows, under each
+    /// ancestor's icon (o3's sub-thread guides). Off by default.
+    pub fn tree_guides(self, on: bool) -> Self {
+        {
+            let mut s = self.st.borrow_mut();
+            s.guides = on;
+        }
+        self.canvas.clone().redraw();
+        self
+    }
+
+    /// Without [`NavTree::on_context`], right-click, the Menu key and
+    /// Shift+F10 open a menu of the row's enabled actions (the keyboard
+    /// way to the hover-only ones); picking one runs
+    /// [`NavTree::on_action`]. Off by default.
+    pub fn action_menu(self, on: bool) -> Self {
+        self.st.borrow_mut().action_menu = on;
         self
     }
 
@@ -1563,6 +1623,7 @@ impl NavTree {
     }
 
     fn left(&self) {
+        self.preview_hover(None);
         let gen = {
             let mut s = self.st.borrow_mut();
             s.hovered = false;
@@ -1578,7 +1639,11 @@ impl NavTree {
             }
             let stay = {
                 let s = me.st.borrow();
-                s.gen != gen || s.hovered || s.layer_hovered || s.resize.is_some()
+                s.gen != gen
+                    || s.hovered
+                    || s.layer_hovered
+                    || s.resize.is_some()
+                    || s.pv.card_hovered
             };
             if !stay && !me.holds_focus() && !crate::overlay::modal_open_over(&me.canvas) {
                 me.collapse();
@@ -1630,13 +1695,44 @@ impl NavTree {
     }
 
     fn context(&self, id: ItemId, x: i32, y: i32) -> bool {
+        self.dismiss_preview();
         let Some(it) = self.item(id) else {
             return false;
         };
-        if it.disabled || self.st.borrow().on_context.is_none() {
+        if it.disabled {
             return false;
         }
+        if self.st.borrow().on_context.is_none() {
+            return self.open_action_menu(id, x, y);
+        }
         fire!(self.st, on_context, &it.key, x, y);
+        true
+    }
+
+    /// The row's enabled actions as a menu ([`NavTree::action_menu`]).
+    fn open_action_menu(&self, id: ItemId, x: i32, y: i32) -> bool {
+        let Some(it) = self.item(id) else {
+            return false;
+        };
+        if !self.st.borrow().action_menu || it.busy {
+            return false;
+        }
+        let acts: Vec<usize> = (0..it.actions.len())
+            .filter(|&i| it.actions[i].enabled)
+            .collect();
+        if acts.is_empty() {
+            return false;
+        }
+        let items = acts
+            .iter()
+            .map(|&i| crate::popups::PopupItem::new(&it.actions[i].icon, &it.actions[i].tooltip))
+            .collect();
+        let me = self.clone();
+        let _ = self.open_menu(x, y, items, move |k| {
+            if let Some(&a) = acts.get(k) {
+                me.action(id, a);
+            }
+        });
         true
     }
 
@@ -1749,6 +1845,13 @@ impl NavTree {
             let mut s = self.st.borrow_mut();
             std::mem::replace(&mut s.hover, hover) != hover
         };
+        let on_row = hover
+            .filter(|(id, p)| {
+                !matches!(p, Part::Action(_))
+                    && self.item(*id).is_some_and(|it| it.kind == NavKind::Row)
+            })
+            .map(|(id, _)| id);
+        self.preview_hover(on_row);
         self.set_tip(surf, w, tip);
         self.edge_cursor(surf, w, ex);
         if changed {
@@ -1791,6 +1894,7 @@ impl NavTree {
     }
 
     fn push(&self, surf: Surf, w: &Widget) {
+        self.dismiss_preview();
         let (ex, ey) = app::event_coords();
         if app::event_mouse_button() == app::MouseButton::Left && self.on_edge(surf, ex) {
             let wide = self.st.borrow().wide;
@@ -2037,6 +2141,7 @@ impl NavTree {
     }
 
     fn wheel(&self, inside: bool) -> bool {
+        self.dismiss_preview();
         let (_, area) = self.visible();
         let pad = theme::with(|t| metrics(t).pad);
         let max = {
@@ -2189,6 +2294,12 @@ impl NavTree {
         let cmd = mods.intersects(Shortcut::Ctrl | Shortcut::Alt | Shortcut::Meta);
         let shift = mods.contains(Shortcut::Shift);
         let plain = !cmd && !shift;
+        if self.preview_open().is_some() {
+            self.dismiss_preview();
+            if k == Key::Escape {
+                return true;
+            }
+        }
         if k == Key::Escape {
             if self.is_expanded() && !self.is_pinned() {
                 self.collapse();
@@ -2376,6 +2487,9 @@ impl NavTree {
     /// Expanded = pinned or open; moves the width (push) or the layer (overlay).
     fn apply(&self) {
         let want = self.pinned.get() || self.st.borrow().open;
+        if !want {
+            self.hide_preview();
+        }
         if self.expanded.get() != want {
             self.expanded.set(want);
         }
@@ -2791,6 +2905,25 @@ impl NavTree {
                     m.with_id(*id, |t| flat::signature(t, searching)) != s.flat.sig.get(id).copied()
                 });
             }
+            if !structural {
+                // A row whose height changed (a card that became slim,
+                // a custom renderer's height) moves the rows below it.
+                structural = theme::with(|t| {
+                    let mm = metrics(t);
+                    ch.updated().iter().any(|id| {
+                        let Some(h1) = s.flat.get(*id).map(|r| r.2.h1) else {
+                            return false;
+                        };
+                        m.with_id(*id, |it| {
+                            let custom = (!it.renderer.is_empty())
+                                .then(|| s.renderers.get(&it.renderer))
+                                .flatten();
+                            rows::heights(it, &mm, custom).1
+                        })
+                        .is_some_and(|h| h != h1)
+                    })
+                });
+            }
             if structural {
                 s.dirty = true;
                 s.moved |= ch.is_structural();
@@ -2902,16 +3035,33 @@ impl NavTree {
                         if row.focusable {
                             c.action(Action::Click).action(Action::Focus).focusable();
                         }
-                        if s.on_context.is_some() && !it.disabled {
+                        let menu = s.action_menu && it.actions.iter().any(|a| a.enabled);
+                        if (s.on_context.is_some() || menu) && !it.disabled {
                             c.action(Action::ShowContextMenu);
                         }
                         let mut desc: Vec<&str> = vec![];
+                        if !it.overline.is_empty() {
+                            desc.push(&it.overline);
+                        }
+                        if !it.trailing.is_empty() {
+                            desc.push(&it.trailing);
+                        }
+                        if !it.note.is_empty() {
+                            desc.push(&it.note);
+                        }
                         if !it.detail.is_empty() {
                             desc.push(&it.detail);
                         }
+                        for mm in &it.meta {
+                            if !mm.text.is_empty() {
+                                desc.push(&mm.text);
+                            }
+                        }
                         for b in &it.badges {
-                            if let Badge::Text { text, .. } = b {
-                                desc.push(text);
+                            match b {
+                                Badge::Text { text, .. } => desc.push(text),
+                                Badge::Icon { label, .. } if !label.is_empty() => desc.push(label),
+                                _ => {}
                             }
                         }
                         if !it.count.is_empty() {

@@ -607,6 +607,146 @@ pub fn checks(run: &mut dyn FnMut(&str, Check)) {
             Ok(())
         },
     );
+
+    run(
+        "composer: Up/Down prompt history keeps the draft, expanded editor swaps Enter and Mod+Enter (hint), attach button and Mod+Shift+A, bottom-row slots in Tab order and mirrored",
+        &|shots| {
+            use fltk_omarchy::widgets::{glyph, Button};
+            let mut win = AppWindow::new("t", 520, 300);
+            let mut body = win.body();
+            let draft = State::new(String::new());
+            let history = State::new(vec!["two\nlines".to_string(), "first prompt".to_string()]);
+            let expanded = State::new(false);
+            let sent: Rc<RefCell<Vec<String>>> = Rc::default();
+            let files: Rc<RefCell<Vec<PathBuf>>> = Rc::default();
+            let (s2, f2) = (sent.clone(), files.clone());
+            let model = Button::new("Model").bordered();
+            let options = Button::icon(glyph::SETTINGS, "").tooltip("Options");
+            let (m2, o2) = (model.clone(), options.clone());
+            let (mw, ow) = (model.w(), options.w());
+            let c = Composer::new()
+                .bind(&draft)
+                .history(&history)
+                .expanded(&expanded)
+                .on_submit(move |t| s2.borrow_mut().push(t))
+                .on_files(move |p| f2.borrow_mut().extend(p))
+                .on_pick_files(|| vec![PathBuf::from("picked/notes.txt")])
+                .attach_button()
+                .toolbar(move |row| row.fit(&*m2))
+                .toolbar_end(move |row| row.fit(&*o2));
+            body.fit(&*c);
+            win.end();
+            win.snapshot(shots.join("composer-o3.png")).map_err(|e| e.to_string())?;
+            check(model.w() == mw && options.w() == ow, &format!("widgets keep their size: {} {}", model.w(), options.w()))?;
+            focus::first(&*win);
+            keys("my draft");
+            press("Up");
+            check(draft.get() == "two\nlines" && c.browsing_history(), &format!("Up: newest prompt {:?}", draft.get()))?;
+            check(c.area().caret() == 0, "an older prompt starts at the top")?;
+            press("Up");
+            check(draft.get() == "first prompt", &format!("Up again: older {:?}", draft.get()))?;
+            press("Up");
+            check(draft.get() == "first prompt", "no older prompt: stays")?;
+            press("Down");
+            check(draft.get() == "two\nlines" && c.area().caret() == "two\nlines".len(), "Down: newer, caret at the end")?;
+            press("Down");
+            check(draft.get() == "my draft" && !c.browsing_history(), &format!("Down past the newest: the draft {:?}", draft.get()))?;
+            // A multi-line prompt: Down moves the caret until the last line.
+            press("Up");
+            c.area().set_caret(0);
+            press("Down");
+            check(draft.get() == "two\nlines", "Down on the first of two lines moves the caret")?;
+            press("Down");
+            check(draft.get() == "my draft", "then leaves the history")?;
+            // Typing leaves the history: the edited text is the new draft.
+            press("Up");
+            press("End");
+            keys("!");
+            check(!c.browsing_history(), "typing resets the history")?;
+            press("Up");
+            press("Down"); // the caret, to the last line
+            press("Down");
+            check(draft.get() == "two!\nlines", &format!("the edited prompt is kept {:?}", draft.get()))?;
+            // A selection keeps Up/Down for the editor.
+            draft.set("hello".into());
+            c.area().select(0, 5);
+            press("Up");
+            check(draft.get() == "hello", "Up with a selection does not recall")?;
+            // Expanded editor: Enter is a new line, Mod+Enter sends.
+            let tip = |b: &Button| WidgetExt::tooltip(&**b).unwrap_or_default();
+            check(tip(&c.send_button()) == "Send · Enter", &format!("hint {:?}", tip(&c.send_button())))?;
+            expanded.set(true);
+            let modenter = fltk_omarchy::keys::label("Mod+Enter");
+            check(tip(&c.send_button()) == format!("Send · {modenter}"), &format!("expanded hint {:?}", tip(&c.send_button())))?;
+            draft.set("a".into());
+            c.area().set_caret(1);
+            press("Enter");
+            keys("b");
+            check(draft.get() == "a\nb" && sent.borrow().is_empty(), &format!("expanded Enter: new line {:?}", draft.get()))?;
+            press("Mod+Enter");
+            check(sent.borrow().as_slice() == ["a\nb"], &format!("expanded Mod+Enter sends {:?}", sent.borrow()))?;
+            expanded.set(false);
+            keys("c");
+            press("Enter");
+            check(sent.borrow().len() == 2, "back: Enter sends")?;
+            // Attach: the button and Mod+Shift+A go through the picker to on_files.
+            let attach = c.attach().ok_or("no attach button")?;
+            attach.click();
+            check(files.borrow().as_slice() == [PathBuf::from("picked/notes.txt")], &format!("button: {:?}", files.borrow()))?;
+            let _ = c.area().take_focus();
+            press("Mod+Shift+A");
+            check(files.borrow().len() == 2 && focus::is_focused(&*c.area()), "Mod+Shift+A, focus back in the input")?;
+            check(WidgetExt::tooltip(&*attach).unwrap_or_default().starts_with("Attach files"), "attach tooltip")?;
+            // Bottom row: attach, the app's widgets, a gap, the end widgets.
+            let row_y = attach.y();
+            check(model.y() == row_y && options.y() == row_y && row_y > c.area().y() + c.area().h(), "one row under the input")?;
+            check(attach.x() < model.x() && model.x() + model.w() < options.x(), "order: attach, model … options")?;
+            check(options.x() + options.w() >= c.x() + c.w() - 2, &format!("options at the end {} vs {}", options.x() + options.w(), c.x() + c.w()))?;
+            let p = shots.join("composer-o3.png");
+            win.snapshot(&p).map_err(|e| e.to_string())?;
+            let fg = theme::with(|t| t.palette.foreground);
+            let mut ink = 0;
+            for y in attach.y()..attach.y() + attach.h() {
+                for x in attach.x()..attach.x() + attach.w() {
+                    if near(pixel(&p, x, y)?, fg, 60) {
+                        ink += 1;
+                    }
+                }
+            }
+            check(ink > 5, &format!("the paperclip is drawn ({ink} px)"))?;
+            // Tab: input → attach → model → options.
+            draft.set(String::new());
+            let _ = c.area().take_focus();
+            press("Tab");
+            check(focus::is_focused(&*attach), "Tab: attach (send is dimmed)")?;
+            press("Tab");
+            check(focus::is_focused(&*model), "Tab: the app's widget")?;
+            press("Tab");
+            check(focus::is_focused(&*options), "Tab: the end widget")?;
+            delete(win);
+            // Right to left: the row mirrors.
+            fltk_omarchy::i18n::set_locale("ar");
+            let mut win = AppWindow::new("t", 520, 300);
+            let mut body = win.body();
+            let model = Button::new("Model").bordered();
+            let options = Button::icon(glyph::SETTINGS, "").tooltip("Options");
+            let (m2, o2) = (model.clone(), options.clone());
+            let c = Composer::new()
+                .on_files(|_| {})
+                .attach_button()
+                .toolbar(move |row| row.fit(&*m2))
+                .toolbar_end(move |row| row.fit(&*o2));
+            body.fit(&*c);
+            win.end();
+            win.snapshot(shots.join("composer-o3-rtl.png")).map_err(|e| e.to_string())?;
+            let attach = c.attach().ok_or("no attach")?;
+            let ok = attach.x() > model.x() && model.x() > options.x();
+            let (ax, mx, ox) = (attach.x(), model.x(), options.x());
+            delete(win);
+            fltk_omarchy::i18n::set_locale("en");
+            check(ok, &format!("rtl order attach {ax} > model {mx} > options {ox}"))
+        },
+    );
 }
 
 #[cfg(feature = "a11y")]
