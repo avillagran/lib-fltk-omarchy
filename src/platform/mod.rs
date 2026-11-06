@@ -27,6 +27,7 @@ mod generic;
 /// Local IPC transport for `crate::instance` (Unix sockets, named pipes).
 pub(crate) mod instance;
 pub mod languages;
+pub mod memory;
 pub(crate) mod poll;
 
 #[cfg(target_os = "linux")]

@@ -8,11 +8,14 @@ pub mod gfx;
 pub mod glass;
 pub mod hyprland;
 pub mod i18n;
+pub mod icon;
 pub mod instance;
 pub mod keys;
 pub mod layout;
 pub mod list;
 pub mod mask;
+#[cfg(feature = "images")]
+pub mod media;
 pub mod model;
 pub mod navtree;
 pub(crate) mod motion;

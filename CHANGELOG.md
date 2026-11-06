@@ -11,6 +11,18 @@
   `is_active`, `toggle`; `platform::dirs::runtime`. Unix socket + `flock`
   on Linux/BSD/macOS, named pipe on Windows; same user only, size limits
   and timeouts. docs/PLATFORMS.md.
+- **Images** (`media`, feature `images`, off by default, Rust 1.80.1):
+  PNG, JPEG, GIF and WebP decoded on the task pool at the shown size in
+  device pixels, bounded and with errors as values, a byte-bounded LRU
+  cache, the `Image` widget (contain / cover / letterbox, rounded corners,
+  placeholder, animation on the shared clock) and the `ImageViewer`
+  overlay (zoom, pan, copy hook, keyboard). fltk keeps `no-images`.
+  docs/MEDIA.md.
+- **Icons** (`icon`, no feature, no dependencies): the SVG subset of
+  Lucide-style icons into `gfx` paths, tinted by theme role with a raster
+  cache; `Icon` widget and `icon::draw`. All of o3's 2 027 icons parse.
+  `gfx::Canvas::fill_even_odd`; `platform::memory` (glibc heap return).
+
 - **NavTree** (`navtree`): a model-based navigation sidebar for file
   managers and chat / coding apps (Files' places, o3's projects and
   threads). Items in a `ListModel<String, NavItem>` keyed by

@@ -93,13 +93,24 @@ impl Coverage {
     }
 
     /// Calls `f(x, y, coverage)` for every pixel with coverage > 0.
-    pub fn for_each(&self, mut f: impl FnMut(usize, usize, f32)) {
+    pub fn for_each(&self, f: impl FnMut(usize, usize, f32)) {
+        self.for_each_rule(false, f)
+    }
+
+    /// [`Coverage::for_each`] with the non-zero (`false`) or even-odd
+    /// (`true`) fill rule.
+    pub fn for_each_rule(&self, even_odd: bool, mut f: impl FnMut(usize, usize, f32)) {
         for y in 0..self.h {
             let row = &self.acc[y * self.stride..y * self.stride + self.w];
             let mut sum = 0.0f32;
             for (x, a) in row.iter().enumerate() {
                 sum += a;
-                let c = sum.abs().min(1.0);
+                let c = if even_odd {
+                    let m = sum.abs() % 2.0;
+                    if m > 1.0 { 2.0 - m } else { m }
+                } else {
+                    sum.abs().min(1.0)
+                };
                 if c > 1.0 / 512.0 {
                     f(x, y, c);
                 }

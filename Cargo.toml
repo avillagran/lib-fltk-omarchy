@@ -41,6 +41,13 @@ accesskit = { version = "=0.25.0", optional = true }
 # Already used by every platform adapter (no extra code); the a11y tests
 # validate their trees with it (`a11y::testing`).
 accesskit_consumer = { version = "=0.39.0", optional = true }
+# Only with the `images` feature (all MIT OR Apache-2.0, pure Rust, no
+# `image` umbrella crate). This feature needs Rust 1.80.1 (image-webp
+# 0.2.4); the rest of the crate keeps 1.80. See docs/MEDIA.md.
+png = { version = "=0.18.1", optional = true }
+gif = { version = "=0.14.2", optional = true, default-features = false, features = ["std"] }
+zune-jpeg = { version = "=0.5.15", optional = true }
+image-webp = { version = "=0.2.4", optional = true }
 
 [target.'cfg(any(target_os = "linux", target_os = "freebsd", target_os = "openbsd", target_os = "netbsd", target_os = "dragonfly"))'.dependencies]
 accesskit_unix = { version = "=0.23.0", optional = true }
@@ -70,6 +77,9 @@ gpu = ["fltk/enable-glwindow", "dep:glow"]
 # QR codes (`qr::Qr`), for pairing and invite links. Off by default.
 qr = ["dep:qrcode"]
 a11y = ["dep:accesskit", "dep:accesskit_consumer", "dep:accesskit_unix", "dep:accesskit_windows", "dep:accesskit_macos"]
+# Image decoding and display (`media`: PNG, JPEG, GIF, WebP). Off by
+# default; fltk keeps `no-images` either way. See docs/MEDIA.md.
+images = ["dep:png", "dep:gif", "dep:zune-jpeg", "dep:image-webp"]
 
 [profile.release]
 opt-level = "s"
@@ -96,3 +106,11 @@ required-features = ["gpu"]
 [[example]]
 name = "a11y_check"
 required-features = ["a11y"]
+
+[[example]]
+name = "media"
+required-features = ["images"]
+
+[[example]]
+name = "media_bench"
+required-features = ["images"]

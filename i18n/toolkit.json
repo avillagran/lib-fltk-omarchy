@@ -65,7 +65,14 @@
     "Searching…": "Searching…",
     "No results": "No results",
     "Sidebar": "Sidebar",
-    "Too long for a QR code": "Too long for a QR code"
+    "Too long for a QR code": "Too long for a QR code",
+    "Image": "Image",
+    "Zoom in": "Zoom in",
+    "Zoom out": "Zoom out",
+    "Fit to window": "Fit to window",
+    "Copy image": "Copy image",
+    "Loading image…": "Loading image…",
+    "Image could not be loaded": "Image could not be loaded"
   },
   "es": {
     "Cancel": "Cancelar",
@@ -133,7 +140,14 @@
     "Searching…": "Buscando…",
     "No results": "Sin resultados",
     "Sidebar": "Barra lateral",
-    "Too long for a QR code": "Demasiado largo para un código QR"
+    "Too long for a QR code": "Demasiado largo para un código QR",
+    "Image": "Imagen",
+    "Zoom in": "Acercar",
+    "Zoom out": "Alejar",
+    "Fit to window": "Ajustar a la ventana",
+    "Copy image": "Copiar imagen",
+    "Loading image…": "Cargando imagen…",
+    "Image could not be loaded": "No se pudo cargar la imagen"
   },
   "pt": {
     "Cancel": "Cancelar",
@@ -201,7 +215,14 @@
     "Searching…": "Pesquisando…",
     "No results": "Nenhum resultado",
     "Sidebar": "Barra lateral",
-    "Too long for a QR code": "Longo demais para um código QR"
+    "Too long for a QR code": "Longo demais para um código QR",
+    "Image": "Imagem",
+    "Zoom in": "Ampliar",
+    "Zoom out": "Reduzir",
+    "Fit to window": "Ajustar à janela",
+    "Copy image": "Copiar imagem",
+    "Loading image…": "Carregando imagem…",
+    "Image could not be loaded": "Não foi possível carregar a imagem"
   },
   "fr": {
     "Cancel": "Annuler",
@@ -269,7 +290,14 @@
     "Searching…": "Recherche…",
     "No results": "Aucun résultat",
     "Sidebar": "Barre latérale",
-    "Too long for a QR code": "Trop long pour un code QR"
+    "Too long for a QR code": "Trop long pour un code QR",
+    "Image": "Image",
+    "Zoom in": "Zoom avant",
+    "Zoom out": "Zoom arrière",
+    "Fit to window": "Ajuster à la fenêtre",
+    "Copy image": "Copier l’image",
+    "Loading image…": "Chargement de l’image…",
+    "Image could not be loaded": "Impossible de charger l’image"
   },
   "de": {
     "Cancel": "Abbrechen",
@@ -337,7 +365,14 @@
     "Searching…": "Suche…",
     "No results": "Keine Ergebnisse",
     "Sidebar": "Seitenleiste",
-    "Too long for a QR code": "Zu lang für einen QR-Code"
+    "Too long for a QR code": "Zu lang für einen QR-Code",
+    "Image": "Bild",
+    "Zoom in": "Vergrößern",
+    "Zoom out": "Verkleinern",
+    "Fit to window": "An Fenster anpassen",
+    "Copy image": "Bild kopieren",
+    "Loading image…": "Bild wird geladen…",
+    "Image could not be loaded": "Bild konnte nicht geladen werden"
   },
   "it": {
     "Cancel": "Annulla",
@@ -405,7 +440,14 @@
     "Searching…": "Ricerca…",
     "No results": "Nessun risultato",
     "Sidebar": "Barra laterale",
-    "Too long for a QR code": "Troppo lungo per un codice QR"
+    "Too long for a QR code": "Troppo lungo per un codice QR",
+    "Image": "Immagine",
+    "Zoom in": "Ingrandisci",
+    "Zoom out": "Riduci",
+    "Fit to window": "Adatta alla finestra",
+    "Copy image": "Copia immagine",
+    "Loading image…": "Caricamento immagine…",
+    "Image could not be loaded": "Impossibile caricare l’immagine"
   },
   "nl": {
     "Cancel": "Annuleren",
@@ -473,7 +515,14 @@
     "Searching…": "Zoeken…",
     "No results": "Geen resultaten",
     "Sidebar": "Zijbalk",
-    "Too long for a QR code": "Te lang voor een QR-code"
+    "Too long for a QR code": "Te lang voor een QR-code",
+    "Image": "Afbeelding",
+    "Zoom in": "Inzoomen",
+    "Zoom out": "Uitzoomen",
+    "Fit to window": "Aanpassen aan venster",
+    "Copy image": "Afbeelding kopiëren",
+    "Loading image…": "Afbeelding laden…",
+    "Image could not be loaded": "Afbeelding kon niet worden geladen"
   },
   "pl": {
     "Cancel": "Anuluj",
@@ -543,7 +592,14 @@
     "Searching…": "Wyszukiwanie…",
     "No results": "Brak wyników",
     "Sidebar": "Pasek boczny",
-    "Too long for a QR code": "Za długie na kod QR"
+    "Too long for a QR code": "Za długie na kod QR",
+    "Image": "Obraz",
+    "Zoom in": "Powiększ",
+    "Zoom out": "Pomniejsz",
+    "Fit to window": "Dopasuj do okna",
+    "Copy image": "Kopiuj obraz",
+    "Loading image…": "Wczytywanie obrazu…",
+    "Image could not be loaded": "Nie można wczytać obrazu"
   },
   "ru": {
     "Cancel": "Отмена",
@@ -613,7 +669,14 @@
     "Searching…": "Поиск…",
     "No results": "Ничего не найдено",
     "Sidebar": "Боковая панель",
-    "Too long for a QR code": "Слишком длинно для QR-кода"
+    "Too long for a QR code": "Слишком длинно для QR-кода",
+    "Image": "Изображение",
+    "Zoom in": "Увеличить",
+    "Zoom out": "Уменьшить",
+    "Fit to window": "По размеру окна",
+    "Copy image": "Копировать изображение",
+    "Loading image…": "Загрузка изображения…",
+    "Image could not be loaded": "Не удалось загрузить изображение"
   },
   "uk": {
     "Cancel": "Скасувати",
@@ -683,7 +746,14 @@
     "Searching…": "Пошук…",
     "No results": "Нічого не знайдено",
     "Sidebar": "Бічна панель",
-    "Too long for a QR code": "Задовго для QR-коду"
+    "Too long for a QR code": "Задовго для QR-коду",
+    "Image": "Зображення",
+    "Zoom in": "Збільшити",
+    "Zoom out": "Зменшити",
+    "Fit to window": "За розміром вікна",
+    "Copy image": "Копіювати зображення",
+    "Loading image…": "Завантаження зображення…",
+    "Image could not be loaded": "Не вдалося завантажити зображення"
   },
   "ja": {
     "Cancel": "キャンセル",
@@ -750,7 +820,14 @@
     "Searching…": "検索中…",
     "No results": "結果なし",
     "Sidebar": "サイドバー",
-    "Too long for a QR code": "QR コードには長すぎます"
+    "Too long for a QR code": "QR コードには長すぎます",
+    "Image": "画像",
+    "Zoom in": "拡大",
+    "Zoom out": "縮小",
+    "Fit to window": "ウィンドウに合わせる",
+    "Copy image": "画像をコピー",
+    "Loading image…": "画像を読み込み中…",
+    "Image could not be loaded": "画像を読み込めませんでした"
   },
   "ko": {
     "Cancel": "취소",
@@ -817,7 +894,14 @@
     "Searching…": "검색 중…",
     "No results": "결과 없음",
     "Sidebar": "사이드바",
-    "Too long for a QR code": "QR 코드로 만들기에 너무 깁니다"
+    "Too long for a QR code": "QR 코드로 만들기에 너무 깁니다",
+    "Image": "이미지",
+    "Zoom in": "확대",
+    "Zoom out": "축소",
+    "Fit to window": "창에 맞추기",
+    "Copy image": "이미지 복사",
+    "Loading image…": "이미지 불러오는 중…",
+    "Image could not be loaded": "이미지를 불러올 수 없습니다"
   },
   "zh": {
     "Cancel": "取消",
@@ -884,7 +968,14 @@
     "Searching…": "正在搜索…",
     "No results": "无结果",
     "Sidebar": "侧边栏",
-    "Too long for a QR code": "内容过长，无法生成二维码"
+    "Too long for a QR code": "内容过长，无法生成二维码",
+    "Image": "图片",
+    "Zoom in": "放大",
+    "Zoom out": "缩小",
+    "Fit to window": "适合窗口",
+    "Copy image": "复制图片",
+    "Loading image…": "正在加载图片…",
+    "Image could not be loaded": "无法加载图片"
   },
   "ar": {
     "Cancel": "إلغاء",
@@ -956,7 +1047,14 @@
     "Searching…": "جارٍ البحث…",
     "No results": "لا توجد نتائج",
     "Sidebar": "الشريط الجانبي",
-    "Too long for a QR code": "أطول من أن يُعرض في رمز QR"
+    "Too long for a QR code": "أطول من أن يُعرض في رمز QR",
+    "Image": "صورة",
+    "Zoom in": "تكبير",
+    "Zoom out": "تصغير",
+    "Fit to window": "ملاءمة النافذة",
+    "Copy image": "نسخ الصورة",
+    "Loading image…": "جارٍ تحميل الصورة…",
+    "Image could not be loaded": "تعذّر تحميل الصورة"
   },
   "tr": {
     "Cancel": "İptal",
@@ -1024,7 +1122,14 @@
     "Searching…": "Aranıyor…",
     "No results": "Sonuç yok",
     "Sidebar": "Kenar çubuğu",
-    "Too long for a QR code": "QR kod için çok uzun"
+    "Too long for a QR code": "QR kod için çok uzun",
+    "Image": "Görsel",
+    "Zoom in": "Yakınlaştır",
+    "Zoom out": "Uzaklaştır",
+    "Fit to window": "Pencereye sığdır",
+    "Copy image": "Görseli kopyala",
+    "Loading image…": "Görsel yükleniyor…",
+    "Image could not be loaded": "Görsel yüklenemedi"
   },
   "sv": {
     "Cancel": "Avbryt",
@@ -1092,7 +1197,14 @@
     "Searching…": "Söker…",
     "No results": "Inga resultat",
     "Sidebar": "Sidofält",
-    "Too long for a QR code": "För långt för en QR-kod"
+    "Too long for a QR code": "För långt för en QR-kod",
+    "Image": "Bild",
+    "Zoom in": "Zooma in",
+    "Zoom out": "Zooma ut",
+    "Fit to window": "Anpassa till fönstret",
+    "Copy image": "Kopiera bild",
+    "Loading image…": "Läser in bild…",
+    "Image could not be loaded": "Bilden kunde inte läsas in"
   },
   "da": {
     "Cancel": "Annuller",
@@ -1160,7 +1272,14 @@
     "Searching…": "Søger…",
     "No results": "Ingen resultater",
     "Sidebar": "Sidepanel",
-    "Too long for a QR code": "For langt til en QR-kode"
+    "Too long for a QR code": "For langt til en QR-kode",
+    "Image": "Billede",
+    "Zoom in": "Zoom ind",
+    "Zoom out": "Zoom ud",
+    "Fit to window": "Tilpas til vinduet",
+    "Copy image": "Kopiér billede",
+    "Loading image…": "Indlæser billede…",
+    "Image could not be loaded": "Billedet kunne ikke indlæses"
   },
   "no": {
     "Cancel": "Avbryt",
@@ -1228,7 +1347,14 @@
     "Searching…": "Søker…",
     "No results": "Ingen resultater",
     "Sidebar": "Sidepanel",
-    "Too long for a QR code": "For langt for en QR-kode"
+    "Too long for a QR code": "For langt for en QR-kode",
+    "Image": "Bilde",
+    "Zoom in": "Zoom inn",
+    "Zoom out": "Zoom ut",
+    "Fit to window": "Tilpass til vinduet",
+    "Copy image": "Kopier bilde",
+    "Loading image…": "Laster inn bilde…",
+    "Image could not be loaded": "Bildet kunne ikke lastes inn"
   },
   "fi": {
     "Cancel": "Peruuta",
@@ -1296,7 +1422,14 @@
     "Searching…": "Haetaan…",
     "No results": "Ei tuloksia",
     "Sidebar": "Sivupalkki",
-    "Too long for a QR code": "Liian pitkä QR-koodiksi"
+    "Too long for a QR code": "Liian pitkä QR-koodiksi",
+    "Image": "Kuva",
+    "Zoom in": "Lähennä",
+    "Zoom out": "Loitonna",
+    "Fit to window": "Sovita ikkunaan",
+    "Copy image": "Kopioi kuva",
+    "Loading image…": "Ladataan kuvaa…",
+    "Image could not be loaded": "Kuvaa ei voitu ladata"
   },
   "cs": {
     "Cancel": "Zrušit",
@@ -1365,6 +1498,13 @@
     "Searching…": "Hledání…",
     "No results": "Žádné výsledky",
     "Sidebar": "Postranní panel",
-    "Too long for a QR code": "Příliš dlouhé pro QR kód"
+    "Too long for a QR code": "Příliš dlouhé pro QR kód",
+    "Image": "Obrázek",
+    "Zoom in": "Přiblížit",
+    "Zoom out": "Oddálit",
+    "Fit to window": "Přizpůsobit oknu",
+    "Copy image": "Kopírovat obrázek",
+    "Loading image…": "Načítání obrázku…",
+    "Image could not be loaded": "Obrázek se nepodařilo načíst"
   }
 }
