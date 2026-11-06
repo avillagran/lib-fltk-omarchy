@@ -155,7 +155,8 @@ struct St {
 
 /// A virtualized diff: unified or side by side, line numbers, add/delete
 /// tints, word highlights, folding hunks and files, wrap or horizontal
-/// scrolling, selection and copy, find. See the [module docs](super) and
+/// scrolling, selection and copy, find, line ranges by side and number,
+/// line comments and annotations under lines. See the [module docs](super) and
 /// docs/DIFF.md.
 #[derive(Clone)]
 pub struct DiffView {
@@ -1143,7 +1144,7 @@ impl DiffView {
         let Some((file, side, anchor)) = self.st.borrow().gutter_drag else { return };
         let n = {
             let s = self.st.borrow();
-            if s.rows.get(i).is_none_or(|r| r.file != file) {
+            if !s.rows.get(i).is_some_and(|r| r.file == file) {
                 return;
             }
             s.number_of_row(i, side)
@@ -2499,7 +2500,7 @@ fn place_hosted(w: &Widget, s: &mut St, geo: &Geo, me: &WeakView) -> Option<Stri
         crate::focus::follow(w, &g);
         let me = me.clone();
         g.handle(move |_, ev| {
-            if ev == Event::KeyDown && app::event_key() == Key::Escape && app::event_state().is_empty() {
+            if ev == Event::KeyDown && app::event_key() == Key::Escape && !app::event_state().intersects(Shortcut::Ctrl | Shortcut::Alt | Shortcut::Shift | Shortcut::Meta) {
                 if let Some(v) = me.upgrade() {
                     let id = v.focused_note();
                     if id.is_some() {
