@@ -250,4 +250,43 @@ pub fn checks(run: &mut dyn FnMut(&str, Check)) {
         fltk::window::DoubleWindow::delete((*win).clone());
         Ok(())
     });
+
+    run("task::Latest: debounced, latest wins, slow older answers are dropped", &|_| {
+        use fltk_omarchy::task::Latest;
+        use std::cell::RefCell;
+        use std::rc::Rc;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+        use std::time::Duration;
+        let got: Rc<RefCell<Vec<String>>> = Rc::default();
+        let g = got.clone();
+        let runs = Arc::new(AtomicUsize::new(0));
+        let latest = Latest::new(Duration::from_millis(60), move |v: String| g.borrow_mut().push(v));
+        for q in ["a", "ab", "abc"] {
+            let (r, q) = (runs.clone(), q.to_string());
+            latest.request(move |_| {
+                r.fetch_add(1, Ordering::SeqCst);
+                Ok(q)
+            });
+        }
+        pump_until(|| !got.borrow().is_empty());
+        check(*got.borrow() == ["abc"] && runs.load(Ordering::SeqCst) == 1, &format!("debounced: {:?}, {} runs", got.borrow(), runs.load(Ordering::SeqCst)))?;
+        let fast = Latest::new(Duration::ZERO, {
+            let g = got.clone();
+            move |v: String| g.borrow_mut().push(v)
+        });
+        fast.request(|ctx| {
+            ctx.sleep(Duration::from_millis(300))?;
+            Ok("slow".to_string())
+        });
+        fast.request(|_| Ok("new".to_string()));
+        pump_until(|| got.borrow().len() >= 2);
+        let t = std::time::Instant::now();
+        while t.elapsed() < Duration::from_millis(450) {
+            fltk_omarchy::App::pump();
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        check(*got.borrow() == ["abc", "new"], &format!("the older slow answer is dropped: {:?}", got.borrow()))?;
+        Ok(())
+    });
 }

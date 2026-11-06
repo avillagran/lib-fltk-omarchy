@@ -479,3 +479,101 @@ impl<R: Send + 'static> Task<R> {
         Ok(TaskHandle { shared })
     }
 }
+
+// ================================================================== Latest
+
+/// Latest-wins background requests (Rune's `Latest`): each
+/// [`request`](Latest::request) waits `debounce` (typing pauses), cancels
+/// the one still running, and only the newest answer reaches `on_result`
+/// on the UI thread. For searches driven by input (`@file` completions, a
+/// filter box): older, slower answers never overwrite a newer one.
+///
+/// ```no_run
+/// use fltk_omarchy::task::Latest;
+/// use std::time::Duration;
+/// let search = Latest::new(Duration::from_millis(120), |hits: Vec<String>| println!("{hits:?}"));
+/// search.request(|ctx| { ctx.check()?; Ok(vec!["src/lib.rs".to_string()]) });
+/// ```
+pub struct Latest<T: Send + 'static> {
+    inner: std::rc::Rc<LatestInner<T>>,
+}
+
+struct LatestInner<T> {
+    debounce: Duration,
+    gen: std::cell::Cell<u64>,
+    running: std::cell::RefCell<Option<TaskHandle>>,
+    #[allow(clippy::type_complexity)]
+    on_result: std::cell::RefCell<Box<dyn FnMut(T)>>,
+}
+
+impl<T: Send + 'static> Clone for Latest<T> {
+    fn clone(&self) -> Self {
+        Latest { inner: self.inner.clone() }
+    }
+}
+
+impl<T: Send + 'static> Latest<T> {
+    pub fn new(debounce: Duration, on_result: impl FnMut(T) + 'static) -> Self {
+        Latest {
+            inner: std::rc::Rc::new(LatestInner {
+                debounce,
+                gen: std::cell::Cell::new(0),
+                running: std::cell::RefCell::new(None),
+                on_result: std::cell::RefCell::new(Box::new(on_result)),
+            }),
+        }
+    }
+
+    /// Runs `work` after the debounce unless a newer request comes first;
+    /// a request still running is cancelled. Call on the UI thread.
+    pub fn request(&self, work: impl FnOnce(&Ctx) -> Result<T, String> + Send + 'static) {
+        let gen = self.inner.gen.get() + 1;
+        self.inner.gen.set(gen);
+        if let Some(h) = self.inner.running.borrow_mut().take() {
+            h.cancel();
+        }
+        let me = std::rc::Rc::downgrade(&self.inner);
+        let mut work = Some(work);
+        let mut start = move || {
+            let Some(inner) = me.upgrade() else { return };
+            if inner.gen.get() != gen {
+                return; // a newer request replaced this one
+            }
+            let Some(work) = work.take() else { return };
+            let back = std::rc::Rc::downgrade(&inner);
+            let handle = Task::new(work)
+                .on_done(move |out| {
+                    let Some(inner) = back.upgrade() else { return };
+                    if inner.gen.get() != gen {
+                        return;
+                    }
+                    inner.running.borrow_mut().take();
+                    if let Outcome::Done(v) = out {
+                        if let Ok(mut f) = inner.on_result.try_borrow_mut() {
+                            f(v);
+                        }
+                    }
+                })
+                .start();
+            *inner.running.borrow_mut() = Some(handle);
+        };
+        if self.inner.debounce.is_zero() {
+            start();
+        } else {
+            let mut start = Some(start);
+            fltk::app::add_timeout3(self.inner.debounce.as_secs_f64(), move |_| {
+                if let Some(mut f) = start.take() {
+                    f();
+                }
+            });
+        }
+    }
+
+    /// Forgets pending and running requests (their answers are dropped).
+    pub fn cancel(&self) {
+        self.inner.gen.set(self.inner.gen.get() + 1);
+        if let Some(h) = self.inner.running.borrow_mut().take() {
+            h.cancel();
+        }
+    }
+}
