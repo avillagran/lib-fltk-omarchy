@@ -80,7 +80,10 @@ fn next_messages(c: &mut Consumer) -> Vec<Message> {
     Vec::new()
 }
 
-fn next_frame(c: &mut Consumer) -> Option<(u32, u32, u64, [u8; 4], [u8; 4])> {
+/// (width, height, seq, pixel at (10, 20), last pixel) of the next frame.
+type Seen = (u32, u32, u64, [u8; 4], [u8; 4]);
+
+fn next_frame(c: &mut Consumer) -> Option<Seen> {
     let end = Instant::now() + Duration::from_secs(5);
     while Instant::now() < end {
         c.wait(Some(Duration::from_millis(500)));
@@ -99,6 +102,7 @@ fn round_trip(t: Transport) {
     let mut cmd = Command::new(std::env::current_exe().unwrap());
     cmd.args(["--exact", "child_producer", "--nocapture", "--test-threads=1"]).env(ROLE, "producer");
     c.share(&mut cmd);
+    cmd.stdout(std::process::Stdio::null());
     let mut child = cmd.spawn().expect("spawn producer");
     c.release_remote();
 

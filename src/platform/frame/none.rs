@@ -41,7 +41,10 @@ impl Remote {
 pub(crate) fn unmap(_ptr: *mut u8, _len: usize) {}
 
 fn unsupported() -> io::Error {
-    io::Error::new(io::ErrorKind::Unsupported, "shared frame surfaces are not supported on this OS")
+    io::Error::new(
+        io::ErrorKind::Unsupported,
+        "shared frame surfaces are not supported on this OS",
+    )
 }
 
 pub(crate) fn create(_kind: Kind, _len: usize, _base: &Path, _role: Role) -> io::Result<Parts> {

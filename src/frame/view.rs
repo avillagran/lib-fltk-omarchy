@@ -65,6 +65,12 @@ pub struct FrameStats {
     pub events: u64,
 }
 
+type FileInbox = Arc<Mutex<Option<(u64, Result<file::Decoded, String>)>>>;
+type InputCb = Rc<dyn Fn(&Input)>;
+type MessageCb = Rc<dyn Fn(&Message)>;
+/// Where the frame was drawn (logical rectangle) and its pixel size.
+type Placed = ((i32, i32, i32, i32), (u32, u32));
+
 /// What is being shown.
 enum Source {
     None,
@@ -89,7 +95,7 @@ struct St {
     source: Source,
     shown: Option<Shown>,
     /// A decoded file waiting for the UI thread.
-    file_inbox: Arc<Mutex<Option<(u64, Result<file::Decoded, String>)>>>,
+    file_inbox: FileInbox,
     file_seq: u64,
     /// Request number of the newest file asked for / shown.
     file_req: u64,
@@ -104,9 +110,9 @@ struct St {
     pass_escape: bool,
     owns_wheel: bool,
     reserve: Option<Rc<dyn Fn(Key, Mods) -> bool>>,
-    on_event_dyn: Option<Rc<dyn Fn(&Input)>>,
+    on_event_dyn: Option<InputCb>,
     writer: Option<Box<dyn Write>>,
-    on_message: Option<Rc<dyn Fn(&Message)>>,
+    on_message: Option<MessageCb>,
     on_content_size: Option<Rc<dyn Fn(u32, u32)>>,
     on_closed: Option<Rc<dyn Fn()>>,
     closed_told: bool,
@@ -122,7 +128,7 @@ struct St {
     copy_armed: Option<Instant>,
     buttons: u8,
     /// Where the frame was drawn last (logical) and its pixel size.
-    placed: Option<((i32, i32, i32, i32), (u32, u32))>,
+    placed: Option<Placed>,
     stats: FrameStats,
     latency_sum: Duration,
     latency_n: u64,

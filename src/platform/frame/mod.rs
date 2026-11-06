@@ -129,7 +129,10 @@ pub(crate) struct Waiter(WaitImpl);
 
 impl Waiter {
     fn polling() -> Waiter {
-        Waiter(WaitImpl::Poll(Arc::new(PollState { interrupted: Mutex::new(false), cv: Condvar::new() })))
+        Waiter(WaitImpl::Poll(Arc::new(PollState {
+            interrupted: Mutex::new(false),
+            cv: Condvar::new(),
+        })))
     }
 
     /// Blocks until the other side rings, `timeout` passes or an
@@ -231,8 +234,15 @@ impl Extras {
 /// and frame files go (default: a private dir in
 /// [`super::dirs::runtime`]). Falls back from `Fd` to `Named` where
 /// descriptors cannot be inherited (Windows).
-pub(crate) fn create(kind: Kind, len: usize, dir: Option<&Path>, role: Role) -> io::Result<Segment> {
-    let base = dir.map(Path::to_path_buf).unwrap_or_else(super::dirs::runtime);
+pub(crate) fn create(
+    kind: Kind,
+    len: usize,
+    dir: Option<&Path>,
+    role: Role,
+) -> io::Result<Segment> {
+    let base = dir
+        .map(Path::to_path_buf)
+        .unwrap_or_else(super::dirs::runtime);
     let parts = imp::create(kind, len, &base, role)?;
     Ok(assemble(parts))
 }
@@ -265,7 +275,10 @@ fn assemble(p: Parts) -> Segment {
         waiter,
         handle: p.handle,
         kind: p.kind,
-        extras: Extras { remote: p.remote, _cleanup: p.cleanup },
+        extras: Extras {
+            remote: p.remote,
+            _cleanup: p.cleanup,
+        },
     }
 }
 
@@ -287,7 +300,8 @@ mod tests {
     use super::*;
 
     fn temp_dir(tag: &str) -> std::path::PathBuf {
-        let d = std::env::temp_dir().join(format!("fltk-omarchy-frame-{tag}-{}", std::process::id()));
+        let d =
+            std::env::temp_dir().join(format!("fltk-omarchy-frame-{tag}-{}", std::process::id()));
         std::fs::create_dir_all(&d).unwrap();
         d
     }
@@ -315,7 +329,11 @@ mod tests {
         let got = w.wait(Some(Duration::from_secs(2)));
         if w.poll_interval().is_none() {
             assert_eq!(got, Wait::Rung, "{kind:?}");
-            assert_eq!(w.wait(Some(Duration::from_millis(10))), Wait::Timeout, "rings were drained");
+            assert_eq!(
+                w.wait(Some(Duration::from_millis(10))),
+                Wait::Timeout,
+                "rings were drained"
+            );
         }
         // Consumer rings input, producer waits on it.
         a.bell.ring();
@@ -332,7 +350,8 @@ mod tests {
         });
         let end = std::time::Instant::now() + Duration::from_secs(5);
         let mut got = w.wait(Some(Duration::from_secs(5)));
-        while got == Wait::Timeout && w.poll_interval().is_some() && std::time::Instant::now() < end {
+        while got == Wait::Timeout && w.poll_interval().is_some() && std::time::Instant::now() < end
+        {
             got = w.wait(Some(Duration::from_secs(5)));
         }
         assert_eq!(got, Wait::Interrupted, "{kind:?}");
@@ -347,7 +366,12 @@ mod tests {
         // The creator removed its frame file when dropped (the private
         // directory itself stays).
         let files = |dir: &Path| -> usize {
-            std::fs::read_dir(dir).unwrap().flatten().map(|e| e.path()).filter(|p| p.is_file()).count()
+            std::fs::read_dir(dir)
+                .unwrap()
+                .flatten()
+                .map(|e| e.path())
+                .filter(|p| p.is_file())
+                .count()
         };
         for e in std::fs::read_dir(&d).unwrap().flatten() {
             if e.path().is_dir() {

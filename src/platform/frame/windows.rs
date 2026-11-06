@@ -39,9 +39,22 @@ struct MemoryBasicInformation {
 
 #[link(name = "kernel32")]
 extern "system" {
-    fn CreateFileMappingW(file: Handle, sa: *mut c_void, protect: u32, size_hi: u32, size_lo: u32, name: *const u16) -> Handle;
+    fn CreateFileMappingW(
+        file: Handle,
+        sa: *mut c_void,
+        protect: u32,
+        size_hi: u32,
+        size_lo: u32,
+        name: *const u16,
+    ) -> Handle;
     fn OpenFileMappingW(access: u32, inherit: i32, name: *const u16) -> Handle;
-    fn MapViewOfFile(mapping: Handle, access: u32, off_hi: u32, off_lo: u32, bytes: usize) -> *mut c_void;
+    fn MapViewOfFile(
+        mapping: Handle,
+        access: u32,
+        off_hi: u32,
+        off_lo: u32,
+        bytes: usize,
+    ) -> *mut c_void;
     fn UnmapViewOfFile(base: *const c_void) -> i32;
     fn VirtualQuery(addr: *const c_void, info: *mut MemoryBasicInformation, len: usize) -> usize;
     fn CreateEventW(sa: *mut c_void, manual_reset: i32, initial: i32, name: *const u16) -> Handle;
@@ -97,7 +110,9 @@ fn view(mapping: H, len: Option<usize>) -> io::Result<Mapping> {
         None => {
             // SAFETY: `info` is written by VirtualQuery for our own view.
             let mut info: MemoryBasicInformation = unsafe { std::mem::zeroed() };
-            let n = unsafe { VirtualQuery(p, &mut info, std::mem::size_of::<MemoryBasicInformation>()) };
+            let n = unsafe {
+                VirtualQuery(p, &mut info, std::mem::size_of::<MemoryBasicInformation>())
+            };
             if n == 0 {
                 unsafe { UnmapViewOfFile(p) };
                 return Err(last());
@@ -105,7 +120,11 @@ fn view(mapping: H, len: Option<usize>) -> io::Result<Mapping> {
             info.region_size
         }
     };
-    Ok(Mapping { ptr: p as *mut u8, len, _os: MapOs(mapping) })
+    Ok(Mapping {
+        ptr: p as *mut u8,
+        len,
+        _os: MapOs(mapping),
+    })
 }
 
 pub(crate) fn unmap(ptr: *mut u8, _len: usize) {
@@ -143,7 +162,10 @@ impl Waiter {
     fn new(ev: Arc<H>) -> io::Result<Waiter> {
         // SAFETY: an unnamed auto-reset event.
         let wake = owned(unsafe { CreateEventW(std::ptr::null_mut(), 0, 0, std::ptr::null()) })?;
-        Ok(Waiter { ev, wake: Arc::new(wake) })
+        Ok(Waiter {
+            ev,
+            wake: Arc::new(wake),
+        })
     }
 
     pub(crate) fn interrupter(&self) -> Interrupter {
@@ -151,7 +173,9 @@ impl Waiter {
     }
 
     pub(crate) fn wait(&mut self, timeout: Option<Duration>) -> Wait {
-        let ms = timeout.map_or(INFINITE, |d| d.as_millis().min((INFINITE - 1) as u128) as u32);
+        let ms = timeout.map_or(INFINITE, |d| {
+            d.as_millis().min((INFINITE - 1) as u128) as u32
+        });
         let hs = [self.wake.0, self.ev.0];
         // SAFETY: two valid handles.
         let r = unsafe { WaitForMultipleObjects(2, hs.as_ptr(), 0, ms) };
@@ -191,7 +215,11 @@ impl Drop for Cleanup {
 
 fn names(id: &str) -> (String, String, String) {
     let base = format!("Local\\fltk-omarchy-{id}");
-    (base.clone(), format!("{base}-present"), format!("{base}-input"))
+    (
+        base.clone(),
+        format!("{base}-present"),
+        format!("{base}-input"),
+    )
 }
 
 fn event(name: &str, create: bool) -> io::Result<Arc<H>> {
@@ -207,7 +235,10 @@ fn event(name: &str, create: bool) -> io::Result<Arc<H>> {
     let h = owned(h)?;
     // SAFETY: no arguments.
     if create && unsafe { GetLastError() } as i32 == ERROR_ALREADY_EXISTS {
-        return Err(io::Error::new(io::ErrorKind::AlreadyExists, "frame event name taken"));
+        return Err(io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            "frame event name taken",
+        ));
     }
     Ok(Arc::new(h))
 }
@@ -228,7 +259,10 @@ fn private_dir(base: &Path) -> io::Result<PathBuf> {
         Err(e) => return Err(e),
     }
     if !fs::symlink_metadata(&dir)?.is_dir() {
-        return Err(io::Error::new(io::ErrorKind::PermissionDenied, "frame dir is not a directory"));
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "frame dir is not a directory",
+        ));
     }
     Ok(dir)
 }
@@ -242,10 +276,20 @@ pub(crate) fn create(kind: Kind, len: usize, base: &Path, role: Role) -> io::Res
             let w = wide(&mem);
             // SAFETY: a new pagefile-backed section with a NUL-terminated name.
             let h = owned(unsafe {
-                CreateFileMappingW(INVALID_HANDLE_VALUE, std::ptr::null_mut(), PAGE_READWRITE, (size >> 32) as u32, size as u32, w.as_ptr())
+                CreateFileMappingW(
+                    INVALID_HANDLE_VALUE,
+                    std::ptr::null_mut(),
+                    PAGE_READWRITE,
+                    (size >> 32) as u32,
+                    size as u32,
+                    w.as_ptr(),
+                )
             })?;
             if unsafe { GetLastError() } as i32 == ERROR_ALREADY_EXISTS {
-                return Err(io::Error::new(io::ErrorKind::AlreadyExists, "frame mapping name taken"));
+                return Err(io::Error::new(
+                    io::ErrorKind::AlreadyExists,
+                    "frame mapping name taken",
+                ));
             }
             let map = view(h, Some(len))?;
             let (ring, wait) = pick(role, event(&present, true)?, event(&input, true)?);
@@ -261,22 +305,48 @@ pub(crate) fn create(kind: Kind, len: usize, base: &Path, role: Role) -> io::Res
         }
         Kind::File => {
             let path = private_dir(base)?.join(format!("{}.frame", unique_id()));
-            let f = OpenOptions::new().read(true).write(true).create_new(true).open(&path)?;
-            let cleanup = Cleanup { file: Some(path.clone()) };
+            let f = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create_new(true)
+                .open(&path)?;
+            let cleanup = Cleanup {
+                file: Some(path.clone()),
+            };
             f.set_len(size)?;
             // SAFETY: a section over our open file handle.
             let h = owned(unsafe {
-                CreateFileMappingW(f.as_raw_handle() as Handle, std::ptr::null_mut(), PAGE_READWRITE, 0, 0, std::ptr::null())
+                CreateFileMappingW(
+                    f.as_raw_handle() as Handle,
+                    std::ptr::null_mut(),
+                    PAGE_READWRITE,
+                    0,
+                    0,
+                    std::ptr::null(),
+                )
             })?;
             let map = view(h, Some(len))?;
-            let p = path.to_str().ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "path is not UTF-8"))?;
-            Ok(Parts { map, bell: None, waiter: None, handle: format!("file:{p}"), kind, remote: Remote, cleanup })
+            let p = path
+                .to_str()
+                .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "path is not UTF-8"))?;
+            Ok(Parts {
+                map,
+                bell: None,
+                waiter: None,
+                handle: format!("file:{p}"),
+                kind,
+                remote: Remote,
+                cleanup,
+            })
         }
     }
 }
 
 fn bad(h: &str) -> io::Error {
-    io::Error::new(io::ErrorKind::InvalidInput, format!("bad frame handle {h:?}"))
+    io::Error::new(
+        io::ErrorKind::InvalidInput,
+        format!("bad frame handle {h:?}"),
+    )
 }
 
 pub(crate) fn open(handle: &str, role: Role) -> io::Result<Parts> {
@@ -305,7 +375,14 @@ pub(crate) fn open(handle: &str, role: Role) -> io::Result<Parts> {
         let len = f.metadata()?.len() as usize;
         // SAFETY: a section over our open file handle.
         let h = owned(unsafe {
-            CreateFileMappingW(f.as_raw_handle() as Handle, std::ptr::null_mut(), PAGE_READWRITE, 0, 0, std::ptr::null())
+            CreateFileMappingW(
+                f.as_raw_handle() as Handle,
+                std::ptr::null_mut(),
+                PAGE_READWRITE,
+                0,
+                0,
+                std::ptr::null(),
+            )
         })?;
         let map = view(h, Some(len))?;
         return Ok(Parts {

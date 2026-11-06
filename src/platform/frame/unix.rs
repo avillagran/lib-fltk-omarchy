@@ -43,7 +43,11 @@ fn set_cloexec(fd: libc::c_int, on: bool) -> io::Result<()> {
     // SAFETY: plain fcntl on a descriptor we hold.
     unsafe {
         let flags = check(libc::fcntl(fd, libc::F_GETFD))?;
-        let next = if on { flags | libc::FD_CLOEXEC } else { flags & !libc::FD_CLOEXEC };
+        let next = if on {
+            flags | libc::FD_CLOEXEC
+        } else {
+            flags & !libc::FD_CLOEXEC
+        };
         check(libc::fcntl(fd, libc::F_SETFD, next))?;
     }
     Ok(())
@@ -74,7 +78,9 @@ fn pipe() -> io::Result<(Fd, Fd)> {
 /// A close-on-exec duplicate of `fd`.
 fn dup(fd: libc::c_int) -> io::Result<Fd> {
     // SAFETY: F_DUPFD_CLOEXEC returns a new descriptor we own.
-    Ok(Fd(check(unsafe { libc::fcntl(fd, libc::F_DUPFD_CLOEXEC, 3) })?))
+    Ok(Fd(check(unsafe {
+        libc::fcntl(fd, libc::F_DUPFD_CLOEXEC, 3)
+    })?))
 }
 
 fn map_fd(fd: libc::c_int, len: Option<usize>) -> io::Result<Mapping> {
@@ -88,16 +94,30 @@ fn map_fd(fd: libc::c_int, len: Option<usize>) -> io::Result<Mapping> {
         }
     };
     if len == 0 {
-        return Err(io::Error::new(io::ErrorKind::InvalidData, "empty frame surface"));
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "empty frame surface",
+        ));
     }
     // SAFETY: a fresh shared mapping of `len` bytes of `fd`; checked below.
     let p = unsafe {
-        libc::mmap(std::ptr::null_mut(), len, libc::PROT_READ | libc::PROT_WRITE, libc::MAP_SHARED, fd, 0)
+        libc::mmap(
+            std::ptr::null_mut(),
+            len,
+            libc::PROT_READ | libc::PROT_WRITE,
+            libc::MAP_SHARED,
+            fd,
+            0,
+        )
     };
     if p == libc::MAP_FAILED {
         return Err(last());
     }
-    Ok(Mapping { ptr: p as *mut u8, len, _os: MapOs })
+    Ok(Mapping {
+        ptr: p as *mut u8,
+        len,
+        _os: MapOs,
+    })
 }
 
 pub(crate) fn unmap(ptr: *mut u8, len: usize) {
@@ -156,7 +176,11 @@ fn drain(fd: libc::c_int) -> usize {
 impl Waiter {
     fn new(fd: Arc<Fd>) -> io::Result<Waiter> {
         let (r, w) = pipe()?;
-        Ok(Waiter { fd, wake_r: r, wake_w: Arc::new(w) })
+        Ok(Waiter {
+            fd,
+            wake_r: r,
+            wake_w: Arc::new(w),
+        })
     }
 
     pub(crate) fn interrupter(&self) -> Interrupter {
@@ -166,8 +190,16 @@ impl Waiter {
     pub(crate) fn wait(&mut self, timeout: Option<Duration>) -> Wait {
         let ms = timeout.map_or(-1, |d| d.as_millis().min(i32::MAX as u128) as libc::c_int);
         let mut fds = [
-            libc::pollfd { fd: self.fd.0, events: libc::POLLIN, revents: 0 },
-            libc::pollfd { fd: self.wake_r.0, events: libc::POLLIN, revents: 0 },
+            libc::pollfd {
+                fd: self.fd.0,
+                events: libc::POLLIN,
+                revents: 0,
+            },
+            libc::pollfd {
+                fd: self.wake_r.0,
+                events: libc::POLLIN,
+                revents: 0,
+            },
         ];
         loop {
             // SAFETY: two valid pollfd entries.
@@ -288,7 +320,12 @@ fn shm_name(id: &str) -> CString {
 }
 
 fn shm_open(name: &CString, create: bool) -> io::Result<Fd> {
-    let flags = libc::O_RDWR | if create { libc::O_CREAT | libc::O_EXCL } else { 0 };
+    let flags = libc::O_RDWR
+        | if create {
+            libc::O_CREAT | libc::O_EXCL
+        } else {
+            0
+        };
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     // SAFETY: NUL-terminated name; variadic mode argument as an int.
     let fd = unsafe { libc::shm_open(name.as_ptr(), flags, 0o600 as libc::c_uint) };
@@ -319,7 +356,12 @@ fn anonymous(base: &Path) -> io::Result<Fd> {
         return Ok(fd);
     }
     let path = private_dir(base)?.join(format!("{}.anon", unique_id()));
-    let f = OpenOptions::new().read(true).write(true).create_new(true).mode(0o600).open(&path)?;
+    let f = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&path)?;
     let _ = fs::remove_file(&path);
     Ok(Fd(f.into_raw_fd()))
 }
@@ -334,13 +376,17 @@ fn open_fifo(path: &Path) -> io::Result<Arc<Fd>> {
         .open(path)?;
     let meta = f.metadata()?;
     if meta.uid() != euid() || !std::os::unix::fs::FileTypeExt::is_fifo(&meta.file_type()) {
-        return Err(io::Error::new(io::ErrorKind::PermissionDenied, "not our FIFO"));
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "not our FIFO",
+        ));
     }
     Ok(Arc::new(Fd(f.into_raw_fd())))
 }
 
 fn mkfifo(path: &Path) -> io::Result<()> {
-    let c = CString::new(path.as_os_str().as_encoded_bytes()).map_err(|_| io::ErrorKind::InvalidInput)?;
+    let c = CString::new(path.as_os_str().as_encoded_bytes())
+        .map_err(|_| io::ErrorKind::InvalidInput)?;
     // SAFETY: NUL-terminated path.
     check(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }).map(|_| ())
 }
@@ -373,7 +419,13 @@ pub(crate) fn create(kind: Kind, len: usize, base: &Path, role: Role) -> io::Res
                 Role::Producer => (theirs.0, theirs.1),
                 Role::Consumer => (theirs.1, theirs.0),
             };
-            let handle = format!("fd:{}:{}:{}:{}", std::process::id(), mem.0, t_present.0, t_input.0);
+            let handle = format!(
+                "fd:{}:{}:{}:{}",
+                std::process::id(),
+                mem.0,
+                t_present.0,
+                t_input.0
+            );
             Ok(Parts {
                 map,
                 bell: Some(Bell(Arc::new(ring))),
@@ -389,16 +441,24 @@ pub(crate) fn create(kind: Kind, len: usize, base: &Path, role: Role) -> io::Res
             let dir = private_dir(base)?;
             let name = shm_name(&id);
             let mem = shm_open(&name, true)?;
-            let mut cleanup = Cleanup { shm: Some(name), files: Vec::new() };
+            let mut cleanup = Cleanup {
+                shm: Some(name),
+                files: Vec::new(),
+            };
             truncate(mem.0, len)?;
             let map = map_fd(mem.0, Some(len))?;
-            let (present, input) = (dir.join(format!("{id}.present")), dir.join(format!("{id}.input")));
+            let (present, input) = (
+                dir.join(format!("{id}.present")),
+                dir.join(format!("{id}.input")),
+            );
             for p in [&present, &input] {
                 mkfifo(p)?;
                 cleanup.files.push(p.clone());
             }
             let (ring, wait) = pick(role, open_fifo(&present)?, open_fifo(&input)?);
-            let dir_s = dir.to_str().ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "runtime dir is not UTF-8"))?;
+            let dir_s = dir.to_str().ok_or_else(|| {
+                io::Error::new(io::ErrorKind::InvalidInput, "runtime dir is not UTF-8")
+            })?;
             Ok(Parts {
                 map,
                 bell: Some(Bell(ring)),
@@ -411,24 +471,50 @@ pub(crate) fn create(kind: Kind, len: usize, base: &Path, role: Role) -> io::Res
         }
         Kind::File => {
             let path = private_dir(base)?.join(format!("{}.frame", unique_id()));
-            let f = OpenOptions::new().read(true).write(true).create_new(true).mode(0o600).open(&path)?;
-            let cleanup = Cleanup { shm: None, files: vec![path.clone()] };
+            let f = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(&path)?;
+            let cleanup = Cleanup {
+                shm: None,
+                files: vec![path.clone()],
+            };
             f.set_len(len as u64)?;
             let map = map_fd(f.as_raw_fd(), Some(len))?;
-            let p = path.to_str().ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "path is not UTF-8"))?;
-            Ok(Parts { map, bell: None, waiter: None, handle: format!("file:{p}"), kind, remote: Remote::default(), cleanup })
+            let p = path
+                .to_str()
+                .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "path is not UTF-8"))?;
+            Ok(Parts {
+                map,
+                bell: None,
+                waiter: None,
+                handle: format!("file:{p}"),
+                kind,
+                remote: Remote::default(),
+                cleanup,
+            })
         }
     }
 }
 
 fn bad(h: &str) -> io::Error {
-    io::Error::new(io::ErrorKind::InvalidInput, format!("bad frame handle {h:?}"))
+    io::Error::new(
+        io::ErrorKind::InvalidInput,
+        format!("bad frame handle {h:?}"),
+    )
 }
 
 pub(crate) fn open(handle: &str, role: Role) -> io::Result<Parts> {
     if let Some(rest) = handle.strip_prefix("fd:") {
-        let n: Vec<i64> = rest.split(':').map(|s| s.parse().map_err(|_| bad(handle))).collect::<io::Result<_>>()?;
-        let [pid, mem, present, input] = n[..] else { return Err(bad(handle)) };
+        let n: Vec<i64> = rest
+            .split(':')
+            .map(|s| s.parse().map_err(|_| bad(handle)))
+            .collect::<io::Result<_>>()?;
+        let [pid, mem, present, input] = n[..] else {
+            return Err(bad(handle));
+        };
         let ours = pid == std::process::id() as i64;
         // Inherited descriptors become ours (close-on-exec from now on);
         // in the creating process itself, duplicates.
@@ -478,10 +564,17 @@ pub(crate) fn open(handle: &str, role: Role) -> io::Result<Parts> {
         });
     }
     if let Some(path) = handle.strip_prefix("file:") {
-        let f = OpenOptions::new().read(true).write(true).custom_flags(libc::O_NOFOLLOW).open(path)?;
+        let f = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(path)?;
         let meta = f.metadata()?;
         if meta.uid() != euid() || !meta.is_file() {
-            return Err(io::Error::new(io::ErrorKind::PermissionDenied, "frame file belongs to another user"));
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "frame file belongs to another user",
+            ));
         }
         let map = map_fd(f.as_raw_fd(), None)?;
         return Ok(Parts {
