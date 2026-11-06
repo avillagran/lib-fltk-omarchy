@@ -255,30 +255,59 @@ pub fn chain<W: WidgetExt>(window: &W) -> Vec<Widget> {
 }
 
 fn chain_of<W: WidgetExt>(window: &W) -> Vec<Widget> {
-    fn walk(g: &fltk::group::Group, out: &mut Vec<Widget>) {
+    fn walk(g: &fltk::group::Group, out: &mut Vec<Widget>, followers: &[(Widget, Widget)]) {
         for i in 0..g.children() {
             let Some(c) = g.child(i) else { continue };
             if !c.visible() || !c.active() {
                 continue;
             }
-            if is_control_group(&c) {
-                if c.has_visible_focus() {
-                    out.push(c);
-                }
+            // A follower group comes right after its owner, not here.
+            if followers.iter().any(|(_, f)| ptr(f) == ptr(&c)) {
                 continue;
             }
-            if let Some(sub) = c.as_group() {
-                walk(&sub, out);
+            if is_control_group(&c) {
+                if c.has_visible_focus() {
+                    out.push(c.clone());
+                }
+            } else if let Some(sub) = c.as_group() {
+                walk(&sub, out, followers);
             } else if c.has_visible_focus() {
-                out.push(c);
+                out.push(c.clone());
+            }
+            for (_, f) in followers.iter().filter(|(o, _)| ptr(o) == ptr(&c)) {
+                if let Some(fg) = f.as_group().filter(|g| g.visible()) {
+                    walk(&fg, out, followers);
+                }
             }
         }
     }
+    let followers = FOLLOWERS.with(|f| {
+        let mut f = f.borrow_mut();
+        f.retain(|(o, g)| !o.was_deleted() && !g.was_deleted());
+        f.clone()
+    });
     let mut out = Vec::new();
     if let Some(g) = window.as_group() {
-        walk(&g, &mut out);
+        walk(&g, &mut out, &followers);
     }
     out
+}
+
+thread_local! {
+    static FOLLOWERS: RefCell<Vec<(Widget, Widget)>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Tab order: the controls of `group` (an overlay elsewhere in the window,
+/// e.g. widgets hosted over a canvas) come right after `owner`, and
+/// Shift+Tab from them goes back to it.
+pub(crate) fn follow<W: WidgetExt, G: WidgetExt>(owner: &W, group: &G) {
+    // SAFETY: both are live widgets; the copies only track them.
+    let (o, g) = unsafe { (Widget::from_widget_ptr(owner.as_widget_ptr()), Widget::from_widget_ptr(group.as_widget_ptr())) };
+    FOLLOWERS.with(|f| {
+        let mut f = f.borrow_mut();
+        f.retain(|(a, b)| !a.was_deleted() && !b.was_deleted() && ptr(b) != ptr(&g));
+        f.push((o, g));
+    });
 }
 
 /// Tab stops: each control, and each keyboard panel of a panel host.
@@ -780,6 +809,11 @@ pub fn hover_at<W: WindowExt>(window: &W, x: i32, y: i32) {
 /// Sends a left click (press + release) at window coordinates `(x, y)` of
 /// `window` through fltk's normal event path (tests, scripted tours).
 pub fn click_at<W: WindowExt>(window: &W, x: i32, y: i32) {
+    click_at_with(window, x, y, Shortcut::None);
+}
+
+/// [`click_at`] with modifier keys held (`Shortcut::Shift`, …).
+pub fn click_at_with<W: WindowExt>(window: &W, x: i32, y: i32, mods: Shortcut) {
     let win = window.as_widget_ptr() as app::WindowPtr;
     // SAFETY: fltk's event globals are plain data, used on the UI thread.
     unsafe {
@@ -789,7 +823,7 @@ pub fn click_at<W: WindowExt>(window: &W, x: i32, y: i32) {
         FL_E_Y_ROOT = window.y() + y;
         FL_E_CLICKS = 0;
         FL_E_KEYSYM = Key::from_i32(0xfee8 + 1).bits(); // FL_Button + 1 (left)
-        FL_E_STATE = 0x0100_0000; // FL_BUTTON1
+        FL_E_STATE = 0x0100_0000 | mods.bits(); // FL_BUTTON1
     }
     dispatch(Event::Push, win);
     // SAFETY: as above.

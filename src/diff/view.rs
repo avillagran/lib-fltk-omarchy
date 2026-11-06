@@ -2,6 +2,7 @@
 //! widget per line; each frame draws only the rows in view.
 
 use super::parse::{DiffError, FileStatus, LineKind, Patch, NONE};
+use super::review::{self, Annotation, AnnotationPaint, LineRange, LineRef, Side};
 use super::rows::{self, Cells, Options, Row, RowKind};
 use crate::a11y::{self, Action, Role};
 use crate::panel::{ItemId, KeyboardPanel};
@@ -17,6 +18,12 @@ use std::rc::{Rc, Weak};
 const BAR: i32 = 4;
 /// Context lines asked for by one expand.
 const EXPAND_STEP: u32 = 20;
+/// Tallest annotation (clip regions stay within what GDI accepts).
+const MAX_NOTE_H: i32 = 8_000;
+/// Accessibility keys of a line row's children: the comment button and
+/// the painted annotations (`NOTE_KEY + index`).
+const COMMENT_KEY: u64 = 1;
+const NOTE_KEY: u64 = 1 << 20;
 
 /// The app is asked for more context lines: new-file lines `first..=last`
 /// of `path` (they are equal in the old file). Answer with
@@ -79,13 +86,19 @@ enum Anchor {
 }
 
 type Listeners = Vec<Box<dyn FnMut()>>;
+type Painter = Rc<RefCell<dyn FnMut(&mut AnnotationPaint)>>;
 
 struct St {
     patch: Patch,
     rows: Vec<Row>,
     ids: Rc<RefCell<Vec<u64>>>,
     ys: Vec<i64>,
+    /// Height of each row's own content (its line part, without the
+    /// annotations under it); `ys` adds the annotations.
+    base: Vec<i32>,
     heights_key: Option<(i32, i32, u64, bool, bool, u64)>,
+    heights_gen: u64,
+    ys_key: Option<(u64, u64, u64)>,
     rows_gen: u64,
     opts: Options,
     wrap: bool,
@@ -115,11 +128,35 @@ struct St {
     wrap_state: Option<State<bool>>,
     context_state: Option<State<bool>>,
     drawn: usize,
+    // ---- review: annotations, line ranges, comments
+    notes: Vec<Annotation>,
+    /// Annotations or their heights changed (ys again).
+    notes_gen: u64,
+    /// Annotations changed (their rows again).
+    notes_map_gen: u64,
+    /// (row, annotation) of the annotations shown, in display order.
+    row_notes: Vec<(u32, u32)>,
+    row_notes_key: Option<(u64, u64)>,
+    painter: Option<Painter>,
+    hosted: Vec<(String, Widget)>,
+    host: Option<fltk::group::Group>,
+    range: Option<LineRange>,
+    /// The line a Shift+click or a drag extends the range from.
+    range_anchor: Option<u32>,
+    /// The panel selection is being set from `range` (not by the user).
+    syncing: u32,
+    on_select: Vec<Box<dyn FnMut(Option<LineRange>)>>,
+    on_comment: Option<Box<dyn FnMut(LineRange)>>,
+    /// A press on the line numbers: (file, side, anchor line).
+    gutter_drag: Option<(u32, Side, u32)>,
+    /// Line row under the pointer and its half (split: 1 = right).
+    hover_line: Option<(usize, u8)>,
 }
 
 /// A virtualized diff: unified or side by side, line numbers, add/delete
 /// tints, word highlights, folding hunks and files, wrap or horizontal
-/// scrolling, selection and copy, find. See the [module docs](super) and
+/// scrolling, selection and copy, find, line ranges by side and number,
+/// line comments and annotations under lines. See the [module docs](super) and
 /// docs/DIFF.md.
 #[derive(Clone)]
 pub struct DiffView {
@@ -145,7 +182,10 @@ impl DiffView {
             rows: Vec::new(),
             ids: Rc::default(),
             ys: vec![0],
+            base: Vec::new(),
             heights_key: None,
+            heights_gen: 0,
+            ys_key: None,
             rows_gen: 0,
             opts: Options::default(),
             wrap: false,
@@ -174,6 +214,21 @@ impl DiffView {
             wrap_state: None,
             context_state: None,
             drawn: 0,
+            notes: Vec::new(),
+            notes_gen: 0,
+            notes_map_gen: 0,
+            row_notes: Vec::new(),
+            row_notes_key: None,
+            painter: None,
+            hosted: Vec::new(),
+            host: None,
+            range: None,
+            range_anchor: None,
+            syncing: 0,
+            on_select: Vec::new(),
+            on_comment: None,
+            gutter_drag: None,
+            hover_line: None,
         }));
         let view = DiffView { widget, st };
         let s2 = view.st.clone();
@@ -463,6 +518,9 @@ impl DiffView {
         };
         let (a, b) = (ids.clone(), ids);
         let panel = self.panel();
+        // The panel follows the rows; the line range is the selection that
+        // survives (selected again on the new rows below).
+        self.st.borrow_mut().syncing += 1;
         panel.set_items_with(len, move |i| a.borrow().get(i).copied().unwrap_or(u64::MAX), move |id| b.borrow().binary_search(&id).ok(), true);
         if let Some(c) = cursor {
             let id = self.resolve(c);
@@ -475,6 +533,10 @@ impl DiffView {
                     }
                 }
             }
+        }
+        self.st.borrow_mut().syncing -= 1;
+        if self.st.borrow().range.is_some() {
+            self.project(None);
         }
         self.widget.clone().redraw();
     }
@@ -598,6 +660,7 @@ impl DiffView {
     }
 
     fn cursor_moved(&self) {
+        self.derive_range();
         let cursor = self.panel().cursor();
         let file = self.current_file();
         let f = {
@@ -906,6 +969,350 @@ impl DiffView {
         true
     }
 
+    // ------------------------------------------------------------ review: line ranges
+
+    /// The selected lines by file, side and number: set by a click on a
+    /// line number (Shift+click extends, a drag down the numbers selects a
+    /// range) or derived from the selected rows (keys, clicks on the code:
+    /// the new side, or the old side when only removed lines are
+    /// selected). It survives folding, more context, split and wrap.
+    pub fn selected_range(&self) -> Option<LineRange> {
+        self.st.borrow().range
+    }
+
+    /// Selects lines (None clears) and moves the cursor to the range's
+    /// last line. Does not call `on_select`.
+    pub fn set_selected_range(&self, range: Option<LineRange>) {
+        {
+            let mut s = self.st.borrow_mut();
+            s.range = range;
+            s.range_anchor = range.map(|r| r.start);
+        }
+        match range {
+            Some(r) => {
+                self.ensure_layout();
+                let end = self.st.borrow().row_of_ref(r.file as u32, r.last());
+                self.project(end);
+            }
+            None => {
+                self.sync(|p| p.clear_selection());
+            }
+        }
+        self.widget.clone().redraw();
+    }
+
+    /// Called when [`DiffView::selected_range`] changes by the user
+    /// (clicks, drags, keys). Listeners add up.
+    pub fn on_select(self, f: impl FnMut(Option<LineRange>) + 'static) -> Self {
+        self.st.borrow_mut().on_select.push(Box::new(f));
+        self
+    }
+
+    /// Lets the user comment on lines: a "+" in the gutter of the line
+    /// under the pointer and of the cursor line; clicking it, or Enter on a
+    /// line, calls `f` with the selected range when the line is in it, or
+    /// with that line alone.
+    pub fn on_comment(self, f: impl FnMut(LineRange) + 'static) -> Self {
+        {
+            let mut s = self.st.borrow_mut();
+            s.on_comment = Some(Box::new(f));
+            // The gutter makes room for the button.
+            s.heights_key = None;
+        }
+        self.widget.clone().redraw();
+        self
+    }
+
+    /// The display row showing line `at` of file `file` (None while it is
+    /// hidden: folded, collapsed, context hidden or not in the patch).
+    pub fn row_of_line_ref(&self, file: usize, at: LineRef) -> Option<usize> {
+        self.st.borrow().row_of_ref(file as u32, at)
+    }
+
+    /// Runs `f` on the panel while its changes are not the user's.
+    fn sync(&self, f: impl FnOnce(&KeyboardPanel)) {
+        self.st.borrow_mut().syncing += 1;
+        let panel = self.panel();
+        f(&panel);
+        self.st.borrow_mut().syncing -= 1;
+    }
+
+    /// Selects the rows of the range (from the row of its first line on
+    /// its side to the row of its last); the cursor goes to `cursor` (a
+    /// row index), or stays.
+    fn project(&self, cursor: Option<usize>) {
+        let span = {
+            let s = self.st.borrow();
+            let Some(r) = s.range else { return };
+            let anchor = s.range_anchor.and_then(|a| s.row_of_ref(r.file as u32, LineRef::new(r.side, a)));
+            s.span_of(&r).map(|(a, b)| (s.rows[a].id(), s.rows[b].id(), anchor.map(|i| s.rows[i].id()), cursor.and_then(|i| s.rows.get(i)).map(|r| r.id())))
+        };
+        let Some((first, last, anchor, cursor)) = span else {
+            self.sync(|p| p.clear_selection());
+            return;
+        };
+        self.sync(|p| {
+            let keep = p.cursor();
+            let anchor = anchor.unwrap_or(first);
+            p.select_only(anchor);
+            p.select_range(first, last, false);
+            p.set_cursor(cursor.or(keep).or(Some(last)));
+        });
+        let c = self.panel().cursor();
+        self.st.borrow_mut().last_cursor = c;
+    }
+
+    /// The user changed the range: remember it and tell the listeners.
+    fn set_range(&self, range: Option<LineRange>, anchor: Option<u32>, cursor: Option<usize>) {
+        let changed = {
+            let mut s = self.st.borrow_mut();
+            let changed = s.range != range;
+            s.range = range;
+            s.range_anchor = anchor;
+            changed
+        };
+        if range.is_some() {
+            self.project(cursor);
+        }
+        if changed {
+            self.notify_select(range);
+        }
+        self.widget.clone().redraw();
+    }
+
+    fn notify_select(&self, range: Option<LineRange>) {
+        let mut ls = std::mem::take(&mut self.st.borrow_mut().on_select);
+        for f in ls.iter_mut() {
+            f(range);
+        }
+        let mut s = self.st.borrow_mut();
+        ls.append(&mut s.on_select);
+        s.on_select = ls;
+    }
+
+    /// The panel's selection changed by the user: the range of its lines.
+    fn derive_range(&self) {
+        let (range, anchor) = {
+            let Ok(s) = self.st.try_borrow() else { return };
+            if s.syncing > 0 {
+                return;
+            }
+            let panel = &s.panel;
+            let mut ids = panel.selection();
+            if ids.is_empty() {
+                ids.extend(panel.cursor());
+            }
+            s.range_of_rows(&ids, panel.anchor())
+        };
+        let changed = {
+            let Ok(mut s) = self.st.try_borrow_mut() else { return };
+            let changed = s.range != range;
+            s.range = range;
+            s.range_anchor = anchor;
+            changed
+        };
+        if changed {
+            self.notify_select(range);
+        }
+    }
+
+    /// A press on a line number: a new range, or with Shift one extended
+    /// from the anchor line.
+    fn press_number(&self, i: usize, at: LineRef, shift: bool) {
+        let (file, prev, anchor) = {
+            let s = self.st.borrow();
+            (s.rows[i].file, s.range, s.range_anchor)
+        };
+        let (range, anchor) = match (prev, anchor) {
+            (Some(r), Some(a)) if shift && r.file == file as usize => {
+                // Extend on the range's side; a row without a number there
+                // keeps the range.
+                let n = self.st.borrow().number_of_row(i, r.side);
+                match n {
+                    Some(n) => (LineRange::between(file as usize, r.side, a, n), a),
+                    None => (r, a),
+                }
+            }
+            _ => (LineRange::line(file as usize, at), at.line),
+        };
+        self.st.borrow_mut().gutter_drag = Some((file, range.side, anchor));
+        self.set_range(Some(range), Some(anchor), Some(i));
+    }
+
+    /// Dragging from a line number reached row `i`.
+    fn drag_number(&self, i: usize) {
+        let Some((file, side, anchor)) = self.st.borrow().gutter_drag else { return };
+        let n = {
+            let s = self.st.borrow();
+            if !s.rows.get(i).is_some_and(|r| r.file == file) {
+                return;
+            }
+            s.number_of_row(i, side)
+        };
+        if let Some(n) = n {
+            let range = LineRange::between(file as usize, side, anchor, n);
+            self.set_range(Some(range), Some(anchor), Some(i));
+        }
+    }
+
+    /// Comment on line `at` of row `i`: the selected range when the row is
+    /// in it, else that line (which becomes the selection).
+    fn comment_at(&self, i: usize, at: LineRef) -> bool {
+        if self.st.borrow().on_comment.is_none() {
+            return false;
+        }
+        let range = {
+            let s = self.st.borrow();
+            let file = s.rows[i].file;
+            match s.range {
+                Some(r) if r.file == file as usize && s.span_of(&r).is_some_and(|(a, b)| (a..=b).contains(&i)) => Some(r),
+                _ => None,
+            }
+        };
+        let range = match range {
+            Some(r) => r,
+            None => {
+                let file = self.st.borrow().rows[i].file as usize;
+                let r = LineRange::line(file, at);
+                self.set_range(Some(r), Some(at.line), Some(i));
+                r
+            }
+        };
+        let f = self.st.borrow_mut().on_comment.take();
+        if let Some(mut f) = f {
+            f(range);
+            let mut s = self.st.borrow_mut();
+            if s.on_comment.is_none() {
+                s.on_comment = Some(f);
+            }
+        }
+        true
+    }
+
+    // ------------------------------------------------------------ review: annotations
+
+    /// Shows these annotations under their lines (several on one line in
+    /// this order). The top of the view stays on the same content.
+    pub fn set_annotations(&self, notes: Vec<Annotation>) {
+        let anchor = self.top_anchor();
+        {
+            let mut s = self.st.borrow_mut();
+            s.notes = notes;
+            s.notes_gen += 1;
+            s.notes_map_gen += 1;
+            s.pending_top = anchor;
+        }
+        self.widget.clone().redraw();
+    }
+
+    pub fn annotations(&self) -> Vec<Annotation> {
+        self.st.borrow().notes.clone()
+    }
+
+    /// Changes the height of annotation `id` (a thread got a reply, a
+    /// composer grew); what is at the top of the view stays still. False
+    /// when there is no such annotation.
+    pub fn set_annotation_height(&self, id: &str, height: i32) -> bool {
+        let anchor = self.top_anchor();
+        let mut s = self.st.borrow_mut();
+        let Some(a) = s.notes.iter_mut().find(|a| a.id == id) else { return false };
+        if a.height == height {
+            return true;
+        }
+        a.height = height;
+        s.notes_gen += 1;
+        s.pending_top = anchor;
+        drop(s);
+        self.widget.clone().redraw();
+        true
+    }
+
+    /// Paints annotations that have no hosted widget, in the rectangle the
+    /// view reserved (clipped). It only paints: it must not call the view.
+    pub fn annotation_painter(self, f: impl FnMut(&mut AnnotationPaint) + 'static) -> Self {
+        self.st.borrow_mut().painter = Some(Rc::new(RefCell::new(f)));
+        self.widget.clone().redraw();
+        self
+    }
+
+    /// Hosts `widget` in annotation `id`'s rectangle: the view moves it
+    /// with scrolling and hides it while its line is out of view or
+    /// hidden (a focused widget stays alive, clipped, until focus leaves
+    /// it). It is moved into an overlay group of the view's window; Tab
+    /// reaches it right after the diff, Shift+Tab goes back, and Escape
+    /// inside it returns to the diff on its line.
+    pub fn host_annotation(&self, id: &str, widget: &impl WidgetExt) {
+        let mut wd = widget.as_base_widget();
+        wd.hide();
+        {
+            let mut s = self.st.borrow_mut();
+            s.hosted.retain(|(k, w)| k != id && !w.was_deleted());
+            s.hosted.push((id.to_string(), wd));
+        }
+        self.widget.clone().redraw();
+    }
+
+    /// Window rectangle of annotation `id` at the current scroll offset
+    /// (it may be outside the view); None while its line is hidden.
+    pub fn annotation_rect(&self, id: &str) -> Option<(i32, i32, i32, i32)> {
+        self.ensure_layout();
+        let s = self.st.borrow();
+        let k = s.notes.iter().position(|a| a.id == id)?;
+        let (_, y, h) = s.note_y(k)?;
+        let g = s.geo(self.widget.w());
+        let (x, w) = note_x(&g, &s.metrics);
+        Some((self.widget.x() + x, self.widget.y() + (y - s.top) as i32, w, h))
+    }
+
+    /// Scrolls annotation `id` (and its line) into view. False while its
+    /// line is hidden.
+    pub fn reveal_annotation(&self, id: &str) -> bool {
+        self.ensure_layout();
+        let mut s = self.st.borrow_mut();
+        let Some(k) = s.notes.iter().position(|a| a.id == id) else { return false };
+        let Some((row, y, h)) = s.note_y(k) else { return false };
+        let view_h = self.widget.h() as i64;
+        let y0 = s.ys[row];
+        let y1 = y + h as i64;
+        if y0 < s.top {
+            s.top = y0;
+        } else if y1 > s.top + view_h {
+            s.top = (y1 - view_h).min(y0);
+        }
+        let t = s.top;
+        s.motion.jump(t);
+        s.pending_top = None;
+        s.follow = false;
+        drop(s);
+        self.widget.clone().redraw();
+        true
+    }
+
+    /// Escape in a hosted widget, or its line went away while it had
+    /// focus: focus back to the diff, the cursor on its line.
+    fn focus_back(&self, id: Option<String>) {
+        let row = id.and_then(|id| {
+            self.ensure_layout();
+            let s = self.st.borrow();
+            let k = s.notes.iter().position(|a| a.id == id)?;
+            let a = &s.notes[k];
+            s.row_of_ref(a.file as u32, a.at).map(|i| s.rows[i].id())
+        });
+        let panel = self.panel();
+        panel.focus();
+        if let Some(id) = row {
+            panel.set_cursor(Some(id));
+        }
+        self.widget.clone().redraw();
+    }
+
+    /// The hosted annotation that has focus.
+    fn focused_note(&self) -> Option<String> {
+        let f = crate::focus::current()?;
+        let s = self.st.borrow();
+        s.hosted.iter().find(|(_, w)| !w.was_deleted() && contains(w, &f)).map(|(id, _)| id.clone())
+    }
+
     // ------------------------------------------------------------ scroll, tests
 
     pub fn scroll_offset(&self) -> i64 {
@@ -963,12 +1370,43 @@ impl DiffView {
     }
 
     /// Window rectangle of display row `row` at the current scroll offset
-    /// (it may be outside the widget).
+    /// (it may be outside the widget), without the annotations under it.
     pub fn row_rect(&self, row: usize) -> Option<(i32, i32, i32, i32)> {
         self.ensure_layout();
         let s = self.st.borrow();
-        let (y0, y1) = (*s.ys.get(row)?, *s.ys.get(row + 1)?);
-        Some((self.widget.x(), self.widget.y() + (y0 - s.top) as i32, self.widget.w() - BAR, (y1 - y0) as i32))
+        let (y0, h) = (*s.ys.get(row)?, *s.base.get(row)?);
+        Some((self.widget.x(), self.widget.y() + (y0 - s.top) as i32, self.widget.w() - BAR, h))
+    }
+
+    /// Window rectangle of the line number on `side` in row `row` (where a
+    /// click selects that line); None when the row has no number there.
+    pub fn number_rect(&self, row: usize, side: Side) -> Option<(i32, i32, i32, i32)> {
+        let (x, y, _, h) = self.row_rect(row)?;
+        let s = self.st.borrow();
+        s.number_of_row(row, side)?;
+        let g = s.geo(self.widget.w());
+        Some(match (s.opts.split, side) {
+            (false, Side::Old) => (x, y, g.gutter / 2, h),
+            (false, Side::New) => (x + g.gutter / 2, y, g.gutter / 2, h),
+            (true, Side::Old) => (x, y, g.gutter, h),
+            (true, Side::New) => (x + g.half, y, g.gutter, h),
+        })
+    }
+
+    /// Window rectangle of the comment button of row `row` (split: of the
+    /// half of `side`), drawn while the pointer or the cursor is on the
+    /// line; None without `on_comment` or a line there.
+    pub fn comment_button_rect(&self, row: usize, side: Side) -> Option<(i32, i32, i32, i32)> {
+        let (x, y, _, _) = self.row_rect(row)?;
+        let s = self.st.borrow();
+        s.on_comment.as_ref()?;
+        let half = (s.opts.split && side == Side::New) as u8;
+        s.line_ref_of(row, half)?;
+        let g = s.geo(self.widget.w());
+        let m = &s.metrics;
+        let (px, pw) = plus_x(m);
+        let ph = pw.min(m.rh);
+        Some((x + half as i32 * g.half + px, y + (m.rh - ph) / 2, pw, ph))
     }
 
     /// Code columns: (x of the first code column, x of the right code
@@ -1042,6 +1480,18 @@ impl DiffView {
             return false;
         }
         let row = self.cursor_row();
+        // Enter on a line: comment on it (or on the selected range).
+        if matches!(k, Key::Enter | Key::KPEnter) && !shift && row.is_some_and(|r| matches!(r.kind, RowKind::Line | RowKind::Pair)) {
+            let at = {
+                let s = self.st.borrow();
+                s.panel.cursor_index().and_then(|i| s.line_ref_of(i, 1).or_else(|| s.line_ref_of(i, 0)).map(|at| (i, at)))
+            };
+            if let Some((i, at)) = at {
+                if self.comment_at(i, at) {
+                    return true;
+                }
+            }
+        }
         let header = row.filter(|r| r.is_header() || r.kind == RowKind::More);
         match k {
             Key::Enter | Key::KPEnter if !shift => header.is_some_and(|r| self.toggle_row(r)),
@@ -1101,8 +1551,11 @@ impl DiffView {
     fn handle(&self, w: &mut Widget, ev: Event) -> bool {
         let (ex, ey) = (app::event_x() - w.x(), app::event_y() - w.y());
         // Rows may have changed since the last frame (a fold, new context).
-        if matches!(ev, Event::Push | Event::Drag | Event::Move | Event::MouseWheel) {
-            self.ensure_layout();
+        if matches!(ev, Event::Push | Event::Drag | Event::Move | Event::Enter | Event::MouseWheel) {
+            match self.st.try_borrow_mut() {
+                Ok(mut s) => s.layout(w.w()),
+                Err(_) => return true,
+            }
         }
         if matches!(ev, Event::Push | Event::KeyDown) {
             let mut s = self.st.borrow_mut();
@@ -1114,19 +1567,28 @@ impl DiffView {
                 w.redraw();
                 true
             }
-            Event::Enter => true,
-            Event::Move => {
-                let mut s = self.st.borrow_mut();
-                let h = s.row_at(ey).filter(|i| s.rows[*i].is_header() || s.rows[*i].kind == RowKind::More);
-                if s.hover != h {
+            Event::Enter | Event::Move => {
+                // Hosted widgets shown or moved while drawing send these.
+                let Ok(mut s) = self.st.try_borrow_mut() else { return true };
+                let row = s.row_at(ey);
+                let h = row.filter(|i| s.rows[*i].is_header() || s.rows[*i].kind == RowKind::More);
+                let line = row.and_then(|i| match s.spot(i, ex, ey, w.w()) {
+                    Spot::Plus(_, half) | Spot::Number(_, half) | Spot::Row(half) if matches!(s.rows[i].kind, RowKind::Line | RowKind::Pair) => Some((i, half)),
+                    _ => None,
+                });
+                if s.hover != h || s.hover_line != line {
                     s.hover = h;
+                    s.hover_line = line;
                     drop(s);
                     w.redraw();
                 }
                 true
             }
             Event::Leave => {
-                self.st.borrow_mut().hover = None;
+                let Ok(mut s) = self.st.try_borrow_mut() else { return true };
+                s.hover = None;
+                s.hover_line = None;
+                drop(s);
                 w.redraw();
                 true
             }
@@ -1165,11 +1627,24 @@ impl DiffView {
                 let _ = w.take_focus();
                 let row = {
                     let s = self.st.borrow();
-                    s.row_at(ey).map(|i| (s.rows[i], s.geo(w.w())))
+                    s.row_at(ey).map(|i| (i, s.rows[i], s.geo(w.w()), s.spot(i, ex, ey, w.w())))
                 };
-                let Some((r, geo)) = row else { return true };
+                let Some((i, r, geo, spot)) = row else { return true };
                 let panel = self.panel();
                 let id = r.id();
+                match spot {
+                    // The annotations' own area (a hosted widget takes its clicks).
+                    Spot::Note => return true,
+                    Spot::Plus(at, _) => {
+                        self.comment_at(i, at);
+                        return true;
+                    }
+                    Spot::Number(at, _) => {
+                        self.press_number(i, at, app::is_event_shift());
+                        return true;
+                    }
+                    Spot::Row(_) => {}
+                }
                 match r.kind {
                     RowKind::Hunk if ex < geo.gutter && self.can_expand_above(r.file, r.hunk) => {
                         panel.click(id, false, false);
@@ -1187,7 +1662,28 @@ impl DiffView {
                 true
             }
             Event::Drag => {
-                let anchor = self.st.borrow().drag;
+                let (anchor, numbers) = {
+                    let s = self.st.borrow();
+                    (s.drag, s.gutter_drag.is_some())
+                };
+                if numbers {
+                    let target = {
+                        let mut s = self.st.borrow_mut();
+                        let rh = s.metrics.rh.max(1) as i64;
+                        if ey < 0 || ey > w.h() {
+                            let max = (*s.ys.last().unwrap_or(&0) - w.h() as i64).max(0);
+                            s.top = (s.top + if ey < 0 { -rh } else { rh }).clamp(0, max);
+                            let t = s.top;
+                            s.motion.jump(t);
+                        }
+                        s.row_at(ey.clamp(0, w.h() - 1))
+                    };
+                    if let Some(i) = target {
+                        self.drag_number(i);
+                    }
+                    w.redraw();
+                    return true;
+                }
                 let Some(anchor) = anchor else { return true };
                 let target = {
                     let mut s = self.st.borrow_mut();
@@ -1211,7 +1707,9 @@ impl DiffView {
                 true
             }
             Event::Released => {
-                self.st.borrow_mut().drag = None;
+                let mut s = self.st.borrow_mut();
+                s.drag = None;
+                s.gutter_drag = None;
                 true
             }
             _ => false,
@@ -1241,7 +1739,7 @@ impl DiffView {
                 let r = s.rows[i];
                 let id = r.id();
                 let y = me.y() + (s.ys[i] - s.top) as i32;
-                let h = (s.ys[i + 1] - s.ys[i]) as i32;
+                let h = s.base[i];
                 n.child(id, |c| {
                     c.role(Role::ListItem).name(&s.row_label(&r)).position(i + 1, len).selected(s.panel.is_selected(id)).bounds(me.x(), y, me.w() - BAR, h).action(Action::Click).action(Action::Focus).action(Action::ScrollIntoView);
                     match r.kind {
@@ -1258,6 +1756,27 @@ impl DiffView {
                     if cursor == Some(id) {
                         c.focused();
                     }
+                    // The comment button and the painted annotations.
+                    if let Some((_, label)) = s.comment_target(i).filter(|_| s.on_comment.is_some()) {
+                        c.child(COMMENT_KEY, |b| {
+                            b.role(Role::Button).name(&label).bounds(me.x(), y, s.geo(me.w()).gutter, h).action(Action::Click);
+                        });
+                    }
+                    let mut ny = y + h;
+                    let g = s.geo(me.w());
+                    let (nx, nw) = note_x(&g, &s.metrics);
+                    for k in s.notes_of(i) {
+                        let a = &s.notes[s.row_notes[k].1 as usize];
+                        let nh = note_h(a);
+                        let hosted = s.hosted.iter().any(|(hid, w)| *hid == a.id && !w.was_deleted());
+                        if !hosted && nh > 0 {
+                            let name = if a.label.is_empty() { tr!("Note under line {line}", line = a.at.line) } else { a.label.clone() };
+                            c.child(NOTE_KEY + k as u64, |b| {
+                                b.role(Role::Group).name(&name).bounds(me.x() + nx, ny, nw, nh).action(Action::ScrollIntoView);
+                            });
+                        }
+                        ny += nh;
+                    }
                 });
             }
         });
@@ -1272,6 +1791,18 @@ impl DiffView {
             };
             let Some((i, row)) = row else { return false };
             let panel = v.panel();
+            match r.path.get(1).copied() {
+                Some(COMMENT_KEY) if r.action == Action::Click => {
+                    let at = v.st.borrow().comment_target(i).map(|(at, _)| at);
+                    return at.is_some_and(|at| v.comment_at(i, at));
+                }
+                Some(k) if k >= NOTE_KEY && r.action == Action::ScrollIntoView => {
+                    let id = v.st.borrow().row_notes.get((k - NOTE_KEY) as usize).map(|(_, n)| v.st.borrow().notes[*n as usize].id.clone());
+                    return id.is_some_and(|id| v.reveal_annotation(&id));
+                }
+                Some(_) => return false,
+                None => {}
+            }
             match r.action {
                 Action::Click => {
                     panel.click(id, false, false);
@@ -1315,6 +1846,50 @@ fn max_line_no(p: &Patch) -> u32 {
     p.files.iter().flat_map(|f| f.hunks.iter()).map(|h| (h.old_start + h.old_count).max(h.new_start + h.new_count)).max().unwrap_or(0)
 }
 
+fn note_h(a: &Annotation) -> i32 {
+    a.height.clamp(0, MAX_NOTE_H)
+}
+
+/// What a pointer is on, in a row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Spot {
+    /// The annotations under the row.
+    Note,
+    /// The comment button of a half (split: 1 = right) for that line.
+    Plus(LineRef, u8),
+    /// A line number.
+    Number(LineRef, u8),
+    /// Anywhere else (code, markers, headers).
+    Row(u8),
+}
+
+/// Left (relative to a gutter) and width of the comment button.
+fn plus_x(m: &Metrics) -> (i32, i32) {
+    (2, (m.rh - 4).max(10))
+}
+
+/// Left (relative to the view) and width of annotations: from the code
+/// marker column of the first gutter to the right edge.
+fn note_x(g: &Geo, m: &Metrics) -> (i32, i32) {
+    (g.gutter, (g.w - g.gutter - m.pad).max(0))
+}
+
+/// True when `f` is `w` or inside it.
+fn contains(w: &Widget, f: &Widget) -> bool {
+    let id = w.as_widget_ptr();
+    if f.as_widget_ptr() == id {
+        return true;
+    }
+    let mut p = f.parent();
+    while let Some(g) = p {
+        if g.as_widget_ptr() == id {
+            return true;
+        }
+        p = g.parent();
+    }
+    false
+}
+
 fn digits(n: u32) -> i32 {
     (n.max(1) as f64).log10().floor() as i32 + 1
 }
@@ -1350,7 +1925,9 @@ impl St {
 
     fn geo(&self, width: i32) -> Geo {
         let m = &self.metrics;
-        let num_w = (digits(self.max_line_no).max(3) as f64 * m.cw).ceil() as i32 + 2 * m.pad;
+        // With comments, room for the "+" button left of the numbers.
+        let lead = if self.on_comment.is_some() { plus_x(m).0 + plus_x(m).1 } else { 0 };
+        let num_w = (digits(self.max_line_no).max(3) as f64 * m.cw).ceil() as i32 + 2 * m.pad + lead;
         let w = (width - BAR).max(0);
         if self.opts.split {
             let half = w / 2;
@@ -1367,27 +1944,27 @@ impl St {
     }
 
     /// Metrics and row heights for `width` (only when something changed).
+    /// Row contents are measured again only when the rows, width, font or
+    /// wrap change; annotations only add their heights to the offsets
+    /// (one pass of additions).
     fn layout(&mut self, width: i32) {
         self.metrics_now();
         let m = self.metrics;
         let key = (width, m.rh, m.cw.to_bits(), self.wrap, self.opts.split, self.rows_gen);
-        if self.heights_key == Some(key) {
-            return;
-        }
-        self.heights_key = Some(key);
-        let g = self.geo(width);
-        let cols = ((g.code_w as f64) / m.cw).floor().max(8.0) as usize;
-        let mut ys = Vec::with_capacity(self.rows.len() + 1);
-        let mut y = 0i64;
-        ys.push(0);
-        let p = &self.patch;
-        for r in &self.rows {
-            let h = match r.kind {
+        if self.heights_key != Some(key) {
+            self.heights_key = Some(key);
+            self.heights_gen += 1;
+            let g = self.geo(width);
+            let cols = ((g.code_w as f64) / m.cw).floor().max(8.0) as usize;
+            let p = &self.patch;
+            let wrap = self.wrap;
+            self.base.clear();
+            self.base.extend(self.rows.iter().map(|r| match r.kind {
                 RowKind::File => m.head_h,
                 RowKind::Notice => m.note_h,
                 RowKind::Hunk | RowKind::More => m.hunk_h,
                 RowKind::Line | RowKind::Pair => {
-                    if self.wrap {
+                    if wrap {
                         let hk = &p.files[r.file as usize].hunks[r.hunk as usize];
                         let n = r.lines().into_iter().flatten().map(|l| rows::visual_lines(p.text(&hk.lines[l as usize]), cols)).max().unwrap_or(1);
                         m.rh * n as i32
@@ -1395,8 +1972,30 @@ impl St {
                         m.rh
                     }
                 }
-            };
-            y += h as i64;
+            }));
+        }
+        let rk = (self.rows_gen, self.notes_map_gen);
+        if self.row_notes_key != Some(rk) {
+            self.row_notes_key = Some(rk);
+            self.map_notes();
+        }
+        let yk = (self.heights_gen, self.notes_gen, self.rows_gen);
+        if self.ys_key == Some(yk) {
+            return;
+        }
+        self.ys_key = Some(yk);
+        let mut ys = std::mem::take(&mut self.ys);
+        ys.clear();
+        ys.reserve(self.rows.len() + 1);
+        let mut y = 0i64;
+        ys.push(0);
+        let mut k = 0;
+        for (i, h) in self.base.iter().enumerate() {
+            y += *h as i64;
+            while k < self.row_notes.len() && self.row_notes[k].0 as usize == i {
+                y += note_h(&self.notes[self.row_notes[k].1 as usize]) as i64;
+                k += 1;
+            }
             ys.push(y);
         }
         self.ys = ys;
@@ -1408,6 +2007,173 @@ impl St {
                 self.motion.jump(t);
             }
         }
+    }
+
+    /// The rows of the annotations (those whose line is shown).
+    fn map_notes(&mut self) {
+        let mut out = Vec::new();
+        for (k, a) in self.notes.iter().enumerate() {
+            if let Some(i) = self.row_of_ref(a.file as u32, a.at) {
+                out.push((i as u32, k as u32));
+            }
+        }
+        out.sort_unstable();
+        self.row_notes = out;
+    }
+
+    /// The row showing line `at` of `file`, when it is shown.
+    fn row_of_ref(&self, file: u32, at: LineRef) -> Option<usize> {
+        let (hunk, line) = review::find_line(&self.patch, file as usize, at.side, at.line)?;
+        let i = self.locate(Anchor::Line { file, hunk, line })?;
+        let r = self.rows[i];
+        (matches!(r.kind, RowKind::Line | RowKind::Pair) && r.file == file && r.hunk == hunk && (r.a == line || r.b == line)).then_some(i)
+    }
+
+    /// The annotations under row `i`: a range of `row_notes`.
+    fn notes_of(&self, i: usize) -> std::ops::Range<usize> {
+        let a = self.row_notes.partition_point(|(r, _)| (*r as usize) < i);
+        let b = a + self.row_notes[a..].iter().take_while(|(r, _)| *r as usize == i).count();
+        a..b
+    }
+
+    /// Content y and height of annotation `k` when its line is shown.
+    fn note_y(&self, k: usize) -> Option<(usize, i64, i32)> {
+        let pos = self.row_notes.iter().position(|(_, n)| *n as usize == k)?;
+        let row = self.row_notes[pos].0 as usize;
+        let range = self.notes_of(row);
+        let mut y = self.ys.get(row)? + *self.base.get(row)? as i64;
+        for j in range.start..pos {
+            y += note_h(&self.notes[self.row_notes[j].1 as usize]) as i64;
+        }
+        Some((row, y, note_h(&self.notes[k])))
+    }
+
+    /// The line Enter or the comment button of row `i` comments on (split:
+    /// the right half when it has a line) and the button's accessible
+    /// name ("Comment on lines 12–14 of src/x.rs" when the row is in the
+    /// selected range).
+    fn comment_target(&self, i: usize) -> Option<(LineRef, String)> {
+        let at = self.line_ref_of(i, 1).or_else(|| self.line_ref_of(i, 0))?;
+        let file = self.rows[i].file as usize;
+        let path = self.patch.files.get(file)?.path().to_string();
+        let range = self.range.filter(|r| r.file == file && self.span_of(r).is_some_and(|(a, b)| (a..=b).contains(&i)));
+        let label = match range {
+            Some(r) if r.start != r.end => tr!("Comment on lines {start}–{end} of {path}", start = r.start, end = r.end, path = path),
+            _ => tr!("Comment on line {line} of {path}", line = at.line, path = path),
+        };
+        Some((at, label))
+    }
+
+    /// What is at `(ex, ey)` (view coordinates) of row `i`.
+    fn spot(&self, i: usize, ex: i32, ey: i32, width: i32) -> Spot {
+        let (Some(y0), Some(lh)) = (self.ys.get(i), self.base.get(i)) else { return Spot::Row(0) };
+        if self.top + ey as i64 >= y0 + *lh as i64 {
+            return Spot::Note;
+        }
+        let r = self.rows[i];
+        if !matches!(r.kind, RowKind::Line | RowKind::Pair) {
+            return Spot::Row(0);
+        }
+        let g = self.geo(width);
+        let half = (r.kind == RowKind::Pair && ex >= g.half) as u8;
+        let rx = ex - half as i32 * g.half;
+        if !(0..g.gutter).contains(&rx) {
+            return Spot::Row(half);
+        }
+        let (px, pw) = plus_x(&self.metrics);
+        if self.on_comment.is_some() && (px..px + pw).contains(&rx) {
+            if let Some(at) = self.line_ref_of(i, half) {
+                return Spot::Plus(at, half);
+            }
+        }
+        let at = if r.kind == RowKind::Line {
+            let side = if rx < g.gutter / 2 { Side::Old } else { Side::New };
+            self.number_of_row(i, side).map(|n| LineRef::new(side, n)).or_else(|| self.line_ref_of(i, 0))
+        } else {
+            self.line_ref_of(i, half)
+        };
+        at.map_or(Spot::Row(half), |at| Spot::Number(at, half))
+    }
+
+    /// Row `i`'s line number on `side` (unified: of its line; split: of
+    /// the half of that side).
+    fn number_of_row(&self, i: usize, side: Side) -> Option<u32> {
+        let r = self.rows.get(i)?;
+        let li = match (r.kind, side) {
+            (RowKind::Line, _) => r.a,
+            (RowKind::Pair, Side::Old) => r.a,
+            (RowKind::Pair, Side::New) => r.b,
+            _ => return None,
+        };
+        if li == NONE {
+            return None;
+        }
+        let l = self.patch.files.get(r.file as usize)?.hunks.get(r.hunk as usize)?.lines.get(li as usize)?;
+        review::number(l, side)
+    }
+
+    /// The line a click on half `half` of row `i` refers to (unified: the
+    /// new side when the line has it).
+    fn line_ref_of(&self, i: usize, half: u8) -> Option<LineRef> {
+        let r = self.rows.get(i)?;
+        let order = match (r.kind, half) {
+            (RowKind::Pair, 0) => [Side::Old, Side::New],
+            _ => [Side::New, Side::Old],
+        };
+        if r.kind == RowKind::Pair {
+            // A half without a line refers to nothing.
+            let side = order[0];
+            return self.number_of_row(i, side).map(|n| LineRef::new(side, n));
+        }
+        order.into_iter().find_map(|side| self.number_of_row(i, side).map(|n| LineRef::new(side, n)))
+    }
+
+    /// First and last rows of a range: from the first row whose number on
+    /// the range's side is in it to the last (rows between them that have
+    /// no number on that side included).
+    fn span_of(&self, r: &LineRange) -> Option<(usize, usize)> {
+        let head = Row { kind: RowKind::File, file: r.file as u32, hunk: 0, a: NONE, b: NONE }.id();
+        let start = self.ids.borrow().binary_search(&head).ok()?;
+        let mut span: Option<(usize, usize)> = None;
+        for i in start + 1..self.rows.len() {
+            if self.rows[i].file != r.file as u32 {
+                break;
+            }
+            if self.number_of_row(i, r.side).is_some_and(|n| (r.start..=r.end).contains(&n)) {
+                span = Some((span.map_or(i, |s| s.0), i));
+            }
+        }
+        span
+    }
+
+    /// The range of the lines of rows `ids` (one file), and its anchor line
+    /// (of row `anchor`).
+    fn range_of_rows(&self, ids: &[u64], anchor: Option<u64>) -> (Option<LineRange>, Option<u32>) {
+        let index = |id: u64| self.ids.borrow().binary_search(&id).ok();
+        let mut file = None;
+        let mut rows = Vec::new();
+        for &id in ids {
+            let Some(i) = index(id) else { continue };
+            let r = self.rows[i];
+            if !matches!(r.kind, RowKind::Line | RowKind::Pair) {
+                continue;
+            }
+            if file.is_some_and(|f| f != r.file) {
+                return (None, None);
+            }
+            file = Some(r.file);
+            rows.push(i);
+        }
+        let Some(file) = file else { return (None, None) };
+        let has = |side| rows.iter().any(|&i| self.number_of_row(i, side).is_some());
+        let side = if has(Side::New) { Side::New } else { Side::Old };
+        let nums = rows.iter().filter_map(|&i| self.number_of_row(i, side));
+        let (lo, hi) = nums.fold((u32::MAX, 0), |(lo, hi), n| (lo.min(n), hi.max(n)));
+        if lo > hi {
+            return (None, None);
+        }
+        let a = anchor.and_then(index).and_then(|i| self.number_of_row(i, side)).unwrap_or(lo);
+        (Some(LineRange::between(file as usize, side, lo, hi)), Some(a.clamp(lo, hi)))
     }
 
     /// The display row of an anchor: the exact row, else (a hidden line)
@@ -1616,7 +2382,8 @@ fn draw_view(w: &mut Widget, st: &Rc<RefCell<St>>) {
             if y0 < s.top {
                 s.top = y0;
             } else if y1 > s.top + view_h as i64 {
-                s.top = y1 - view_h as i64;
+                // Its annotations too, but never past the line itself.
+                s.top = (y1 - view_h as i64).min(y0);
             }
             let t = s.top;
             s.motion.jump(t);
@@ -1641,9 +2408,13 @@ fn draw_view(w: &mut Widget, st: &Rc<RefCell<St>>) {
         while i < s.rows.len() && s.ys[i] < s.top + view_h as i64 {
             let ry = w.y() + (s.ys[i] - s.top) as i32;
             let rh = (s.ys[i + 1] - s.ys[i]) as i32;
-            if draw::not_clipped(w.x(), ry, w.w(), rh) {
-                draw_row(s, t, &ink, &m, &geo, w.x(), ry, rh, i, ring, wrap_cols);
+            let lh = s.base[i];
+            if draw::not_clipped(w.x(), ry, w.w(), lh) {
+                draw_row(s, t, &ink, &m, &geo, w.x(), ry, lh, i, ring, wrap_cols);
                 drawn += 1;
+            }
+            if rh > lh && draw::not_clipped(w.x(), ry + lh, w.w(), rh - lh) {
+                draw_notes(s, t, &ink, &m, &geo, w.x(), ry + lh, i);
             }
             i += 1;
         }
@@ -1668,6 +2439,138 @@ fn draw_view(w: &mut Widget, st: &Rc<RefCell<St>>) {
         }
         draw::pop_clip();
     });
+    let me = WeakView { widget: w.clone(), st: Rc::downgrade(st) };
+    if let Some(id) = place_hosted(w, s, &geo, &me) {
+        // Its line went away while it had focus: back to the diff (later:
+        // not while drawing).
+        app::add_timeout3(0.0, move |_| {
+            if let Some(v) = me.upgrade() {
+                v.focus_back(Some(id.clone()));
+            }
+        });
+    }
+}
+
+/// The annotations under row `i`, from `y` down: a band tied to the line
+/// (the gutter shaded) and what the painter draws (hosted widgets cover
+/// theirs).
+#[allow(clippy::too_many_arguments)]
+fn draw_notes(s: &St, t: &Theme, ink: &Ink, m: &Metrics, g: &Geo, x: i32, mut y: i32, i: usize) {
+    let current = s.panel.cursor() == s.rows.get(i).map(|r| r.id());
+    let (nx, nw) = note_x(g, m);
+    for k in s.notes_of(i) {
+        let a = &s.notes[s.row_notes[k].1 as usize];
+        let h = note_h(a);
+        if h > 0 && draw::not_clipped(x, y, g.w, h) {
+            paint::fill(x, y, g.w, h, 0, ink.bg);
+            paint::fill(x, y, nx, h, 0, ink.empty);
+            paint::fill(x + nx - 2, y, 2, h, 0, ink.rule);
+            let hosted = s.hosted.iter().any(|(id, w)| *id == a.id && !w.was_deleted());
+            if let (false, Some(p)) = (hosted, &s.painter) {
+                draw::push_clip(x + nx, y, nw, h);
+                (p.borrow_mut())(&mut AnnotationPaint { annotation: a, x: x + nx, y, w: nw, h, current, theme: t, under: ink.bg });
+                draw::pop_clip();
+            }
+        }
+        y += h;
+    }
+}
+
+/// Moves hosted widgets over their annotations in view and hides the
+/// others (a focused one stays, clipped, while its line is shown).
+/// Returns the annotation whose widget lost its line while focused.
+fn place_hosted(w: &Widget, s: &mut St, geo: &Geo, me: &WeakView) -> Option<String> {
+    if s.hosted.is_empty() {
+        return None;
+    }
+    if s.host.is_none() {
+        let win = w.window()?;
+        let mut win = fltk::group::Group::from_dyn_widget_ptr(win.as_widget_ptr())?;
+        let cur = fltk::group::Group::try_current();
+        fltk::group::Group::set_current(None::<&fltk::group::Group>);
+        let mut g = fltk::group::Group::new(w.x(), w.y(), w.w(), w.h(), None);
+        g.end();
+        g.set_frame(FrameType::NoBox);
+        g.set_clip_children(true);
+        if let Some(c) = cur {
+            fltk::group::Group::set_current(Some(&c));
+        }
+        win.add(&g);
+        // Tab goes from the diff into its annotations, then on.
+        crate::focus::follow(w, &g);
+        let me = me.clone();
+        g.handle(move |_, ev| {
+            if ev == Event::KeyDown && app::event_key() == Key::Escape && !app::event_state().intersects(Shortcut::Ctrl | Shortcut::Alt | Shortcut::Shift | Shortcut::Meta) {
+                if let Some(v) = me.upgrade() {
+                    let id = v.focused_note();
+                    if id.is_some() {
+                        v.focus_back(id);
+                        return true;
+                    }
+                }
+            }
+            false
+        });
+        s.host = Some(g);
+    }
+    let mut g = s.host.clone()?;
+    let view_h = w.h();
+    if (g.x(), g.y(), g.w(), g.h()) != (w.x(), w.y(), w.w() - BAR, view_h) {
+        g.widget_resize(w.x(), w.y(), w.w() - BAR, view_h);
+    }
+    let focus = crate::focus::current();
+    let (nx, nw) = note_x(geo, &s.metrics);
+    let mut lost = None;
+    let mut order: Vec<(i64, Widget)> = Vec::new();
+    let hosted = s.hosted.clone();
+    for (id, mut wid) in hosted {
+        if wid.was_deleted() {
+            continue;
+        }
+        if wid.parent().map(|p| p.as_widget_ptr()) != Some(g.as_widget_ptr()) {
+            g.add(&wid);
+        }
+        let focused = focus.as_ref().is_some_and(|f| contains(&wid, f));
+        let pos = s.notes.iter().position(|a| a.id == id).and_then(|k| s.note_y(k)).filter(|p| p.2 > 0);
+        match pos {
+            Some((_, y, h)) => {
+                let sy = w.y() + (y - s.top) as i32;
+                let in_view = sy < w.y() + view_h && sy + h > w.y();
+                if in_view || focused {
+                    // Out of view (focused): just outside, clipped away.
+                    let sy = if in_view { sy } else if sy < w.y() { w.y() - h - 1 } else { w.y() + view_h + 1 };
+                    if (wid.x(), wid.y(), wid.w(), wid.h()) != (w.x() + nx, sy, nw, h) {
+                        wid.resize(w.x() + nx, sy, nw, h);
+                    }
+                    if !wid.visible() {
+                        wid.show();
+                    }
+                    order.push((y, wid.clone()));
+                    continue;
+                }
+                if wid.visible() {
+                    wid.hide();
+                }
+            }
+            None => {
+                if focused {
+                    lost = Some(id.clone());
+                }
+                if wid.visible() {
+                    wid.hide();
+                }
+            }
+        }
+    }
+    // Tab order follows the display order.
+    order.sort_by_key(|(y, _)| *y);
+    for (k, (_, wid)) in order.iter().enumerate() {
+        if g.find(wid) != k as i32 {
+            g.insert(wid, k as i32);
+        }
+    }
+    g.redraw();
+    lost
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1792,9 +2695,30 @@ fn draw_row(s: &St, t: &Theme, ink: &Ink, m: &Metrics, g: &Geo, x: i32, y: i32, 
             paint::fill(x + g.half, y, 1, h, 0, ink.rule);
         }
     }
+    // The comment button: on the line under the pointer and the cursor line.
+    if s.on_comment.is_some() && matches!(r.kind, RowKind::Line | RowKind::Pair) {
+        let focused = cursor && s.panel.has_focus();
+        let pair = r.kind == RowKind::Pair;
+        let preferred = (pair && r.b != NONE) as u8;
+        for half in 0..=pair as u8 {
+            let show = s.hover_line == Some((i, half)) || (focused && half == preferred);
+            if show && s.line_ref_of(i, half).is_some() {
+                draw_plus(t, ink, m, x + half as i32 * g.half, y);
+            }
+        }
+    }
     if cursor && ring {
         paint::stroke(x, y, g.w, h, 0, t.controls.focus.border_width.max(1), t.border(&t.controls.focus, ink.bg));
     }
+}
+
+/// The "+" comment button at the left of a gutter starting at `x`.
+fn draw_plus(t: &Theme, ink: &Ink, m: &Metrics, x: i32, y: i32) {
+    let (px, pw) = plus_x(m);
+    let ph = pw.min(m.rh);
+    let by = y + (m.rh - ph) / 2;
+    paint::fill(x + px, by, pw, ph, t.radius.min(4), ink.accent);
+    paint::glyph(glyph::PLUS, x + px, by, pw, ph, t.font.caption, ink.bg);
 }
 
 fn draw_numbers(m: &Metrics, x: i32, y: i32, w: i32, n: u32, color: Rgb) {

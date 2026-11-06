@@ -312,7 +312,7 @@ for o3's chat views. What to adopt, in order:
 | 4 | **Done** (`set_bottom_inset` keeps the room while following). Bottom slack: when the composer shrinks after a send, keep the freed room under the last block until growth stops (~120 ms) | `bottom.rs` | S–M | yes |
 | 5 | **Done, partly** (`RichText::pace_words`: a trailing partial word from a sender waits ≤ 80 ms; big backlogs are not split into extra frames). Stream pacing at word boundaries: backlogs under 512 chars at once, else ~24 ms chunks cut at words; hold back a trailing partial word | `research/18` | S | yes (fewer reflows) |
 | 6 | Native Mermaid (flowchart, sequence, state) as polygons/polylines + labels drawn with `gfx` in an embed, instead of a 150–240 MB helper | `crates/rune-mermaid` (layered layout, cubic routing) | L | yes |
-| 7 | Diff annotations under lines and line comments (`on_comment(range)`), selection by (side, line) | `rune-kit/src/diff` | M | yes |
+| 7 | **Done** (`DiffView::on_comment`, `set_annotations`, `selected_range`; [DIFF.md](DIFF.md#review-line-ranges-comments-annotations)). Diff annotations under lines (painted or hosting a widget, variable heights, view anchored) and line comments (`on_comment(range)`), selection by (file, side, line) that survives fold/expand/split/wrap | `rune-kit/src/diff` | M | yes |
 | 8 | **Done** (`Composer::page_keys_to`). A composer that fits passes PageUp/PageDown/Home/End to the transcript | rune README | S | yes |
 | 9 | **Done** (`Style::chip`, `MarkdownOptions::with_chip_links`). Chips in read-only text, matching the composer's | `el/pills.rs` | S–M | yes |
 | 10 | **Done** (`task::Latest`). `task::Latest<T>`: latest-wins background requests with debounce (`@` search) | `latest.rs` | S | yes |
