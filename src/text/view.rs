@@ -383,6 +383,8 @@ pub(super) struct Inner {
     seen_follow: bool,
     /// `on_far_from_bottom`: (threshold px, last state reported).
     far: Option<(i64, bool)>,
+    /// `pace_words`: text from a sender waits for the end of its last word.
+    pace_words: bool,
     seen_sel: Option<(TextPos, TextPos)>,
 }
 
@@ -445,6 +447,7 @@ impl Inner {
             notes: Vec::new(),
             seen_follow: false,
             far: None,
+            pace_words: false,
             seen_sel: None,
         }
     }
@@ -1881,6 +1884,14 @@ impl RichText {
         self.widget.clone().redraw();
     }
 
+    /// Text from [`RichText::sender`] waits for the end of its last word
+    /// (a partial word of up to 24 characters is held for at most 80 ms):
+    /// no half-words reflow the line while a reply streams in.
+    pub fn pace_words(self, on: bool) -> Self {
+        self.inner.borrow_mut().pace_words = on;
+        self
+    }
+
     /// A `Send` handle that streams Markdown from any thread: text pushed
     /// between two frames is joined and parsed once on the UI thread.
     pub fn sender(&self) -> TextSender {
@@ -2134,15 +2145,69 @@ fn schedule(id: u64, buf: Arc<Mutex<Pending>>) {
     }
 }
 
+/// With word pacing: the part of `text` that waits for the next delivery,
+/// a trailing partial word of at most 24 characters (Rune's stream pacing:
+/// no half-words reflowing the line).
+fn held_word(text: &str) -> usize {
+    if text.ends_with(|c: char| c.is_whitespace() || c.is_ascii_punctuation()) {
+        return 0;
+    }
+    match text.rfind(|c: char| c.is_whitespace()) {
+        Some(ws) if text[ws + 1..].chars().count() <= 24 => text.len() - (ws + 1),
+        _ => 0,
+    }
+}
+
 fn deliver(id: u64, buf: &Arc<Mutex<Pending>>) {
+    let target = SENDERS.with(|s| {
+        s.borrow()
+            .iter()
+            .find(|(i, w, _)| *i == id && !w.was_deleted())
+            .map(|(_, w, inn)| (w.clone(), inn.clone()))
+    });
+    let paced = target
+        .as_ref()
+        .and_then(|(_, inn)| inn.upgrade())
+        .is_some_and(|inn| inn.try_borrow().is_ok_and(|i| i.pace_words));
     let (text, finish) = {
         let mut p = buf.lock().unwrap_or_else(|e| e.into_inner());
         p.posted = false;
         p.last = Some(Instant::now());
-        (
-            std::mem::take(&mut p.text),
-            std::mem::replace(&mut p.finish, false),
-        )
+        let finish = std::mem::replace(&mut p.finish, false);
+        let mut text = std::mem::take(&mut p.text);
+        let hold = if paced && !finish { held_word(&text) } else { 0 };
+        if hold > 0 {
+            // The partial word goes back; a later delivery takes it (one is
+            // scheduled so it never waits for more than 80 ms).
+            p.text = text.split_off(text.len() - hold);
+            p.posted = true;
+            let (id, b) = (id, buf.clone());
+            app::add_timeout3(0.08, move |_| deliver_all(id, &b));
+        }
+        (text, finish)
+    };
+    let Some((mut w, inn)) = target else { return };
+    let Some(inn) = inn.upgrade() else { return };
+    {
+        let mut i = inn.borrow_mut();
+        i.push_markdown(&text);
+        if finish {
+            i.close_open();
+        }
+    }
+    w.redraw();
+}
+
+/// Delivers everything pending, a held word included.
+fn deliver_all(id: u64, buf: &Arc<Mutex<Pending>>) {
+    let (text, finish) = {
+        let mut p = buf.lock().unwrap_or_else(|e| e.into_inner());
+        if !p.posted {
+            return; // delivered meanwhile
+        }
+        p.posted = false;
+        p.last = Some(Instant::now());
+        (std::mem::take(&mut p.text), std::mem::replace(&mut p.finish, false))
     };
     let target = SENDERS.with(|s| {
         s.borrow()
@@ -3315,6 +3380,16 @@ fn reveal(i: &mut Inner, t: Target, w: &Widget) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn word_pacing_holds_a_partial_word() {
+        assert_eq!(super::held_word("Hello wor"), 3);
+        assert_eq!(super::held_word("Hello world "), 0);
+        assert_eq!(super::held_word("Hello world."), 0);
+        assert_eq!(super::held_word("single"), 0, "no space: nothing to cut at");
+        assert_eq!(super::held_word(&format!("a {}", "x".repeat(30))), 0, "long tokens pass");
+        assert_eq!(super::held_word("día añ"), "añ".len());
+    }
 
     #[test]
     fn heights_prefix_find_push_truncate() {

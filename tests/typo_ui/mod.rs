@@ -191,4 +191,30 @@ pub fn checks(run: &mut dyn FnMut(&str, Check)) {
         fltk::window::DoubleWindow::delete((*win).clone());
         Ok(())
     });
+
+    run("rich text: word pacing holds a partial word from a sender for at most 80 ms", &|_| {
+        use fltk_omarchy::text::RichText;
+        use std::time::{Duration, Instant};
+        let mut win = AppWindow::new("Pace", 420, 200);
+        let rt = RichText::new().pace_words(true);
+        win.end();
+        win.show();
+        let r2 = rt.clone();
+        pump_until(|| r2.w() > 0);
+        let tx = rt.sender();
+        tx.push("Hello wor");
+        let t0 = Instant::now();
+        while Instant::now() < t0 + Duration::from_millis(30) {
+            fltk_omarchy::App::pump();
+            let _ = fltk::app::wait_for(0.005);
+        }
+        check(rt.plain_text().trim_end() == "Hello", &format!("the partial word waits: {:?}", rt.plain_text()))?;
+        pump_until(|| rt.plain_text().contains("wor"));
+        check(rt.plain_text().trim_end() == "Hello wor" && t0.elapsed() < Duration::from_millis(400), &format!("then it arrives: {:?} after {:?}", rt.plain_text(), t0.elapsed()))?;
+        tx.push("ld and more ");
+        pump_until(|| rt.plain_text().contains("more"));
+        check(rt.plain_text().trim_end() == "Hello world and more", &format!("{:?}", rt.plain_text()))?;
+        fltk::window::DoubleWindow::delete((*win).clone());
+        Ok(())
+    });
 }
