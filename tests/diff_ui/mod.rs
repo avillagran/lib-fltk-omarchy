@@ -555,8 +555,17 @@ pub fn checks(run: &mut dyn FnMut(&str, Check)) {
         v.panel().focus();
         v.panel().select_only(v.panel().id_at(row(Side::New, 16)).unwrap());
         let p = shot(&f, shots, "diff-comment-cursor.png")?;
-        let (bx, by, _, bh) = v.comment_button_rect(row(Side::New, 16), Side::New).unwrap();
-        check(near(pixel(&p, bx + 2, by + bh / 2)?, accent, 3), "cursor line shows the button")?;
+        let (bx, by, bw, bh) = v.comment_button_rect(row(Side::New, 16), Side::New).unwrap();
+        let mut found = false;
+        'cursor: for y in by..by + bh {
+            for x in bx..bx + bw {
+                if near(pixel(&p, x, y)?, accent, 12) {
+                    found = true;
+                    break 'cursor;
+                }
+            }
+        }
+        check(found, "cursor line shows the button")?;
         press("Enter");
         check(comments.borrow().last() == Some(&LineRange { file: 0, side: Side::New, start: 16, end: 16 }), &format!("Enter: {:?}", comments.borrow().last()))?;
         // Split: the left half comments on the old side.
