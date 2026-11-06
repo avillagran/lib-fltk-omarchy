@@ -229,6 +229,14 @@ impl Surface {
                 app::remove_check(handle);
                 return;
             }
+            #[cfg(feature = "gpu")]
+            if (g.w() <= 0 || g.h() <= 0) && s.borrow().ready {
+                // FLTK may cull this group's draw at zero size, leaving
+                // its old native child and frame demand alive. Checks run
+                // outside drawing, where unmapping/releasing GL is safe.
+                s.borrow_mut().ready = false;
+                native::hide(&s);
+            }
             let now = anim::enabled();
             if enabled.replace(now) != now {
                 let had_motion = s.borrow().motion.any();
@@ -1040,6 +1048,8 @@ mod native {
                 return;
             }
             if !group.visible_r()
+                || group.w() <= 0
+                || group.h() <= 0
                 || !group.top_window().is_some_and(|w| w.shown())
                 || st.borrow().backend != Backend::Gpu
             {
