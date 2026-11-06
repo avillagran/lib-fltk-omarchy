@@ -63,7 +63,14 @@
     "Suggestions": "Suggestions",
     "Searching…": "Searching…",
     "No results": "No results",
-    "Sidebar": "Sidebar"
+    "Sidebar": "Sidebar",
+    "Image": "Image",
+    "Zoom in": "Zoom in",
+    "Zoom out": "Zoom out",
+    "Fit to window": "Fit to window",
+    "Copy image": "Copy image",
+    "Loading image…": "Loading image…",
+    "Image could not be loaded": "Image could not be loaded"
   },
   "es": {
     "Cancel": "Cancelar",
@@ -129,7 +136,14 @@
     "Suggestions": "Sugerencias",
     "Searching…": "Buscando…",
     "No results": "Sin resultados",
-    "Sidebar": "Barra lateral"
+    "Sidebar": "Barra lateral",
+    "Image": "Imagen",
+    "Zoom in": "Acercar",
+    "Zoom out": "Alejar",
+    "Fit to window": "Ajustar a la ventana",
+    "Copy image": "Copiar imagen",
+    "Loading image…": "Cargando imagen…",
+    "Image could not be loaded": "No se pudo cargar la imagen"
   },
   "pt": {
     "Cancel": "Cancelar",
@@ -195,7 +209,14 @@
     "Suggestions": "Sugestões",
     "Searching…": "Pesquisando…",
     "No results": "Nenhum resultado",
-    "Sidebar": "Barra lateral"
+    "Sidebar": "Barra lateral",
+    "Image": "Imagem",
+    "Zoom in": "Ampliar",
+    "Zoom out": "Reduzir",
+    "Fit to window": "Ajustar à janela",
+    "Copy image": "Copiar imagem",
+    "Loading image…": "Carregando imagem…",
+    "Image could not be loaded": "Não foi possível carregar a imagem"
   },
   "fr": {
     "Cancel": "Annuler",
@@ -261,7 +282,14 @@
     "Suggestions": "Suggestions",
     "Searching…": "Recherche…",
     "No results": "Aucun résultat",
-    "Sidebar": "Barre latérale"
+    "Sidebar": "Barre latérale",
+    "Image": "Image",
+    "Zoom in": "Zoom avant",
+    "Zoom out": "Zoom arrière",
+    "Fit to window": "Ajuster à la fenêtre",
+    "Copy image": "Copier l’image",
+    "Loading image…": "Chargement de l’image…",
+    "Image could not be loaded": "Impossible de charger l’image"
   },
   "de": {
     "Cancel": "Abbrechen",
@@ -327,7 +355,14 @@
     "Suggestions": "Vorschläge",
     "Searching…": "Suche…",
     "No results": "Keine Ergebnisse",
-    "Sidebar": "Seitenleiste"
+    "Sidebar": "Seitenleiste",
+    "Image": "Bild",
+    "Zoom in": "Vergrößern",
+    "Zoom out": "Verkleinern",
+    "Fit to window": "An Fenster anpassen",
+    "Copy image": "Bild kopieren",
+    "Loading image…": "Bild wird geladen…",
+    "Image could not be loaded": "Bild konnte nicht geladen werden"
   },
   "it": {
     "Cancel": "Annulla",
@@ -393,7 +428,14 @@
     "Suggestions": "Suggerimenti",
     "Searching…": "Ricerca…",
     "No results": "Nessun risultato",
-    "Sidebar": "Barra laterale"
+    "Sidebar": "Barra laterale",
+    "Image": "Immagine",
+    "Zoom in": "Ingrandisci",
+    "Zoom out": "Riduci",
+    "Fit to window": "Adatta alla finestra",
+    "Copy image": "Copia immagine",
+    "Loading image…": "Caricamento immagine…",
+    "Image could not be loaded": "Impossibile caricare l’immagine"
   },
   "nl": {
     "Cancel": "Annuleren",
@@ -459,7 +501,14 @@
     "Suggestions": "Suggesties",
     "Searching…": "Zoeken…",
     "No results": "Geen resultaten",
-    "Sidebar": "Zijbalk"
+    "Sidebar": "Zijbalk",
+    "Image": "Afbeelding",
+    "Zoom in": "Inzoomen",
+    "Zoom out": "Uitzoomen",
+    "Fit to window": "Aanpassen aan venster",
+    "Copy image": "Afbeelding kopiëren",
+    "Loading image…": "Afbeelding laden…",
+    "Image could not be loaded": "Afbeelding kon niet worden geladen"
   },
   "pl": {
     "Cancel": "Anuluj",
@@ -527,7 +576,14 @@
     "Suggestions": "Podpowiedzi",
     "Searching…": "Wyszukiwanie…",
     "No results": "Brak wyników",
-    "Sidebar": "Pasek boczny"
+    "Sidebar": "Pasek boczny",
+    "Image": "Obraz",
+    "Zoom in": "Powiększ",
+    "Zoom out": "Pomniejsz",
+    "Fit to window": "Dopasuj do okna",
+    "Copy image": "Kopiuj obraz",
+    "Loading image…": "Wczytywanie obrazu…",
+    "Image could not be loaded": "Nie można wczytać obrazu"
   },
   "ru": {
     "Cancel": "Отмена",
@@ -595,7 +651,14 @@
     "Suggestions": "Подсказки",
     "Searching…": "Поиск…",
     "No results": "Ничего не найдено",
-    "Sidebar": "Боковая панель"
+    "Sidebar": "Боковая панель",
+    "Image": "Изображение",
+    "Zoom in": "Увеличить",
+    "Zoom out": "Уменьшить",
+    "Fit to window": "По размеру окна",
+    "Copy image": "Копировать изображение",
+    "Loading image…": "Загрузка изображения…",
+    "Image could not be loaded": "Не удалось загрузить изображение"
   },
   "uk": {
     "Cancel": "Скасувати",
@@ -663,7 +726,14 @@
     "Suggestions": "Підказки",
     "Searching…": "Пошук…",
     "No results": "Нічого не знайдено",
-    "Sidebar": "Бічна панель"
+    "Sidebar": "Бічна панель",
+    "Image": "Зображення",
+    "Zoom in": "Збільшити",
+    "Zoom out": "Зменшити",
+    "Fit to window": "За розміром вікна",
+    "Copy image": "Копіювати зображення",
+    "Loading image…": "Завантаження зображення…",
+    "Image could not be loaded": "Не вдалося завантажити зображення"
   },
   "ja": {
     "Cancel": "キャンセル",
@@ -728,7 +798,14 @@
     "Suggestions": "候補",
     "Searching…": "検索中…",
     "No results": "結果なし",
-    "Sidebar": "サイドバー"
+    "Sidebar": "サイドバー",
+    "Image": "画像",
+    "Zoom in": "拡大",
+    "Zoom out": "縮小",
+    "Fit to window": "ウィンドウに合わせる",
+    "Copy image": "画像をコピー",
+    "Loading image…": "画像を読み込み中…",
+    "Image could not be loaded": "画像を読み込めませんでした"
   },
   "ko": {
     "Cancel": "취소",
@@ -793,7 +870,14 @@
     "Suggestions": "제안",
     "Searching…": "검색 중…",
     "No results": "결과 없음",
-    "Sidebar": "사이드바"
+    "Sidebar": "사이드바",
+    "Image": "이미지",
+    "Zoom in": "확대",
+    "Zoom out": "축소",
+    "Fit to window": "창에 맞추기",
+    "Copy image": "이미지 복사",
+    "Loading image…": "이미지 불러오는 중…",
+    "Image could not be loaded": "이미지를 불러올 수 없습니다"
   },
   "zh": {
     "Cancel": "取消",
@@ -858,7 +942,14 @@
     "Suggestions": "建议",
     "Searching…": "正在搜索…",
     "No results": "无结果",
-    "Sidebar": "侧边栏"
+    "Sidebar": "侧边栏",
+    "Image": "图片",
+    "Zoom in": "放大",
+    "Zoom out": "缩小",
+    "Fit to window": "适合窗口",
+    "Copy image": "复制图片",
+    "Loading image…": "正在加载图片…",
+    "Image could not be loaded": "无法加载图片"
   },
   "ar": {
     "Cancel": "إلغاء",
@@ -928,7 +1019,14 @@
     "Suggestions": "اقتراحات",
     "Searching…": "جارٍ البحث…",
     "No results": "لا توجد نتائج",
-    "Sidebar": "الشريط الجانبي"
+    "Sidebar": "الشريط الجانبي",
+    "Image": "صورة",
+    "Zoom in": "تكبير",
+    "Zoom out": "تصغير",
+    "Fit to window": "ملاءمة النافذة",
+    "Copy image": "نسخ الصورة",
+    "Loading image…": "جارٍ تحميل الصورة…",
+    "Image could not be loaded": "تعذّر تحميل الصورة"
   },
   "tr": {
     "Cancel": "İptal",
@@ -994,7 +1092,14 @@
     "Suggestions": "Öneriler",
     "Searching…": "Aranıyor…",
     "No results": "Sonuç yok",
-    "Sidebar": "Kenar çubuğu"
+    "Sidebar": "Kenar çubuğu",
+    "Image": "Görsel",
+    "Zoom in": "Yakınlaştır",
+    "Zoom out": "Uzaklaştır",
+    "Fit to window": "Pencereye sığdır",
+    "Copy image": "Görseli kopyala",
+    "Loading image…": "Görsel yükleniyor…",
+    "Image could not be loaded": "Görsel yüklenemedi"
   },
   "sv": {
     "Cancel": "Avbryt",
@@ -1060,7 +1165,14 @@
     "Suggestions": "Förslag",
     "Searching…": "Söker…",
     "No results": "Inga resultat",
-    "Sidebar": "Sidofält"
+    "Sidebar": "Sidofält",
+    "Image": "Bild",
+    "Zoom in": "Zooma in",
+    "Zoom out": "Zooma ut",
+    "Fit to window": "Anpassa till fönstret",
+    "Copy image": "Kopiera bild",
+    "Loading image…": "Läser in bild…",
+    "Image could not be loaded": "Bilden kunde inte läsas in"
   },
   "da": {
     "Cancel": "Annuller",
@@ -1126,7 +1238,14 @@
     "Suggestions": "Forslag",
     "Searching…": "Søger…",
     "No results": "Ingen resultater",
-    "Sidebar": "Sidepanel"
+    "Sidebar": "Sidepanel",
+    "Image": "Billede",
+    "Zoom in": "Zoom ind",
+    "Zoom out": "Zoom ud",
+    "Fit to window": "Tilpas til vinduet",
+    "Copy image": "Kopiér billede",
+    "Loading image…": "Indlæser billede…",
+    "Image could not be loaded": "Billedet kunne ikke indlæses"
   },
   "no": {
     "Cancel": "Avbryt",
@@ -1192,7 +1311,14 @@
     "Suggestions": "Forslag",
     "Searching…": "Søker…",
     "No results": "Ingen resultater",
-    "Sidebar": "Sidepanel"
+    "Sidebar": "Sidepanel",
+    "Image": "Bilde",
+    "Zoom in": "Zoom inn",
+    "Zoom out": "Zoom ut",
+    "Fit to window": "Tilpass til vinduet",
+    "Copy image": "Kopier bilde",
+    "Loading image…": "Laster inn bilde…",
+    "Image could not be loaded": "Bildet kunne ikke lastes inn"
   },
   "fi": {
     "Cancel": "Peruuta",
@@ -1258,7 +1384,14 @@
     "Suggestions": "Ehdotukset",
     "Searching…": "Haetaan…",
     "No results": "Ei tuloksia",
-    "Sidebar": "Sivupalkki"
+    "Sidebar": "Sivupalkki",
+    "Image": "Kuva",
+    "Zoom in": "Lähennä",
+    "Zoom out": "Loitonna",
+    "Fit to window": "Sovita ikkunaan",
+    "Copy image": "Kopioi kuva",
+    "Loading image…": "Ladataan kuvaa…",
+    "Image could not be loaded": "Kuvaa ei voitu ladata"
   },
   "cs": {
     "Cancel": "Zrušit",
@@ -1325,6 +1458,13 @@
     "Suggestions": "Návrhy",
     "Searching…": "Hledání…",
     "No results": "Žádné výsledky",
-    "Sidebar": "Postranní panel"
+    "Sidebar": "Postranní panel",
+    "Image": "Obrázek",
+    "Zoom in": "Přiblížit",
+    "Zoom out": "Oddálit",
+    "Fit to window": "Přizpůsobit oknu",
+    "Copy image": "Kopírovat obrázek",
+    "Loading image…": "Načítání obrázku…",
+    "Image could not be loaded": "Obrázek se nepodařilo načíst"
   }
 }

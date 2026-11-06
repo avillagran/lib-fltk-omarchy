@@ -330,8 +330,12 @@ impl Canvas {
     }
 
     fn paint_coverage(&mut self, origin: (usize, usize), paint: &Paint) {
+        self.paint_coverage_rule(origin, paint, false)
+    }
+
+    fn paint_coverage_rule(&mut self, origin: (usize, usize), paint: &Paint, even_odd: bool) {
         let cov = std::mem::replace(&mut self.cov, Coverage::new());
-        cov.for_each(|x, y, k| {
+        cov.for_each_rule(even_odd, |x, y, k| {
             let (px, py) = (origin.0 + x, origin.1 + y);
             let c = paint.at((px as f32 + 0.5) / self.unit, (py as f32 + 0.5) / self.unit);
             self.put(px, py, c, k);
@@ -345,6 +349,16 @@ impl Canvas {
         let polys: Vec<Vec<Point>> = self.sc(path).flatten(0.2).into_iter().map(|(p, _)| p).collect();
         if let Some(o) = self.raster(&polys) {
             self.paint_coverage(o, &paint);
+        }
+    }
+
+    /// Fills `path` with the even-odd rule (SVG `fill-rule="evenodd"`):
+    /// overlapping subpaths cut holes whatever their direction.
+    pub fn fill_even_odd(&mut self, path: &Path, paint: impl Into<Paint>) {
+        let paint = paint.into();
+        let polys: Vec<Vec<Point>> = self.sc(path).flatten(0.2).into_iter().map(|(p, _)| p).collect();
+        if let Some(o) = self.raster(&polys) {
+            self.paint_coverage_rule(o, &paint, true);
         }
     }
 

@@ -25,6 +25,7 @@ pub(crate) mod fl_abi;
 pub mod fonts;
 mod generic;
 pub mod languages;
+pub mod memory;
 pub(crate) mod poll;
 
 #[cfg(target_os = "linux")]

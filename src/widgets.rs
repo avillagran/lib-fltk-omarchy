@@ -150,6 +150,16 @@ fn interaction(w: &Widget, st: &Rc<RefCell<Interaction>>) -> Interaction {
     s
 }
 
+/// [`track`] for components outside this module (`icon::Icon`).
+pub(crate) fn track_widget(w: &mut Widget, st: Rc<RefCell<Interaction>>, keyboard: bool, on_activate: Rc<dyn Fn()>) {
+    track(w, st, keyboard, on_activate);
+}
+
+/// [`interaction`] for components outside this module.
+pub(crate) fn interaction_of(w: &Widget, st: &Rc<RefCell<Interaction>>) -> Interaction {
+    interaction(w, st)
+}
+
 // ================================================================== Button
 
 #[derive(Default)]
