@@ -9,7 +9,7 @@
 //!   through the same event path as real input; returns a [`Report`].
 //!   Any toolkit app runs a script headlessly with
 //!   `OMARCHY_FLTK_SCRIPT=steps.json` (and dumps its tree with
-//!   `OMARCHY_FLTK_TREE=out.json`): see [`env`] and docs/TESTKIT.md.
+//!   `OMARCHY_FLTK_TREE=out.json`): see [`env`](mod@env) and docs/TESTKIT.md.
 //! - [`Gate`]: records rectangles of chosen widgets, transcript messages
 //!   or tree rows on every animation frame and finds jumps, pops and
 //!   overshoot.
@@ -51,7 +51,7 @@ thread_local! {
 
 /// Keeps component descriptions (names, roles, virtual rows) for [`tree`]
 /// in builds without the `a11y` feature, for widgets created from now on.
-/// Sticky. The env variables of [`env`] arm the kit in `App::new`.
+/// Sticky. The env variables of [`env`](mod@env) arm the kit in `App::new`.
 pub fn arm() {
     ARMED.with(|a| a.set(true));
 }
@@ -96,6 +96,7 @@ pub(crate) fn main_window() -> Option<fltk::window::DoubleWindow> {
 /// [`AppWindow::snapshot`](crate::AppWindow::snapshot) draws), so state
 /// that advances while painting (scroll glides, row motion) moves on.
 pub(crate) fn render_frame<W: WindowExt>(win: &W) {
+    // SAFETY: a live window.
     let mut w = unsafe { fltk::window::DoubleWindow::from_widget_ptr(win.as_widget_ptr()) };
     let _ = crate::window::render(&mut w);
 }
