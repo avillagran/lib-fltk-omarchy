@@ -454,7 +454,10 @@ AppWindow controls keep their CPU renderer.
    creates no window or animation timer and does not restore GL state.
 
 Simple opaque and alpha rectangles and top-level portable shaders run
-natively in GL. `scene::shader(rect, &program, &uniforms)` records a shared
+natively in GL. Uniform locations are resolved once per linked program
+and shared by its draws, including the overlay pass. Frames perform no
+uniform-name queries; context recovery rebuilds the locations together
+with their programs. `scene::shader(rect, &program, &uniforms)` records a shared
 `gfx::sl` program and local uniforms; CPU replay evaluates the same program
 into bounded RGBA. Logical size follows the target rectangle. On the GPU,
 the renderer can override time independently of the retained scene.

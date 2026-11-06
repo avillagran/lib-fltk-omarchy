@@ -153,7 +153,31 @@ fn intersection(a: Rect, b: Rect) -> Rect {
     Rect::new(x as i32, y as i32, (right - x).max(0) as i32, (bottom - y).max(0) as i32)
 }
 
-struct Draw { rect: Rect, clip: Rect, texture: Option<glow::Texture>, program: glow::Program, color: Color, uniforms: Option<Uniforms>, order: super::node::Order }
+// Locations belong to a linked program, not a frame or primitive. Share
+// them across draws and discard them with the program/context.
+struct Locations {
+    view: Option<glow::UniformLocation>,
+    rect: Option<glow::UniformLocation>,
+    image: Option<glow::UniformLocation>,
+    tex: Option<glow::UniformLocation>,
+    color: Option<glow::UniformLocation>,
+    time: Option<glow::UniformLocation>,
+    size: Option<glow::UniformLocation>,
+    pointer: Option<glow::UniformLocation>,
+    theme: [Option<glow::UniformLocation>; 5],
+}
+impl Locations {
+    unsafe fn new(gl: &glow::Context, program: glow::Program) -> Rc<Self> {
+        let loc = |name| gl.get_uniform_location(program, name);
+        Rc::new(Self {
+            view: loc("u_view"), rect: loc("u_rect"), image: loc("u_image"),
+            tex: loc("u_tex"), color: loc("u_color"), time: loc("u_time"),
+            size: loc("u_size"), pointer: loc("u_pointer"),
+            theme: ["u_background", "u_foreground", "u_accent", "u_urgent", "u_params"].map(loc),
+        })
+    }
+}
+struct Draw { rect: Rect, clip: Rect, texture: Option<glow::Texture>, program: glow::Program, locations: Rc<Locations>, color: Color, uniforms: Option<Uniforms>, order: super::node::Order }
 struct Overlay { rect: Rect, texture: glow::Texture, bytes: usize }
 
 /// GL resources for one retained scene. Textures/programs upload only in
@@ -162,6 +186,7 @@ struct Overlay { rect: Rect, texture: glow::Texture, bytes: usize }
 pub struct Renderer {
     gl: Rc<glow::Context>,
     basic: glow::Program,
+    basic_locations: Rc<Locations>,
     vao: glow::VertexArray,
     textures: Vec<glow::Texture>,
     programs: Vec<glow::Program>,
@@ -180,12 +205,13 @@ impl Renderer {
     pub unsafe fn new(gl: Rc<glow::Context>, scene: PreparedScene) -> Result<Self, String> {
         let basic = link(&gl, FRAGMENT)?;
         let vao = match gl.create_vertex_array() { Ok(v) => v, Err(e) => { gl.delete_program(basic); return Err(e); } };
-        let mut renderer = Self { gl, basic, vao, textures: Vec::new(), programs: Vec::new(), draws: Vec::new(), texture_bytes: 0, context_alive: true, nodes: scene.nodes, overlay: None };
+        let basic_locations = Locations::new(&gl, basic);
+        let mut renderer = Self { gl, basic, basic_locations, vao, textures: Vec::new(), programs: Vec::new(), draws: Vec::new(), texture_bytes: 0, context_alive: true, nodes: scene.nodes, overlay: None };
         let mut textures = HashMap::new();
-        let mut programs = HashMap::new();
+        let mut programs: HashMap<String, (glow::Program, Rc<Locations>)> = HashMap::new();
         for item in scene.items {
-            let (texture, program, color, uniforms) = match item.paint {
-                Paint::Solid(c) => (None, basic, c, None),
+            let (texture, program, locations, color, uniforms) = match item.paint {
+                Paint::Solid(c) => (None, basic, renderer.basic_locations.clone(), c, None),
                 Paint::Image(image, opacity) => {
                     let key = image.pixels().as_ptr() as usize;
                     let texture = if let Some(t) = textures.get(&key) { *t } else {
@@ -221,20 +247,21 @@ impl Renderer {
                         textures.insert(key, t);
                         t
                     };
-                    (Some(texture), basic, Color::rgba(1.0, 1.0, 1.0, opacity), None)
+                    (Some(texture), basic, renderer.basic_locations.clone(), Color::rgba(1.0, 1.0, 1.0, opacity), None)
                 }
                 Paint::Shader(source, uniforms) => {
-                    let program = if let Some(p) = programs.get(&source) { *p } else {
+                    let (program, locations) = if let Some(p) = programs.get(&source) { p.clone() } else {
                         let p = link(&renderer.gl, &format!("{SHADER_PRELUDE}{source}"))?;
                         renderer.programs.push(p);
-                        programs.insert(source, p);
-                        p
+                        let locations = Locations::new(&renderer.gl, p);
+                        programs.insert(source, (p, locations.clone()));
+                        (p, locations)
                     };
-                    (None, program, Color::TRANSPARENT, Some(uniforms))
+                    (None, program, locations, Color::TRANSPARENT, Some(uniforms))
                 }
             };
             debug_assert!(item.id.map_or(true, |id| renderer.nodes.get(&id) == Some(&renderer.draws.len())));
-            renderer.draws.push(Draw { rect: item.rect, clip: item.clip, texture, program, color, uniforms, order: item.order });
+            renderer.draws.push(Draw { rect: item.rect, clip: item.clip, texture, program, locations, color, uniforms, order: item.order });
         }
         Ok(renderer)
     }
@@ -348,22 +375,22 @@ impl Renderer {
             let (x, y, right, bottom) = ((r.x as f64 * sx).round() as i32, (r.y as f64 * sy).round() as i32, ((r.x as f64 + r.w as f64) * sx).round() as i32, ((r.y as f64 + r.h as f64) * sy).round() as i32);
             gl.scissor(x, pixels.1 - bottom, right - x, bottom - y);
             gl.use_program(Some(d.program));
-            let loc = |s: &str| gl.get_uniform_location(d.program, s);
-            gl.uniform_2_f32(loc("u_view").as_ref(), logical.0 as f32, logical.1 as f32);
-            gl.uniform_4_f32(loc("u_rect").as_ref(), d.rect.x as f32, d.rect.y as f32, d.rect.w as f32, d.rect.h as f32);
+            let loc = &d.locations;
+            gl.uniform_2_f32(loc.view.as_ref(), logical.0 as f32, logical.1 as f32);
+            gl.uniform_4_f32(loc.rect.as_ref(), d.rect.x as f32, d.rect.y as f32, d.rect.w as f32, d.rect.h as f32);
             if let Some(u) = d.uniforms {
-                gl.uniform_1_f32(loc("u_time").as_ref(), time.unwrap_or(u.time));
-                gl.uniform_2_f32(loc("u_size").as_ref(), d.rect.w as f32, d.rect.h as f32);
+                gl.uniform_1_f32(loc.time.as_ref(), time.unwrap_or(u.time));
+                gl.uniform_2_f32(loc.size.as_ref(), d.rect.w as f32, d.rect.h as f32);
                 let p = u.pointer.unwrap_or((-1.0, -1.0));
-                gl.uniform_2_f32(loc("u_pointer").as_ref(), p.0, p.1);
-                for (name, c) in [("u_background", u.background), ("u_foreground", u.foreground), ("u_accent", u.accent), ("u_urgent", u.urgent)] {
-                    gl.uniform_4_f32(loc(name).as_ref(), c.r, c.g, c.b, c.a);
+                gl.uniform_2_f32(loc.pointer.as_ref(), p.0, p.1);
+                for (location, c) in loc.theme.iter().zip([u.background, u.foreground, u.accent, u.urgent]) {
+                    gl.uniform_4_f32(location.as_ref(), c.r, c.g, c.b, c.a);
                 }
-                gl.uniform_4_f32(loc("u_params").as_ref(), u.params[0], u.params[1], u.params[2], u.params[3]);
+                gl.uniform_4_f32(loc.theme[4].as_ref(), u.params[0], u.params[1], u.params[2], u.params[3]);
             } else {
-                gl.uniform_1_i32(loc("u_image").as_ref(), i32::from(d.texture.is_some()));
-                gl.uniform_1_i32(loc("u_tex").as_ref(), 0);
-                gl.uniform_4_f32(loc("u_color").as_ref(), d.color.r, d.color.g, d.color.b, d.color.a);
+                gl.uniform_1_i32(loc.image.as_ref(), i32::from(d.texture.is_some()));
+                gl.uniform_1_i32(loc.tex.as_ref(), 0);
+                gl.uniform_4_f32(loc.color.as_ref(), d.color.r, d.color.g, d.color.b, d.color.a);
                 gl.bind_texture(glow::TEXTURE_2D, d.texture);
             }
             gl.draw_arrays(glow::TRIANGLES, 0, 6);
@@ -371,12 +398,12 @@ impl Renderer {
         if let Some(o) = &self.overlay {
             gl.scissor(0,0,pixels.0,pixels.1);
             gl.use_program(Some(self.basic));
-            let loc = |s:&str|gl.get_uniform_location(self.basic,s);
-            gl.uniform_2_f32(loc("u_view").as_ref(),logical.0 as f32,logical.1 as f32);
-            gl.uniform_4_f32(loc("u_rect").as_ref(),o.rect.x as f32,o.rect.y as f32,o.rect.w as f32,o.rect.h as f32);
-            gl.uniform_1_i32(loc("u_image").as_ref(),1);
-            gl.uniform_1_i32(loc("u_tex").as_ref(),0);
-            gl.uniform_4_f32(loc("u_color").as_ref(),1.0,1.0,1.0,1.0);
+            let loc = &self.basic_locations;
+            gl.uniform_2_f32(loc.view.as_ref(),logical.0 as f32,logical.1 as f32);
+            gl.uniform_4_f32(loc.rect.as_ref(),o.rect.x as f32,o.rect.y as f32,o.rect.w as f32,o.rect.h as f32);
+            gl.uniform_1_i32(loc.image.as_ref(),1);
+            gl.uniform_1_i32(loc.tex.as_ref(),0);
+            gl.uniform_4_f32(loc.color.as_ref(),1.0,1.0,1.0,1.0);
             gl.bind_texture(glow::TEXTURE_2D,Some(o.texture));
             gl.draw_arrays(glow::TRIANGLES,0,6);
         }
