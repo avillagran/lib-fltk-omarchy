@@ -459,6 +459,8 @@ impl List {
                     let mut i = inn.borrow_mut();
                     let max = (i.count as i64 * i.row_h as i64 - w.h() as i64).max(0);
                     let (top, delta) = (i.top, app::event_dy_value() as f64 * 3.0 * i.row_h as f64);
+                    // At an edge the wheel goes to the scroll area around us.
+                    if i.motion.passes(top, delta, max) { return false; }
                     i.top = i.motion.wheel(top, delta, max);
                     drop(i);
                     w.redraw();

@@ -61,6 +61,20 @@ impl Scroll {
         self.start.is_some()
     }
 
+    /// True when a wheel step of `delta` has nowhere to go: the view is
+    /// at the edge it points to (0 or `max`) with no travel pending. A
+    /// nested view returns the wheel event unused then, so the scroll area
+    /// around it scrolls instead (o3-code's `T3Wheel` hand-off). A zero
+    /// delta (a horizontal wheel on a vertical view) also passes.
+    pub fn passes(&self, position: i64, delta: f64, max: i64) -> bool {
+        if delta == 0.0 {
+            return true;
+        }
+        let max = max.max(0);
+        let at = if self.start.is_some() { self.target.round() as i64 } else { position.clamp(0, max) };
+        (delta < 0.0 && at <= 0) || (delta > 0.0 && at >= max)
+    }
+
     fn position_at(&mut self, position: i64, max: i64, now: Instant, smooth: bool) -> i64 {
         let max = max.max(0);
         if position != self.reported {
@@ -108,6 +122,16 @@ impl Scroll {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn passes_at_the_edges() {
+        let s = super::Scroll::new();
+        assert!(s.passes(0, -30.0, 500), "up at the top");
+        assert!(!s.passes(0, 30.0, 500), "down from the top scrolls");
+        assert!(s.passes(500, 30.0, 500), "down at the bottom");
+        assert!(!s.passes(250, -30.0, 500));
+        assert!(s.passes(250, 0.0, 500), "horizontal wheel");
+        assert!(s.passes(0, 30.0, 0), "nothing to scroll");
+    }
     use super::*;
     use std::time::Duration;
     fn later(t: Instant, ms: u64) -> Instant {

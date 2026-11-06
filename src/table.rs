@@ -529,7 +529,12 @@ fn table_handle(w: &mut Widget, ev: Event, st: &Rc<RefCell<TState>>) -> bool {
             let mut s = st.borrow_mut();
             let max = (s.panel.len() as i64 * rh as i64 - (w.h() - header_h()) as i64).max(0);
             let top = s.top;
-            s.top = s.motion.wheel(top, app::event_dy_value() as f64 * 3.0 * rh as f64, max);
+            let delta = app::event_dy_value() as f64 * 3.0 * rh as f64;
+            // At an edge the wheel goes to the scroll area around us.
+            if s.motion.passes(top, delta, max) {
+                return false;
+            }
+            s.top = s.motion.wheel(top, delta, max);
             drop(s);
             w.redraw();
             true
@@ -1164,7 +1169,12 @@ fn tree_handle(w: &mut Widget, ev: Event, st: &Rc<RefCell<TrState>>) -> bool {
             let mut s = st.borrow_mut();
             let max = (s.rows.borrow().len() as i64 * rh as i64 - w.h() as i64).max(0);
             let top = s.top;
-            s.top = s.motion.wheel(top, app::event_dy_value() as f64 * 3.0 * rh as f64, max);
+            let delta = app::event_dy_value() as f64 * 3.0 * rh as f64;
+            // At an edge the wheel goes to the scroll area around us.
+            if s.motion.passes(top, delta, max) {
+                return false;
+            }
+            s.top = s.motion.wheel(top, delta, max);
             drop(s);
             w.redraw();
             true

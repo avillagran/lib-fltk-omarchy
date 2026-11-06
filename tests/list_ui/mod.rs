@@ -66,4 +66,47 @@ pub fn checks(run: &mut dyn FnMut(&str, Check)) {
         fltk::window::DoubleWindow::delete((*win).clone());
         Ok(())
     });
+
+    run("list: the wheel goes to the scroll area around it at the list's edges", &|_| {
+        let count = State::new(20usize);
+        let mut win = AppWindow::new("Nested", 360, 300);
+        let mut body = win.body();
+        let mut outer = fltk::group::Scroll::default();
+        outer.set_type(fltk::group::ScrollType::Vertical);
+        body.add(&outer);
+        outer.begin();
+        let mut list = List::new(&count, |i| ListRow::new(&format!("row {i}"))).row_height(32);
+        list.resize(0, 0, 300, 150);
+        let mut tail = fltk::frame::Frame::default();
+        tail.resize(0, 150, 300, 600);
+        outer.end();
+        win.end();
+        win.show();
+        let o2 = outer.clone();
+        pump_until(|| o2.w() > 0 && o2.h() > 100);
+        // Children of a Scroll keep their positions relative to it.
+        list.resize(outer.x(), outer.y(), 300, 150);
+        tail.resize(outer.x(), outer.y() + 150, 300, 600);
+        outer.redraw();
+        fltk::app::wait_for(0.01).ok();
+        let (x, y) = (list.x() + 40, list.y() + 60);
+        let max = 20 * 32 - 150;
+        for _ in 0..10 {
+            focus::wheel_at(&*win, x, y, 1);
+            if list.scroll_offset() >= max as i64 {
+                break;
+            }
+        }
+        check(list.scroll_offset() == max as i64, &format!("the list scrolls to its end first: {}", list.scroll_offset()))?;
+        check(outer.yposition() == 0, &format!("the outer area has not moved: {}", outer.yposition()))?;
+        focus::wheel_at(&*win, x, y, 1);
+        check(outer.yposition() > 0, &format!("at the list's end the wheel scrolls the outer area: {}", outer.yposition()))?;
+        // Back up: the list (now higher on screen) takes the wheel again.
+        let (lx, ly) = (list.x() + 40, list.y() + 60);
+        let before = list.scroll_offset();
+        focus::wheel_at(&*win, lx, ly.max(outer.y() + 5), -1);
+        check(list.scroll_offset() < before, &format!("wheel up scrolls the list again: {before} → {}", list.scroll_offset()))?;
+        fltk::window::DoubleWindow::delete((*win).clone());
+        Ok(())
+    });
 }
