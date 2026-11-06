@@ -1,0 +1,9 @@
+#!/bin/sh
+# Builds the Arch package and installs it, so {{name}} shows up in the app
+# launcher (Super + Space).
+set -eu
+
+ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+"$ROOT/bin/build"
+cd "$ROOT/pkgbuild"
+exec makepkg -fsi "$@"

@@ -1,0 +1,13 @@
+#!/bin/sh
+# Runs the unit tests and the offscreen UI test. The UI test draws through
+# a display connection, so it runs inside its own Xvfb when xvfb-run is
+# installed (never on your desktop); without a display it is skipped.
+set -eu
+
+ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+cd "$ROOT"
+
+if command -v xvfb-run >/dev/null 2>&1; then
+  exec env -u WAYLAND_DISPLAY xvfb-run -a -s "-screen 0 1280x800x24" cargo test "$@"
+fi
+exec cargo test "$@"

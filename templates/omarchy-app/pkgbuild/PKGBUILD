@@ -1,0 +1,26 @@
+pkgname={{name}}
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='Count things from the keyboard'
+arch=('x86_64' 'aarch64')
+license=('MIT')
+# FLTK's Wayland + X11 backend, fonts, and the portal for file dialogs.
+depends=('xdg-desktop-portal' 'fontconfig' 'libxkbcommon' 'wayland' 'pango' 'cairo' 'dbus'
+         'libx11' 'libxext' 'libxinerama' 'libxcursor' 'libxfixes' 'libxrender')
+makedepends=('cargo' 'cmake' 'gcc' 'make')
+options=('!lto' '!debug')
+source=()
+sha256sums=()
+
+build() {
+  cd "$startdir/.."
+  ./bin/build --locked
+}
+
+package() {
+  cd "$startdir/.."
+  install -Dm755 "${CARGO_TARGET_DIR:-target}/release/{{name}}" "$pkgdir/usr/bin/{{name}}"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 "$startdir/{{name}}.svg" "$pkgdir/usr/share/icons/hicolor/scalable/apps/{{name}}.svg"
+  install -Dm644 "$startdir/{{name}}.desktop" "$pkgdir/usr/share/applications/{{name}}.desktop"
+}

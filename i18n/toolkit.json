@@ -111,7 +111,11 @@
     "Playback needs ffmpeg and ffprobe": "Playback needs ffmpeg and ffprobe",
     "Cannot play this file": "Cannot play this file",
     "No audio output: playing without sound": "No audio output: playing without sound",
-    "Quit without saving?": "Quit without saving?"
+    "Quit without saving?": "Quit without saving?",
+    "Open folder": "Open folder",
+    "Cancelled": "Cancelled",
+    "A file dialog is already open": "A file dialog is already open",
+    "No file dialog is available: {reason}": "No file dialog is available: {reason}"
   },
   "es": {
     "Cancel": "Cancelar",
@@ -227,7 +231,11 @@
     "No audio output: playing without sound": "Sin salida de audio: se reproduce sin sonido",
     "{count} hidden lines|many": "{count} líneas ocultas",
     "{count} items|many": "{count} elementos",
-    "Quit without saving?": "¿Salir sin guardar?"
+    "Quit without saving?": "¿Salir sin guardar?",
+    "Open folder": "Abrir carpeta",
+    "Cancelled": "Cancelado",
+    "A file dialog is already open": "Ya hay un diálogo de archivos abierto",
+    "No file dialog is available: {reason}": "No hay ningún diálogo de archivos disponible: {reason}"
   },
   "pt": {
     "Cancel": "Cancelar",
@@ -343,7 +351,11 @@
     "No audio output: playing without sound": "Sem saída de áudio: reproduzindo sem som",
     "{count} hidden lines|many": "{count} linhas ocultas",
     "{count} items|many": "{count} itens",
-    "Quit without saving?": "Sair sem guardar?"
+    "Quit without saving?": "Sair sem guardar?",
+    "Open folder": "Abrir pasta",
+    "Cancelled": "Cancelado",
+    "A file dialog is already open": "Já existe um diálogo de arquivos aberto",
+    "No file dialog is available: {reason}": "Nenhum diálogo de arquivos disponível: {reason}"
   },
   "fr": {
     "Cancel": "Annuler",
@@ -459,7 +471,11 @@
     "No audio output: playing without sound": "Aucune sortie audio : lecture sans son",
     "{count} hidden lines|many": "{count} lignes masquées",
     "{count} items|many": "{count} éléments",
-    "Quit without saving?": "Quitter sans enregistrer ?"
+    "Quit without saving?": "Quitter sans enregistrer ?",
+    "Open folder": "Ouvrir un dossier",
+    "Cancelled": "Annulé",
+    "A file dialog is already open": "Une boîte de dialogue de fichiers est déjà ouverte",
+    "No file dialog is available: {reason}": "Aucune boîte de dialogue de fichiers disponible : {reason}"
   },
   "de": {
     "Cancel": "Abbrechen",
@@ -573,7 +589,11 @@
     "Playback needs ffmpeg and ffprobe": "Die Wiedergabe benötigt ffmpeg und ffprobe",
     "Cannot play this file": "Diese Datei kann nicht abgespielt werden",
     "No audio output: playing without sound": "Keine Audioausgabe: Wiedergabe ohne Ton",
-    "Quit without saving?": "Ohne Speichern beenden?"
+    "Quit without saving?": "Ohne Speichern beenden?",
+    "Open folder": "Ordner öffnen",
+    "Cancelled": "Abgebrochen",
+    "A file dialog is already open": "Ein Dateidialog ist bereits geöffnet",
+    "No file dialog is available: {reason}": "Kein Dateidialog verfügbar: {reason}"
   },
   "it": {
     "Cancel": "Annulla",
@@ -689,7 +709,11 @@
     "No audio output: playing without sound": "Nessuna uscita audio: riproduzione senza suono",
     "{count} hidden lines|many": "{count} righe nascoste",
     "{count} items|many": "{count} elementi",
-    "Quit without saving?": "Uscire senza salvare?"
+    "Quit without saving?": "Uscire senza salvare?",
+    "Open folder": "Apri cartella",
+    "Cancelled": "Annullato",
+    "A file dialog is already open": "Una finestra di dialogo dei file è già aperta",
+    "No file dialog is available: {reason}": "Nessuna finestra di dialogo dei file disponibile: {reason}"
   },
   "nl": {
     "Cancel": "Annuleren",
@@ -803,7 +827,11 @@
     "Playback needs ffmpeg and ffprobe": "Afspelen vereist ffmpeg en ffprobe",
     "Cannot play this file": "Dit bestand kan niet worden afgespeeld",
     "No audio output: playing without sound": "Geen audio-uitvoer: afspelen zonder geluid",
-    "Quit without saving?": "Afsluiten zonder opslaan?"
+    "Quit without saving?": "Afsluiten zonder opslaan?",
+    "Open folder": "Map openen",
+    "Cancelled": "Geannuleerd",
+    "A file dialog is already open": "Er is al een bestandsdialoog geopend",
+    "No file dialog is available: {reason}": "Geen bestandsdialoog beschikbaar: {reason}"
   },
   "pl": {
     "Cancel": "Anuluj",
@@ -921,7 +949,11 @@
     "Playback needs ffmpeg and ffprobe": "Odtwarzanie wymaga ffmpeg i ffprobe",
     "Cannot play this file": "Nie można odtworzyć tego pliku",
     "No audio output: playing without sound": "Brak wyjścia audio: odtwarzanie bez dźwięku",
-    "Quit without saving?": "Zakończyć bez zapisywania?"
+    "Quit without saving?": "Zakończyć bez zapisywania?",
+    "Open folder": "Otwórz folder",
+    "Cancelled": "Anulowano",
+    "A file dialog is already open": "Okno wyboru plików jest już otwarte",
+    "No file dialog is available: {reason}": "Brak dostępnego okna wyboru plików: {reason}"
   },
   "ru": {
     "Cancel": "Отмена",
@@ -1039,7 +1071,11 @@
     "Playback needs ffmpeg and ffprobe": "Для воспроизведения нужны ffmpeg и ffprobe",
     "Cannot play this file": "Не удаётся воспроизвести этот файл",
     "No audio output: playing without sound": "Нет аудиовыхода: воспроизведение без звука",
-    "Quit without saving?": "Выйти без сохранения?"
+    "Quit without saving?": "Выйти без сохранения?",
+    "Open folder": "Открыть папку",
+    "Cancelled": "Отменено",
+    "A file dialog is already open": "Диалог выбора файлов уже открыт",
+    "No file dialog is available: {reason}": "Диалог выбора файлов недоступен: {reason}"
   },
   "uk": {
     "Cancel": "Скасувати",
@@ -1157,7 +1193,11 @@
     "Playback needs ffmpeg and ffprobe": "Для відтворення потрібні ffmpeg і ffprobe",
     "Cannot play this file": "Не вдається відтворити цей файл",
     "No audio output: playing without sound": "Немає аудіовиходу: відтворення без звуку",
-    "Quit without saving?": "Вийти без збереження?"
+    "Quit without saving?": "Вийти без збереження?",
+    "Open folder": "Відкрити теку",
+    "Cancelled": "Скасовано",
+    "A file dialog is already open": "Діалог вибору файлів уже відкрито",
+    "No file dialog is available: {reason}": "Діалог вибору файлів недоступний: {reason}"
   },
   "ja": {
     "Cancel": "キャンセル",
@@ -1269,7 +1309,11 @@
     "Playback needs ffmpeg and ffprobe": "再生には ffmpeg と ffprobe が必要です",
     "Cannot play this file": "このファイルは再生できません",
     "No audio output: playing without sound": "音声出力がありません：音声なしで再生します",
-    "Quit without saving?": "保存せずに終了しますか？"
+    "Quit without saving?": "保存せずに終了しますか？",
+    "Open folder": "フォルダーを開く",
+    "Cancelled": "キャンセルしました",
+    "A file dialog is already open": "ファイルダイアログはすでに開いています",
+    "No file dialog is available: {reason}": "ファイルダイアログを利用できません: {reason}"
   },
   "ko": {
     "Cancel": "취소",
@@ -1381,7 +1425,11 @@
     "Playback needs ffmpeg and ffprobe": "재생하려면 ffmpeg와 ffprobe가 필요합니다",
     "Cannot play this file": "이 파일을 재생할 수 없습니다",
     "No audio output: playing without sound": "오디오 출력 없음: 소리 없이 재생합니다",
-    "Quit without saving?": "저장하지 않고 종료할까요?"
+    "Quit without saving?": "저장하지 않고 종료할까요?",
+    "Open folder": "폴더 열기",
+    "Cancelled": "취소됨",
+    "A file dialog is already open": "파일 대화 상자가 이미 열려 있습니다",
+    "No file dialog is available: {reason}": "사용할 수 있는 파일 대화 상자가 없습니다: {reason}"
   },
   "zh": {
     "Cancel": "取消",
@@ -1493,7 +1541,11 @@
     "Playback needs ffmpeg and ffprobe": "播放需要 ffmpeg 和 ffprobe",
     "Cannot play this file": "无法播放此文件",
     "No audio output: playing without sound": "没有音频输出：无声播放",
-    "Quit without saving?": "不保存就退出吗？"
+    "Quit without saving?": "不保存就退出吗？",
+    "Open folder": "打开文件夹",
+    "Cancelled": "已取消",
+    "A file dialog is already open": "文件对话框已打开",
+    "No file dialog is available: {reason}": "没有可用的文件对话框：{reason}"
   },
   "ar": {
     "Cancel": "إلغاء",
@@ -1615,7 +1667,11 @@
     "Playback needs ffmpeg and ffprobe": "يتطلب التشغيل ffmpeg و ffprobe",
     "Cannot play this file": "تعذّر تشغيل هذا الملف",
     "No audio output: playing without sound": "لا يوجد مخرج صوت: التشغيل بدون صوت",
-    "Quit without saving?": "الخروج دون حفظ؟"
+    "Quit without saving?": "الخروج دون حفظ؟",
+    "Open folder": "فتح مجلد",
+    "Cancelled": "تم الإلغاء",
+    "A file dialog is already open": "مربع حوار الملفات مفتوح بالفعل",
+    "No file dialog is available: {reason}": "لا يتوفر مربع حوار للملفات: {reason}"
   },
   "tr": {
     "Cancel": "İptal",
@@ -1729,7 +1785,11 @@
     "Playback needs ffmpeg and ffprobe": "Oynatma için ffmpeg ve ffprobe gerekir",
     "Cannot play this file": "Bu dosya oynatılamıyor",
     "No audio output: playing without sound": "Ses çıkışı yok: sessiz oynatılıyor",
-    "Quit without saving?": "Kaydetmeden çıkılsın mı?"
+    "Quit without saving?": "Kaydetmeden çıkılsın mı?",
+    "Open folder": "Klasör aç",
+    "Cancelled": "İptal edildi",
+    "A file dialog is already open": "Bir dosya iletişim kutusu zaten açık",
+    "No file dialog is available: {reason}": "Kullanılabilir dosya iletişim kutusu yok: {reason}"
   },
   "sv": {
     "Cancel": "Avbryt",
@@ -1843,7 +1903,11 @@
     "Playback needs ffmpeg and ffprobe": "Uppspelning kräver ffmpeg och ffprobe",
     "Cannot play this file": "Filen kan inte spelas upp",
     "No audio output: playing without sound": "Ingen ljudutgång: spelar upp utan ljud",
-    "Quit without saving?": "Avsluta utan att spara?"
+    "Quit without saving?": "Avsluta utan att spara?",
+    "Open folder": "Öppna mapp",
+    "Cancelled": "Avbruten",
+    "A file dialog is already open": "En fildialog är redan öppen",
+    "No file dialog is available: {reason}": "Ingen fildialog är tillgänglig: {reason}"
   },
   "da": {
     "Cancel": "Annuller",
@@ -1957,7 +2021,11 @@
     "Playback needs ffmpeg and ffprobe": "Afspilning kræver ffmpeg og ffprobe",
     "Cannot play this file": "Filen kan ikke afspilles",
     "No audio output: playing without sound": "Ingen lydudgang: afspiller uden lyd",
-    "Quit without saving?": "Afslut uden at gemme?"
+    "Quit without saving?": "Afslut uden at gemme?",
+    "Open folder": "Åbn mappe",
+    "Cancelled": "Annulleret",
+    "A file dialog is already open": "En fildialog er allerede åben",
+    "No file dialog is available: {reason}": "Ingen fildialog er tilgængelig: {reason}"
   },
   "no": {
     "Cancel": "Avbryt",
@@ -2071,7 +2139,11 @@
     "Playback needs ffmpeg and ffprobe": "Avspilling krever ffmpeg og ffprobe",
     "Cannot play this file": "Kan ikke spille av denne filen",
     "No audio output: playing without sound": "Ingen lydutgang: spiller av uten lyd",
-    "Quit without saving?": "Avslutte uten å lagre?"
+    "Quit without saving?": "Avslutte uten å lagre?",
+    "Open folder": "Åpne mappe",
+    "Cancelled": "Avbrutt",
+    "A file dialog is already open": "En fildialog er allerede åpen",
+    "No file dialog is available: {reason}": "Ingen fildialog er tilgjengelig: {reason}"
   },
   "fi": {
     "Cancel": "Peruuta",
@@ -2185,7 +2257,11 @@
     "Playback needs ffmpeg and ffprobe": "Toisto vaatii ffmpegin ja ffproben",
     "Cannot play this file": "Tätä tiedostoa ei voi toistaa",
     "No audio output: playing without sound": "Ei äänilähtöä: toistetaan ilman ääntä",
-    "Quit without saving?": "Lopetetaanko tallentamatta?"
+    "Quit without saving?": "Lopetetaanko tallentamatta?",
+    "Open folder": "Avaa kansio",
+    "Cancelled": "Peruutettu",
+    "A file dialog is already open": "Tiedostoikkuna on jo auki",
+    "No file dialog is available: {reason}": "Tiedostoikkunaa ei ole saatavilla: {reason}"
   },
   "cs": {
     "Cancel": "Zrušit",
@@ -2301,6 +2377,10 @@
     "Playback needs ffmpeg and ffprobe": "Přehrávání vyžaduje ffmpeg a ffprobe",
     "Cannot play this file": "Tento soubor nelze přehrát",
     "No audio output: playing without sound": "Žádný zvukový výstup: přehrává se bez zvuku",
-    "Quit without saving?": "Ukončit bez uložení?"
+    "Quit without saving?": "Ukončit bez uložení?",
+    "Open folder": "Otevřít složku",
+    "Cancelled": "Zrušeno",
+    "A file dialog is already open": "Dialog souborů je už otevřený",
+    "No file dialog is available: {reason}": "Není k dispozici žádný dialog souborů: {reason}"
   }
 }

@@ -193,6 +193,17 @@ pub fn blocked() -> Vec<Blocked> {
     REPORTS.with(|r| r.borrow().clone())
 }
 
+thread_local! {
+    static NESTED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Marks the running callback as one that runs a nested event loop (a
+/// modal dialog that keeps the UI responsive), so it is not reported as
+/// blocked.
+pub(crate) fn nested_loop() {
+    NESTED.with(|n| n.set(true));
+}
+
 /// Runs a UI-thread callback set at `site`, warning when it blocked.
 #[inline]
 pub(crate) fn watch<R>(site: &'static Location<'static>, f: impl FnOnce() -> R) -> R {
@@ -200,7 +211,15 @@ pub(crate) fn watch<R>(site: &'static Location<'static>, f: impl FnOnce() -> R) 
         return f();
     }
     let (t0, c0) = (Instant::now(), thread_cpu_time());
+    let outer = NESTED.with(|n| n.replace(false));
     let r = f();
+    let nested = NESTED.with(|n| n.replace(outer));
+    if nested {
+        // The callback ran a nested event loop (a file dialog): the UI kept
+        // going, and the callbacks around this one ran one too.
+        NESTED.with(|n| n.set(true));
+        return r;
+    }
     let wall = t0.elapsed();
     if wall > BLOCK_SLACK {
         if let (Some(a), Some(b)) = (c0, thread_cpu_time()) {

@@ -1,0 +1,20 @@
+{
+  "{count} taps": {
+    "one": "{count} tryk",
+    "other": "{count} tryk"
+  },
+  "Press Space to count": "Tryk på Space for at tælle",
+  "Saved": "Gemt",
+  "Unsaved changes": "Ikke-gemte ændringer",
+  "Counting": "Optælling",
+  "Count one more": "Tæl én mere",
+  "File": "Fil",
+  "App": "App",
+  "Export…": "Eksportér…",
+  "Text": "Tekst",
+  "Exported to {path}": "Eksporteret til {path}",
+  "Could not export: {error}": "Kunne ikke eksportere: {error}",
+  "Could not save: {error}": "Kunne ikke gemme: {error}",
+  "Saving is off: the saved tally could not be read": "Gemning er slået fra: den gemte optælling kunne ikke læses",
+  "Could not read the saved tally: {error}": "Kunne ikke læse den gemte optælling: {error}"
+}

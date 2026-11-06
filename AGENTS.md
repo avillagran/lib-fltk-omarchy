@@ -131,6 +131,11 @@ classic Omarchy look. Import as `fltk_omarchy`.
    tokens), files with `.on_files(..)` and `composer.attachments()`.
    Tests: `focus::press(..)` / `focus::type_text("日本")`, then
    `composer.completion_state()`, `area.caret_rect()`.
+19. Open/save dialogs → `dialog` (xdg-desktop-portal, native fallback):
+   `dialog::Request::save(tr!("Export")).filter(..).run_async(|r| ..)`;
+   show `Err(e)` other than `Cancelled`; tests use `dialog::set_picker`.
+   A new app starts from `cargo run --example new_app -- <name>` and
+   follows `skills/omarchy-fltk-app/SKILL.md`.
 
 ## Minimal app
 

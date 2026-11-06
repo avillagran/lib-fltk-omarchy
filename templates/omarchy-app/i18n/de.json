@@ -1,0 +1,20 @@
+{
+  "{count} taps": {
+    "one": "{count} Tipp",
+    "other": "{count} Tipps"
+  },
+  "Press Space to count": "Zum Zählen Space drücken",
+  "Saved": "Gespeichert",
+  "Unsaved changes": "Ungespeicherte Änderungen",
+  "Counting": "Zählen",
+  "Count one more": "Eins weiter zählen",
+  "File": "Datei",
+  "App": "App",
+  "Export…": "Exportieren…",
+  "Text": "Text",
+  "Exported to {path}": "Exportiert nach {path}",
+  "Could not export: {error}": "Export fehlgeschlagen: {error}",
+  "Could not save: {error}": "Speichern fehlgeschlagen: {error}",
+  "Saving is off: the saved tally could not be read": "Speichern ist aus: Der gespeicherte Zählerstand konnte nicht gelesen werden",
+  "Could not read the saved tally: {error}": "Der gespeicherte Zählerstand konnte nicht gelesen werden: {error}"
+}
