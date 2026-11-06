@@ -2,13 +2,17 @@
 //!
 //! This is the first step toward a window-wide CPU/GPU scene. Recording
 //! intercepts `paint` helpers only, not arbitrary FLTK drawing or widgets.
-//! Replay currently uses the existing CPU painter; it creates no timers,
-//! GL contexts or pixel buffers. Record again after theme, font, language,
+//! Replay currently uses the existing CPU painter; it creates no timers
+//! or GL contexts. Damage replay lazily retains a bounded pixel buffer. Record again after theme, font, language,
 //! scale or layout changes. Coordinates are FLTK logical window units.
+
+mod image;
+pub use image::{Image, ImageError, MAX_IMAGE_BYTES};
 
 use crate::{paint, theme::Rgb};
 use fltk::{draw, enums::{Align, Font}};
 use std::cell::RefCell;
+use fltk::prelude::*;
 
 /// A logical rectangle. Non-positive dimensions describe an empty region.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -41,6 +45,7 @@ pub enum Command {
     Text { rect: Rect, text: String, font: Font, size: i32, color: Rgb, align: Align },
     SpacedText { rect: Rect, text: String, size: i32, weight: paint::Weight, spacing: f64, color: Rgb, align: Align },
     AlphaFill { rect: Rect, color: Rgb, alpha: f64 },
+    Image { rect: Rect, image: Image },
     PushClip(Rect),
     PopClip,
 }
@@ -49,7 +54,7 @@ impl Command {
     fn bounds(&self) -> Option<Rect> {
         match self {
             Self::Fill { rect, .. } | Self::Stroke { rect, .. } | Self::Text { rect, .. }
-                | Self::AlphaFill { rect, .. } | Self::SpacedText { rect, .. } => Some(*rect),
+                | Self::AlphaFill { rect, .. } | Self::SpacedText { rect, .. } | Self::Image { rect, .. } => Some(*rect),
             _ => None,
         }
     }
@@ -60,6 +65,13 @@ impl Command {
 #[derive(Debug, Clone, Default)]
 pub struct Scene {
     commands: Vec<Command>,
+    raster: RefCell<Option<Raster>>,
+}
+
+#[derive(Debug, Clone)]
+struct Raster {
+    bounds: Rect,
+    image: fltk::image::RgbImage,
 }
 
 thread_local! {
@@ -101,16 +113,72 @@ impl Scene {
     pub fn commands(&self) -> &[Command] { &self.commands }
 
     /// Copies another list, preserving its order and balanced clips.
-    pub fn append(&mut self, scene: &Scene) { self.commands.extend_from_slice(&scene.commands); }
+    pub fn append(&mut self, scene: &Scene) {
+        self.commands.extend_from_slice(&scene.commands);
+        *self.raster.get_mut() = None;
+    }
 
     /// Replays on the current FLTK drawing surface, respecting its clip.
     pub fn draw(&self) { self.replay(None); }
 
     /// Replays only within `damage`, leaving all other pixels untouched.
-    /// Off-region primitives are skipped; clip commands always execute.
+    /// A lazily cached opaque raster makes clipping deterministic across
+    /// native rasterizers. Returns false if its bounds exceed 64 MiB or
+    /// the native surface cannot produce an image. No pixels then change.
     /// The caller must include the background and every intersecting
     /// layer in the list (including both old and new bounds after a move).
-    pub fn draw_damage(&self, damage: Rect) { self.replay(Some(damage)); }
+    pub fn draw_damage(&self, damage: Rect) -> bool {
+        if damage.w <= 0 || damage.h <= 0 { return true; }
+        // Native Cairo/CoreGraphics rasterizers can change antialiasing
+        // and scaled-image sampling when the clip changes. Raster once
+        // with the original scene clips, then copy exact pixels per damage
+        // region. The immediate/full-replay path remains allocation-free.
+        let mut raster = self.raster.borrow_mut();
+        if raster.is_none() {
+            *raster = self.rasterize();
+        }
+        let Some(raster) = raster.as_mut() else { return false };
+        let r = raster.bounds;
+        if !r.intersects(damage) { return true; }
+        clip(damage, || raster.image.draw(r.x, r.y, r.w, r.h));
+        true
+    }
+
+    /// Releases the optional CPU damage raster. Use after changing the
+    /// surface scale/font rendering environment; theme/layout changes
+    /// still require recording a new scene.
+    pub fn clear_raster(&self) { *self.raster.borrow_mut() = None; }
+
+    fn rasterize(&self) -> Option<Raster> {
+        let mut bounds: Option<(i64, i64, i64, i64)> = None;
+        for r in self.commands.iter().filter_map(Command::bounds).filter(|r| r.w > 0 && r.h > 0) {
+            let b = (r.x as i64, r.y as i64, r.x as i64 + r.w as i64, r.y as i64 + r.h as i64);
+            bounds = Some(match bounds { None => b, Some(a) => (a.0.min(b.0), a.1.min(b.1), a.2.max(b.2), a.3.max(b.3)) });
+        }
+        let (x, y, right, bottom) = bounds?;
+        let (w, h) = (right - x, bottom - y);
+        if w > i32::MAX as i64 || h > i32::MAX as i64 || w.checked_mul(h)?.checked_mul(4)? > MAX_IMAGE_BYTES as i64 { return None; }
+        let r = Rect::new(x as i32, y as i32, w as i32, h as i32);
+        let surface = fltk::surface::ImageSurface::new(r.w, r.h, false);
+        fltk::surface::ImageSurface::push_current(&surface);
+        let mut local = Scene { commands: self.commands.clone(), raster: RefCell::new(None) };
+        for command in &mut local.commands {
+            let rect = match command {
+                Command::Fill { rect, .. } | Command::Stroke { rect, .. }
+                | Command::Text { rect, .. } | Command::SpacedText { rect, .. }
+                | Command::AlphaFill { rect, .. } | Command::Image { rect, .. }
+                | Command::PushClip(rect) => Some(rect),
+                Command::PopClip => None,
+            };
+            if let Some(rect) = rect { rect.x -= r.x; rect.y -= r.y; }
+        }
+        draw::push_no_clip();
+        local.replay(None);
+        draw::pop_clip();
+        let image = surface.image();
+        fltk::surface::ImageSurface::pop_current();
+        Some(Raster { bounds: r, image: image? })
+    }
 
     fn replay(&self, damage: Option<Rect>) {
         if damage.is_some_and(|r| r.w <= 0 || r.h <= 0) { return; }
@@ -128,6 +196,7 @@ impl Scene {
                     paint::text_spaced(text, r.x, r.y, r.w, r.h, *size, *weight, *spacing, *color, *align);
                 }
                 Command::AlphaFill { rect: r, color, alpha } => paint::alpha_fill(r.x, r.y, r.w, r.h, *color, *alpha),
+                Command::Image { rect, image } => image.draw(*rect),
                 Command::PushClip(r) => draw::push_clip(r.x, r.y, r.w.max(0), r.h.max(0)),
                 Command::PopClip => draw::pop_clip(),
             }
@@ -175,6 +244,12 @@ mod tests {
         });
         assert_eq!(outer.commands().len(), 2);
         assert!(!record(|| Command::PopClip));
+    }
+
+    #[test]
+    fn damage_rejects_unbounded_backing_storage_before_drawing() {
+        let (s, ()) = Scene::record(|| paint::fill(0, 0, i32::MAX, i32::MAX, 0, Rgb(0)));
+        assert!(!s.draw_damage(Rect::new(0, 0, 10, 10)));
     }
 
     #[test]

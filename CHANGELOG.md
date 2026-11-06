@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Scene images and exact CPU damage replay**: immutable validated RGBA
+  resources (`scene::Image`, up to 64 MiB) retained by image commands;
+  alpha/scaling/clipping checks. Damage replay caches an opaque raster
+  rather than clipping native primitives separately: Cairo/CoreGraphics
+  can vary antialiasing or image sampling when clips change. The optional
+  backing store is bounded, released by `clear_raster`, and invalidated by
+  `append`; check `draw_damage`'s success result. Full replay stays direct.
 - **Shared painter foundation** (`scene`): record the existing `paint`
   fills, rounded borders, text/spacing, rectangular alpha fills and clips
   into a retained command list; CPU replay with damage clipping/culling.

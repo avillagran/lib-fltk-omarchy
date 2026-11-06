@@ -20,6 +20,13 @@ fn content(x: i32, y: i32) {
             paint::text_spaced("LAYER", x + 28, y + 82, 190, 20, 11, paint::Weight::Medium, 2.0, t.palette.foreground, Align::Left);
         });
     });
+    let image = scene::Image::rgba(2, 2, vec![
+        230, 110, 20, 128, 0, 0, 0, 0,
+        20, 170, 240, 255, 80, 30, 100, 64,
+    ]).unwrap();
+    scene::clip(Rect::new(x + 170, y + 70, 55, 50), || {
+        image.draw(Rect::new(x + 160, y + 60, 80, 70));
+    });
     // Outside the previous clips: catches unbalanced replay stacks.
     paint::fill(x + 262, y + 130, 12, 12, 3, t.palette.foreground);
 }
@@ -45,7 +52,7 @@ pub fn checks(run: &mut dyn FnMut(&str, Check)) {
                     // Tile the complete image through disjoint damage regions.
                     for yy in (0..150).step_by(17) {
                         for xx in (0..280).step_by(23) {
-                            s.draw_damage(Rect::new(x + xx, y + yy, 23.min(280 - xx), 17.min(150 - yy)));
+                            assert!(s.draw_damage(Rect::new(x + xx, y + yy, 23.min(280 - xx), 17.min(150 - yy))));
                         }
                     }
                 }

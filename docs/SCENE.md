@@ -21,7 +21,7 @@ let (scene, ()) = Scene::record(|| {
 // In a draw callback, on its current surface:
 scene.draw();
 // Or redraw just the damaged area:
-scene.draw_damage(Rect::new(20, 30, 40, 100));
+assert!(scene.draw_damage(Rect::new(20, 30, 40, 100)));
 ```
 
 The list stores rounded fills, inner borders, text (including font weight,
@@ -33,9 +33,15 @@ the previous state when unwinding.
 
 Ordinary `paint` calls remain immediate CPU drawing. They check a
 thread-local recorder but allocate no display list or copied strings when
-recording is off. A scene creates no animation timer, GL context or full
-screen pixel buffer. Recording allocates commands and copies text; retain
+recording is off. A scene creates no animation timer or GL context. Full replay creates no
+pixel backing store. Recording allocates commands and copies text; retain
 and replay the list when unchanged rather than rebuilding it every frame.
+Damage replay lazily retains an opaque RGB image (up to a 64 MiB RGBA-sized
+budget); `clear_raster` releases it and `append` invalidates it. Native
+rasterizers can vary edge antialiasing and scaled-image sampling when a
+clip changes, so redrawing primitives independently per damage tile is
+not pixel-exact on all platforms. The retained raster preserves the
+original pixels, at an explicit memory cost, until the GPU backend lands.
 
 Scenes contain resolved colors, fonts, translated strings and absolute
 logical coordinates. Invalidate them on theme/font/language, scale or
@@ -43,12 +49,21 @@ layout changes. `examples/scene_cards.rs` demonstrates this lifecycle,
 including live theme and language changes, and has `--snapshot` and
 `--bench` modes. It is a static card reference, not the lava effect.
 
-Damage replay intersects primitive bounds with the requested region,
-skips primitives outside it and clips the rest. The caller must supply a
-complete scene, including the background and every intersecting layer.
-Moving or removing something requires damage covering its old and new
-bounds. A translucent primitive must be replayed over the reconstructed
-background, not over its own pixels from the previous frame.
+Damage replay copies from that raster within the requested clip and
+leaves other pixels alone. The caller must supply a complete opaque
+scene, including its background and every intersecting layer. Moving or
+removing something requires damage covering its old and new bounds.
+`draw_damage` returns false without painting if the combined bounds
+exceed the budget or the surface fails. Check its return value. Release
+the raster on surface-scale/font environment changes; record a new scene
+on theme/layout/language changes.
+
+`scene::Image::rgba(w, h, pixels)` creates a validated immutable RGBA8
+resource without enabling an image decoder. `image.draw(rect)` draws it
+source-over or records a shared reference; scaled pixels are not copied
+into the command list. Zero dimensions, incorrect byte counts, overflow
+and resources over 64 MiB are rejected. Decode/downsample through `media`
+when needed. Alpha, scaling and clipping participate in parity checks.
 
 ## Current limits and next stages
 
@@ -58,7 +73,7 @@ background, not over its own pixels from the previous frame.
 - Text is still logical text rendered by FLTK on replay, not shaped glyph
   runs or a GPU atlas. Recording text needs the UI thread and a surface
   for measurement. This API does not make FLTK objects thread-safe.
-- Scene clips are rectangular. Paths, images, shadows, rounded alpha
+- Scene clips are rectangular. Paths, shadows, rounded alpha
   surfaces, transforms, isolated opacity layers and shader commands still
   need common representations and CPU/GPU parity checks.
 - There is no automatic per-widget scene cache, damage tracker, GL scene
