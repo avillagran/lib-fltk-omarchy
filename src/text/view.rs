@@ -203,6 +203,9 @@ pub(super) struct ActionSlot {
     pub w: i32,
 }
 
+/// Anchor offset of an untouched view: the very top, padding included.
+const TOP: i64 = -(1 << 40);
+
 /// Blocks far from the view drop their layout (their height stays) when
 /// more than this many are hot.
 const LIVE_MAX: usize = 600;
@@ -348,7 +351,7 @@ impl Inner {
             avg_char: 0.0,
             measured_avg: false,
             top: 0,
-            anchor: (0, 0),
+            anchor: (0, TOP),
             motion: crate::scroll::Scroll::new(),
             stick: false,
             stuck: false,
@@ -521,7 +524,7 @@ impl Inner {
         let n = self.store.len();
         if n == 0 {
             self.top = 0;
-            self.anchor = (0, 0);
+            self.anchor = (0, TOP);
             return;
         }
         let max = self.max_top();
@@ -701,10 +704,15 @@ impl Inner {
             }
         }
         let (k, off) = self.anchor;
-        self.anchor = if k >= at && k < end && add == 0 {
+        self.anchor = if k >= old_n {
+            // Nothing laid out at the anchor yet (an empty view): the top.
+            (k.min(n.saturating_sub(1)), off)
+        } else if k >= at && k < end && add == 0 {
             (at.min(n.saturating_sub(1)), 0)
         } else {
-            (map(k), off)
+            let m = map(k);
+            // An untouched view keeps showing what it showed.
+            (m, if off == TOP && m != k { -(self.pad as i64) } else { off })
         };
         self.hover = None;
     }
@@ -939,7 +947,7 @@ impl Inner {
         self.focus = None;
         self.hover = None;
         self.top = 0;
-        self.anchor = (0, 0);
+        self.anchor = (0, TOP);
         self.motion.jump(0);
         self.stuck = self.stick;
         self.bound = None;

@@ -548,6 +548,18 @@ impl RichText {
         self
     }
 
+    /// What Tab focused inside the view other than a link: an action id
+    /// (`BlockAction::COPY` for a code copy button) or `embed:<id>`.
+    pub fn focused_action(&self) -> Option<String> {
+        let i = self.inner.borrow();
+        match i.focus? {
+            Target::Copy { .. } => Some(BlockAction::COPY.to_string()),
+            Target::Action { block, slot } => i.actions_of(block).get(slot).map(|a| a.id.clone()),
+            Target::Embed { block } => i.store.embed_id(block).map(|s| format!("embed:{s}")),
+            Target::Link { .. } => None,
+        }
+    }
+
     /// Window rectangle of action `id` of block `block` when it is laid
     /// out (tests, tours).
     pub fn action_rect(&self, block: usize, id: &str) -> Option<(i32, i32, i32, i32)> {
