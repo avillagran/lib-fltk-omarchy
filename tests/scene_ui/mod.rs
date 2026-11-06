@@ -1,6 +1,6 @@
 //! Shared-painter parity and damage: compare every pixel, including clips,
 //! rounded borders, literal '@', alpha over varied backgrounds and text.
-use super::{check, pixel};
+use super::{check, png_rgb};
 use fltk::{enums::Align, prelude::*};
 use fltk_omarchy::{paint, scene::{self, Rect, Scene}, theme, AppWindow};
 use std::path::Path;
@@ -58,9 +58,26 @@ pub fn checks(run: &mut dyn FnMut(&str, Check)) {
             mode.set(i);
             let p = shots.join(format!("scene-replay-{i}.png"));
             win.snapshot(&p).map_err(|e| e.to_string())?;
-            // PNGs have deterministic encoding in this test; byte equality
-            // verifies the whole rendered surface without per-pixel I/O.
-            check(std::fs::read(&direct).map_err(|e| e.to_string())? == std::fs::read(&p).map_err(|e| e.to_string())?, &format!("whole image parity, mode {i}; sample {:?}", pixel(&p, canvas.x() + 40, canvas.y() + 60)?))?;
+            let expected = png_rgb(&direct)?;
+            let actual = png_rgb(&p)?;
+            let mut mismatches = Vec::new();
+            let mut count = 0usize;
+            let mut max_delta = 0u8;
+            let height = expected.raw.len() / (expected.w * expected.depth + 1);
+            for yy in 0..height as i32 {
+                for xx in 0..expected.w as i32 {
+                    let a = expected.at(xx, yy);
+                    let b = actual.at(xx, yy);
+                    if a != b {
+                        count += 1;
+                        max_delta = max_delta.max((0..3).map(|c| a[c].abs_diff(b[c])).max().unwrap());
+                        if mismatches.len() < 12 {
+                            mismatches.push((xx - canvas.x(), yy - canvas.y(), a, b));
+                        }
+                    }
+                }
+            }
+            check(count == 0, &format!("whole image parity, mode {i}: {count} differing pixels, max channel delta {max_delta}, first local (x,y,expected,actual): {mismatches:?}"))?;
         }
         fltk::window::DoubleWindow::delete((*win).clone());
         Ok(())
