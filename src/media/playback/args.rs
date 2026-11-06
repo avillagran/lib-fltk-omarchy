@@ -66,25 +66,31 @@ pub(crate) fn output_size(display: (u32, u32), box_px: (u32, u32)) -> (u32, u32)
     (even(sw * k), even(sh * k))
 }
 
-/// Decoder threads for one stream: frames at native size need several
-/// cores, small ones do not.
-pub(crate) fn decode_threads(size: (u32, u32)) -> u32 {
+/// Threads for one stream: decoder threads by the source size (frame
+/// threads each hold frames: +8 MB per thread at 1080p), scaler threads by
+/// the output size. Measured on a 1080p H.264 clip: one decoder thread
+/// keeps up at 18 % of a core; ffmpeg's default (one thread per core)
+/// only adds memory.
+pub(crate) fn threads(source: (u32, u32), output: (u32, u32)) -> (u32, u32) {
     let cores = std::thread::available_parallelism().map(|n| n.get() as u32).unwrap_or(1);
-    let want = if (size.0 as u64) * (size.1 as u64) > 1280 * 720 { 8 } else { 4 };
-    cores.clamp(1, want)
+    let px = |s: (u32, u32)| s.0 as u64 * s.1 as u64;
+    let decode = if px(source) > 1920 * 1088 { 4 } else { 2 };
+    let filter = if px(output) > 1280 * 720 { 2 } else { 1 };
+    (decode.min(cores).max(1), filter.min(cores).max(1))
 }
 
-/// One video stream: RGB24 frames of `size` on stdout at `rate`, from
-/// `start` seconds; `single` stops after one frame (a poster or a paused
-/// seek).
-pub(crate) fn video_args(path: &Path, start: f64, size: (u32, u32), rate: (u32, u32), single: bool) -> Vec<OsString> {
+/// One video stream of a `source`-sized track: RGB24 frames of `size` on
+/// stdout at `rate`, from `start` seconds; `single` stops after one frame
+/// (a poster or a paused seek).
+pub(crate) fn video_args(path: &Path, start: f64, source: (u32, u32), size: (u32, u32), rate: (u32, u32), single: bool) -> Vec<OsString> {
     let mut a: Vec<OsString> = Vec::with_capacity(40);
     for s in ["-hide_banner", "-nostdin", "-nostats", "-loglevel", "error", "-max_alloc", "268435456"] {
         a.push(s.into());
     }
     push_input_guards(&mut a);
-    let threads = decode_threads(size).to_string();
-    for s in ["-threads", threads.as_str(), "-hwaccel", "none"] {
+    let (decode, filter) = threads(source, size);
+    let (decode, filter) = (decode.to_string(), filter.to_string());
+    for s in ["-threads", decode.as_str(), "-hwaccel", "none"] {
         a.push(s.into());
     }
     if start > 0.0 {
@@ -97,13 +103,17 @@ pub(crate) fn video_args(path: &Path, start: f64, size: (u32, u32), rate: (u32, 
         a.push(s.into());
     }
     let scale = format!("scale={}:{}:flags=bicubic,setsar=1", size.0, size.1);
+    a.push("-filter_threads".into());
+    a.push(filter.into());
     a.push("-vf".into());
     a.push(if single { scale } else { format!("fps={}/{},{scale}", rate.0, rate.1) }.into());
     if single {
         a.push("-frames:v".into());
         a.push("1".into());
     }
-    for s in ["-pix_fmt", "rgb24", "-f", "rawvideo", "pipe:1"] {
+    // A short muxer queue: the reader paces the pipe, and every queued
+    // native-size frame is MBs in ffmpeg (1080p: 190 → 142 MB PSS).
+    for s in ["-pix_fmt", "rgb24", "-thread_queue_size", "2", "-f", "rawvideo", "pipe:1"] {
         a.push(s.into());
     }
     a
@@ -235,7 +245,7 @@ mod tests {
 
     #[test]
     fn video_command() {
-        let a = strs(&video_args(Path::new("/m/clip one.mp4"), 12.5, (640, 360), (30000, 1001), false));
+        let a = strs(&video_args(Path::new("/m/clip one.mp4"), 12.5, (1920, 1080), (640, 360), (30000, 1001), false));
         assert!(has(&a, ["-protocol_whitelist", "file"]));
         assert!(has(&a, ["-format_whitelist", FORMATS]));
         assert!(has(&a, ["-ss", "12.500000"]));
@@ -243,12 +253,13 @@ mod tests {
         assert!(has(&a, ["-vf", "fps=30000/1001,scale=640:360:flags=bicubic,setsar=1"]));
         assert!(has(&a, ["-pix_fmt", "rgb24"]));
         assert!(has(&a, ["-map", "0:v:0"]));
+        assert!(has(&a, ["-filter_threads", "1"]), "small output: one scaler thread");
         assert!(a.contains(&"-an".to_string()) && a.contains(&"-nostdin".to_string()));
         assert_eq!(a.last().map(String::as_str), Some("pipe:1"));
         let ss = a.iter().position(|s| s == "-ss").unwrap();
         let i = a.iter().position(|s| s == "-i").unwrap();
         assert!(ss < i, "input seek (fast, then exact)");
-        let single = strs(&video_args(Path::new("/m/a.mkv"), 0.0, (2, 2), (30, 1), true));
+        let single = strs(&video_args(Path::new("/m/a.mkv"), 0.0, (2, 2), (2, 2), (30, 1), true));
         assert!(!single.contains(&"-ss".to_string()), "no seek at 0");
         assert!(has(&single, ["-frames:v", "1"]));
         assert!(has(&single, ["-vf", "scale=2:2:flags=bicubic,setsar=1"]));
@@ -260,7 +271,7 @@ mod tests {
             assert!(!FORMATS.split(',').any(|x| x == f), "{f}");
         }
         // A name that looks like a URL stays a file name.
-        let a = strs(&video_args(Path::new("http://example.com/x.mp4"), 0.0, (2, 2), (30, 1), true));
+        let a = strs(&video_args(Path::new("http://example.com/x.mp4"), 0.0, (2, 2), (2, 2), (30, 1), true));
         assert!(has(&a, ["-i", "file:http://example.com/x.mp4"]));
     }
 
@@ -292,6 +303,13 @@ mod tests {
         assert_eq!(output_size((1, 1), (0, 0)), (2, 2));
         let (w, h) = output_size((8000, 8000), (9000, 9000));
         assert!((w as u64 * h as u64) <= MAX_PIXELS && w <= MAX_SIDE);
+    }
+
+    #[test]
+    fn thread_counts() {
+        let cores = std::thread::available_parallelism().map(|n| n.get() as u32).unwrap_or(1);
+        assert_eq!(threads((1920, 1080), (640, 360)), (2.min(cores), 1));
+        assert_eq!(threads((3840, 2160), (3840, 2160)), (4.min(cores), 2.min(cores)));
     }
 
     #[test]

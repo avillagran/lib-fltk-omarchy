@@ -136,6 +136,18 @@ pub(crate) fn tool_dirs() -> Vec<PathBuf> {
     dirs
 }
 
+/// Environment for ffmpeg children. glibc (Linux): two malloc arenas and
+/// a fixed 1 MiB mmap threshold, so freed multi-MB frames go back to the
+/// OS instead of staying in per-thread arenas (measured on a native 1080p
+/// stream: 216 MB PSS by default, 130 MB with these). Elsewhere nothing.
+pub(crate) fn child_env() -> &'static [(&'static str, &'static str)] {
+    if cfg!(all(target_os = "linux", target_env = "gnu")) {
+        &[("MALLOC_ARENA_MAX", "2"), ("MALLOC_MMAP_THRESHOLD_", "1048576")]
+    } else {
+        &[]
+    }
+}
+
 /// File name of a tool on this OS (`ffmpeg.exe` on Windows).
 pub(crate) fn exe_name(tool: &str) -> String {
     if cfg!(windows) {

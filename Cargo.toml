@@ -122,3 +122,7 @@ required-features = ["images"]
 [[example]]
 name = "playback"
 required-features = ["playback"]
+
+[[example]]
+name = "playback_bench"
+required-features = ["playback"]

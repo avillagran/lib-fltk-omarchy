@@ -446,7 +446,7 @@ impl Player {
                     let bx = if c.box_px.0 > 1 && c.box_px.1 > 1 { c.box_px } else { (640, 360) };
                     let size = args::output_size(v.display, bx);
                     c.stats.frame_size = size;
-                    Some(VideoJob { path: path.clone(), gen: c.gen, size, pacer: Pacer { start: pos, rate: args::output_rate(v.rate) }, single: poster })
+                    Some(VideoJob { path: path.clone(), gen: c.gen, source: (v.width, v.height), size, pacer: Pacer { start: pos, rate: args::output_rate(v.rate) }, single: poster })
                 }
                 _ => None,
             };

@@ -243,6 +243,9 @@ pub(crate) fn live_processes() -> usize {
 fn command(program: &Path, args: &[OsString]) -> Command {
     let mut c = Command::new(program);
     c.args(args).stdin(Stdio::null()).env_remove("FFREPORT").env("AV_LOG_FORCE_NOCOLOR", "1");
+    for (k, v) in os::child_env() {
+        c.env(k, v);
+    }
     c
 }
 
@@ -449,6 +452,8 @@ impl Events {
 pub(crate) struct VideoJob {
     pub path: PathBuf,
     pub gen: u64,
+    /// Coded size of the track (thread counts).
+    pub source: (u32, u32),
     pub size: (u32, u32),
     pub pacer: Pacer,
     pub single: bool,
@@ -481,7 +486,7 @@ pub(crate) fn start_video(ffmpeg: PathBuf, job: VideoJob, procs: Arc<Procs>, slo
 fn read_video(ffmpeg: &Path, job: &VideoJob, procs: &Procs, slot: &FrameSlot, events: &Events) -> Result<u64, String> {
     let (w, h) = job.size;
     let bytes = w as usize * h as usize * 3;
-    let mut cmd = command(ffmpeg, &args::video_args(&job.path, job.pacer.start, job.size, job.pacer.rate, job.single));
+    let mut cmd = command(ffmpeg, &args::video_args(&job.path, job.pacer.start, job.source, job.size, job.pacer.rate, job.single));
     cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
     let (pid, out, err) = procs.spawn(cmd).map_err(|e| e.to_string())?;
     let errs = drain_stderr(err);
@@ -724,7 +729,7 @@ mod tests {
         let procs = Procs::new();
         let slot = Arc::new(FrameSlot::default());
         let ev = events();
-        let job = VideoJob { path: path.clone(), gen: 7, size: (160, 90), pacer: Pacer { start: 1.0, rate: (25, 1) }, single: false };
+        let job = VideoJob { path: path.clone(), gen: 7, source: (320, 180), size: (160, 90), pacer: Pacer { start: 1.0, rate: (25, 1) }, single: false };
         let t = Instant::now();
         let r = read_video(&find_tool("ffmpeg").unwrap(), &job, &procs, &slot, &ev);
         let took = t.elapsed();
@@ -738,7 +743,7 @@ mod tests {
         assert!(matches!(evs.first(), Some(Event::Started { gen: 7, .. })), "{evs:?}");
         // Stopping mid-stream kills and reaps at once.
         let procs = Procs::new();
-        let job = VideoJob { path: path.clone(), gen: 8, size: (160, 90), pacer: Pacer { start: 0.0, rate: (25, 1) }, single: false };
+        let job = VideoJob { path: path.clone(), gen: 8, source: (320, 180), size: (160, 90), pacer: Pacer { start: 0.0, rate: (25, 1) }, single: false };
         start_video(find_tool("ffmpeg").unwrap(), job, procs.clone(), slot.clone(), ev.clone());
         let end = Instant::now() + Duration::from_secs(3);
         while slot.take().is_none() && Instant::now() < end {
@@ -749,7 +754,7 @@ mod tests {
         assert_eq!(procs.live(), 0);
         // One frame (poster).
         let procs = Procs::new();
-        let job = VideoJob { path: path.clone(), gen: 9, size: (2, 2), pacer: Pacer { start: 0.5, rate: (25, 1) }, single: true };
+        let job = VideoJob { path: path.clone(), gen: 9, source: (320, 180), size: (2, 2), pacer: Pacer { start: 0.5, rate: (25, 1) }, single: true };
         assert_eq!(read_video(&find_tool("ffmpeg").unwrap(), &job, &procs, &slot, &ev), Ok(1));
         let _ = std::fs::remove_file(&path);
     }
