@@ -48,7 +48,8 @@ pub struct FrameStats {
     pub skipped: u64,
     /// Draws that put a new frame on screen.
     pub drawn: u64,
-    /// Present → drawn of the last frame.
+    /// Present → drawn of the last frame (frame files: file written →
+    /// drawn, so the producer's encoding is not included).
     pub last_latency: Option<Duration>,
     /// Mean and maximum present → drawn.
     pub mean_latency: Option<Duration>,
@@ -88,8 +89,14 @@ struct St {
     source: Source,
     shown: Option<Shown>,
     /// A decoded file waiting for the UI thread.
-    file_inbox: Arc<Mutex<Option<Result<file::Decoded, String>>>>,
+    file_inbox: Arc<Mutex<Option<(u64, Result<file::Decoded, String>)>>>,
     file_seq: u64,
+    /// Request number of the newest file asked for / shown.
+    file_req: u64,
+    file_shown_req: u64,
+    file_sink: Option<crate::task::SinkId>,
+    /// Paths for the decoding worker of `show_file` (newest wins).
+    file_queue: Option<Arc<FileQueue>>,
     fit: Fit,
     name: String,
     role: FrameRole,
@@ -109,6 +116,8 @@ struct St {
     move_timer: bool,
     resize_debounce: Duration,
     reported: Option<(i32, i32, f32)>,
+    /// The size a debounce timer is waiting to report.
+    resize_pending: Option<(i32, i32, f32)>,
     resize_gen: u64,
     copy_armed: Option<Instant>,
     buttons: u8,
@@ -123,6 +132,25 @@ struct St {
 impl Drop for St {
     fn drop(&mut self) {
         stop_source(&mut self.source);
+        if let Some(q) = &self.file_queue {
+            q.stop.store(true, Ordering::Relaxed);
+            q.cv.notify_all();
+        }
+    }
+}
+
+/// The newest path `show_file` asked for, for one decoding worker.
+struct FileQueue {
+    next: Mutex<Option<(u64, PathBuf)>>,
+    cv: std::sync::Condvar,
+    stop: AtomicBool,
+}
+
+/// Puts a decoded file in the inbox unless a newer one is there already.
+fn deliver(inbox: &Mutex<Option<(u64, Result<file::Decoded, String>)>>, req: u64, d: Result<file::Decoded, String>) {
+    let mut g = inbox.lock().unwrap_or_else(|e| e.into_inner());
+    if g.as_ref().map_or(true, |(r, _)| *r < req) {
+        *g = Some((req, d));
     }
 }
 
@@ -178,6 +206,10 @@ impl FrameView {
             shown: None,
             file_inbox: Arc::new(Mutex::new(None)),
             file_seq: 0,
+            file_req: 0,
+            file_shown_req: 0,
+            file_sink: None,
+            file_queue: None,
             fit: Fit::Contain,
             name: String::new(),
             role: FrameRole::Document,
@@ -197,6 +229,7 @@ impl FrameView {
             move_timer: false,
             resize_debounce: Duration::from_millis(160),
             reported: None,
+            resize_pending: None,
             resize_gen: 0,
             copy_armed: None,
             buttons: 0,
@@ -278,13 +311,40 @@ impl FrameView {
     /// each time a helper announces a new frame file. PNG needs the
     /// `images` feature.
     pub fn show_file(&self, path: impl Into<PathBuf>) {
-        let path = path.into();
-        let inbox = self.st.borrow().file_inbox.clone();
         let sink = self.file_sink();
-        std::thread::spawn(move || {
-            *inbox.lock().unwrap_or_else(|e| e.into_inner()) = Some(file::load(&path));
-            sink.wake();
-        });
+        let mut s = self.st.borrow_mut();
+        if matches!(s.source, Source::Shm { .. }) {
+            stop_source(&mut s.source);
+        }
+        s.file_req += 1;
+        let req = s.file_req;
+        let q = match &s.file_queue {
+            Some(q) => q.clone(),
+            None => {
+                let q = Arc::new(FileQueue { next: Mutex::new(None), cv: std::sync::Condvar::new(), stop: AtomicBool::new(false) });
+                s.file_queue = Some(q.clone());
+                let (q2, inbox) = (q.clone(), s.file_inbox.clone());
+                std::thread::spawn(move || loop {
+                    let job = {
+                        let mut g = q2.next.lock().unwrap_or_else(|e| e.into_inner());
+                        while g.is_none() && !q2.stop.load(Ordering::Relaxed) {
+                            g = q2.cv.wait(g).unwrap_or_else(|e| e.into_inner());
+                        }
+                        if q2.stop.load(Ordering::Relaxed) {
+                            return;
+                        }
+                        g.take()
+                    };
+                    if let Some((req, path)) = job {
+                        deliver(&inbox, req, file::load(&path));
+                        sink.wake();
+                    }
+                });
+                q
+            }
+        };
+        *q.next.lock().unwrap_or_else(|e| e.into_inner()) = Some((req, path.into()));
+        q.cv.notify_one();
     }
 
     /// Watches a frame file and shows each new version (polled every
@@ -301,34 +361,52 @@ impl FrameView {
         };
         let sink = self.file_sink();
         let interval = interval.max(POLL);
+        let base = {
+            let mut s = self.st.borrow_mut();
+            // Leave room above any show_file request numbers.
+            s.file_req += 1 << 32;
+            s.file_req
+        };
         std::thread::spawn(move || {
+            let n = std::cell::Cell::new(base);
             file::watch(path, interval, stop, &|d| {
-                *inbox.lock().unwrap_or_else(|e| e.into_inner()) = Some(d);
+                n.set(n.get() + 1);
+                deliver(&inbox, n.get(), d);
                 sink.wake();
             });
         });
     }
 
     fn file_sink(&self) -> crate::task::SinkId {
+        if let Some(id) = self.st.borrow().file_sink.clone() {
+            return id;
+        }
         let weak = Rc::downgrade(&self.st);
         let w = self.inner.clone();
-        crate::task::register_sink(move || {
+        let id = crate::task::register_sink(move || {
             let Some(st) = weak.upgrade() else { return false };
             if w.was_deleted() {
                 return false;
             }
             let got = st.borrow().file_inbox.lock().unwrap_or_else(|e| e.into_inner()).take();
-            if let Some(Ok(d)) = got {
+            if let Some((req, Ok(d))) = got {
                 let mut s = st.borrow_mut();
+                if req <= s.file_shown_req {
+                    return true; // an older decode finished late
+                }
+                s.file_shown_req = req;
                 s.file_seq += 1;
                 let seq = s.file_seq;
                 s.stats.received += 1;
-                s.shown = Some(Shown { seq, presented_ns: now_ns(), size: (d.width, d.height), owned: d.rgba, image: None, counted: false });
+                let presented_ns = if d.written_ns > 0 { d.written_ns } else { now_ns() };
+                s.shown = Some(Shown { seq, presented_ns, size: (d.width, d.height), owned: d.rgba, image: None, counted: false });
                 drop(s);
                 w.clone().redraw();
             }
             true
-        })
+        });
+        self.st.borrow_mut().file_sink = Some(id.clone());
+        id
     }
 
     fn shm_sink(&self, pending: Arc<AtomicBool>) -> crate::task::SinkId {
@@ -541,14 +619,22 @@ impl FrameView {
         }
         let (gen, debounce) = {
             let mut s = self.st.borrow_mut();
-            if s.reported == Some(cur) {
+            if s.reported == Some(cur) && !now {
+                s.resize_pending = None;
                 return;
             }
+            if s.resize_pending == Some(cur) && !now {
+                return; // a timer for this very size is running
+            }
             s.resize_gen += 1;
+            s.resize_pending = Some(cur);
             (s.resize_gen, s.resize_debounce)
         };
         if now || debounce.is_zero() {
-            self.st.borrow_mut().reported = Some(cur);
+            let mut s = self.st.borrow_mut();
+            s.reported = Some(cur);
+            s.resize_pending = None;
+            drop(s);
             emit(&self.st, Input::Resize { width: cur.0 as u32, height: cur.1 as u32, scale: cur.2 });
             return;
         }
@@ -562,7 +648,8 @@ impl FrameView {
             // Measure again: the size the view has now.
             let ppu = crate::native::pixels_per_unit(&w);
             let cur2 = (w.w(), w.h(), ppu);
-            if st.borrow().reported != Some(cur2) {
+            st.borrow_mut().resize_pending = None;
+            if st.borrow().reported != Some(cur2) && cur2.0 > 0 && cur2.1 > 0 {
                 st.borrow_mut().reported = Some(cur2);
                 emit(&st, Input::Resize { width: cur2.0 as u32, height: cur2.1 as u32, scale: cur2.2 });
             }

@@ -13,6 +13,9 @@ pub(crate) struct Decoded {
     pub(crate) width: u32,
     pub(crate) height: u32,
     pub(crate) rgba: Vec<u8>,
+    /// When the file was written (ns since the Unix epoch; 0 unknown):
+    /// the view measures file written → drawn from it.
+    pub(crate) written_ns: u64,
 }
 
 /// Largest frame file accepted (pixels), like the shared surfaces.
@@ -99,7 +102,7 @@ fn bmp(b: &[u8]) -> Result<Decoded, String> {
         // 32-bit BI_RGB with an unused (zero) fourth byte: opaque.
         rgba.chunks_exact_mut(4).for_each(|p| p[3] = 255);
     }
-    Ok(Decoded { width: w, height: h, rgba })
+    Ok(Decoded { width: w, height: h, rgba, written_ns: 0 })
 }
 
 #[cfg(feature = "images")]
@@ -124,7 +127,7 @@ fn png(bytes: &[u8]) -> Result<Decoded, String> {
     let (wu, stride) = (w as usize, info.line_size);
     if ch == 4 && stride == wu * 4 {
         buf.truncate(wu * h as usize * 4);
-        return Ok(Decoded { width: w, height: h, rgba: buf });
+        return Ok(Decoded { width: w, height: h, rgba: buf, written_ns: 0 });
     }
     let mut rgba = vec![0u8; wu * h as usize * 4];
     for y in 0..h as usize {
@@ -139,7 +142,7 @@ fn png(bytes: &[u8]) -> Result<Decoded, String> {
             });
         }
     }
-    Ok(Decoded { width: w, height: h, rgba })
+    Ok(Decoded { width: w, height: h, rgba, written_ns: 0 })
 }
 
 #[cfg(not(feature = "images"))]
@@ -149,8 +152,13 @@ fn png(_bytes: &[u8]) -> Result<Decoded, String> {
 
 /// Reads and decodes one frame file.
 pub(crate) fn load(path: &Path) -> Result<Decoded, String> {
+    let written = std::fs::metadata(path).ok().and_then(|m| m.modified().ok());
     let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
-    decode(&bytes)
+    let mut d = decode(&bytes)?;
+    d.written_ns = written
+        .and_then(|t| t.duration_since(SystemTime::UNIX_EPOCH).ok())
+        .map_or(0, |d| d.as_nanos() as u64);
+    Ok(d)
 }
 
 /// Polls `path` every `interval` and calls `changed` with each new

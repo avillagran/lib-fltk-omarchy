@@ -320,22 +320,31 @@ impl Producer {
         take_lines(&mut self.inbuf).iter().filter_map(|l| serde_json::from_str(l).ok()).collect()
     }
 
-    /// Waits until input arrives (or `timeout`), then returns it.
-    pub fn wait_events(&mut self, timeout: Option<Duration>) -> Vec<Input> {
-        if self.end.shared.input_ring().pending() == 0 {
-            let deadline = timeout.map(|t| std::time::Instant::now() + t);
-            loop {
-                let left = deadline.map(|d| d.saturating_duration_since(std::time::Instant::now()));
-                let r = self.end.wait(left);
-                if self.end.shared.input_ring().pending() > 0
-                    || matches!(r, os::Wait::Closed | os::Wait::Interrupted)
-                    || left.is_some_and(|l| l.is_zero())
-                    || (r == os::Wait::Timeout && self.end.waiter.as_ref().map_or(true, |w| w.poll_interval().is_none()))
-                {
-                    break;
-                }
+    /// Blocks until a message arrives (or `timeout`, or the view goes
+    /// away). True when one is waiting; read it with
+    /// [`Producer::events`] or [`Producer::messages_raw`].
+    pub fn wait(&mut self, timeout: Option<Duration>) -> bool {
+        let deadline = timeout.map(|t| std::time::Instant::now() + t);
+        loop {
+            if self.end.shared.input_ring().pending() > 0 {
+                return true;
+            }
+            if self.consumer_gone() {
+                return false;
+            }
+            let left = deadline.map(|d| d.saturating_duration_since(std::time::Instant::now()));
+            if left.is_some_and(|l| l.is_zero()) {
+                return false;
+            }
+            if matches!(self.end.wait(left), os::Wait::Closed | os::Wait::Interrupted) {
+                return self.end.shared.input_ring().pending() > 0;
             }
         }
+    }
+
+    /// Waits until input arrives (or `timeout`), then returns it.
+    pub fn wait_events(&mut self, timeout: Option<Duration>) -> Vec<Input> {
+        self.wait(timeout);
         self.events()
     }
 
