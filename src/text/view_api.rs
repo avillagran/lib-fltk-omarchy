@@ -357,8 +357,29 @@ impl RichText {
         self.with(|i| {
             i.stuck = true;
             let max = i.max_top();
-            i.set_top(max);
+            let view = i.view_h.max(1) as i64;
+            if !crate::anim::enabled() || i.top >= max {
+                i.set_top(max);
+                return;
+            }
+            // A long way: cut to two screens above the end, then glide (as
+            // Rune's scroll_to_bottom does), so the trip costs a few frames.
+            if max - i.top > 2 * view {
+                i.set_top(max - 2 * view);
+            }
+            let top = i.top;
+            i.motion.wheel(top, (max - top) as f64, max);
         })
+    }
+
+    /// Called with true when the view is more than `min_px` above the end
+    /// and with false when it comes back within it: show a "jump to latest"
+    /// button only when it is worth it (it does not flicker while the end
+    /// grows or the reader is a line away).
+    pub fn on_far_from_bottom(self, min_px: i32, f: impl FnMut(bool) + 'static) -> Self {
+        *self.hooks.far.borrow_mut() = Some(Box::new(f));
+        self.inner.borrow_mut().far = Some((min_px.max(0) as i64, false));
+        self
     }
 
     /// True while the view follows the end.

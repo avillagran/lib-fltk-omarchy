@@ -154,4 +154,41 @@ pub fn checks(run: &mut dyn FnMut(&str, Check)) {
         fltk::window::DoubleWindow::delete((*win).clone());
         Ok(())
     });
+
+    run("rich text: on_far_from_bottom reports only beyond its threshold; follow_end returns", &|_| {
+        use fltk_omarchy::text::RichText;
+        use std::cell::RefCell;
+        use std::rc::Rc;
+        let log: Rc<RefCell<Vec<bool>>> = Rc::default();
+        let l2 = log.clone();
+        let mut win = AppWindow::new("Far", 420, 300);
+        let rt = RichText::new().stick_to_bottom(true).on_far_from_bottom(400, move |far| l2.borrow_mut().push(far));
+        win.end();
+        win.show();
+        for k in 0..80 {
+            rt.append_markdown(&format!("Paragraph {k} with a few words to wrap once in this width maybe."));
+        }
+        let r2 = rt.clone();
+        pump_until(|| r2.w() > 0 && r2.is_at_bottom());
+        let settle = || {
+            for _ in 0..4 {
+                fltk::app::flush();
+                let _ = fltk::app::wait_for(0.02);
+            }
+        };
+        settle();
+        check(log.borrow().is_empty(), &format!("at the end: nothing to report {:?}", log.borrow()))?;
+        let end = rt.content_height() - rt.h() as i64;
+        rt.scroll_to(end - 100);
+        settle();
+        check(log.borrow().is_empty(), "100 px above the end is within the threshold")?;
+        rt.scroll_to(0);
+        settle();
+        check(*log.borrow() == [true], &format!("far from the end: {:?}", log.borrow()))?;
+        rt.follow_end();
+        settle();
+        check(*log.borrow() == [true, false] && rt.is_following(), &format!("follow_end comes back: {:?}", log.borrow()))?;
+        fltk::window::DoubleWindow::delete((*win).clone());
+        Ok(())
+    });
 }

@@ -306,7 +306,7 @@ for o3's chat views. What to adopt, in order:
 |---|---|---|---|---|
 | 1 | **Done** (`MarkdownOptions::with_settle_tail`). Streaming tail settling: draw an open `**`, `` ` ``, `~~`, `[link](` already closed in a display copy of the tail; hold back a trailing run of markers and an unconfirmed `\|` line; keep table column widths while the last row is still arriving | `rune-kit/src/markdown/stream.rs` | S–M | yes |
 | 2 | A `4. ` line inside a paragraph continues the list (models write lists that way) | `markdown/interrupt.rs` | S | yes |
-| 3 | `on_far_from_bottom(min_px)` for the jump-to-latest button, separate from following; a long jump to the end cuts to two viewports above it, then glides | `runtime/scroll/bottom.rs` | S | yes |
+| 3 | **Done** (`RichText::on_far_from_bottom`, `follow_end` cuts then glides). `on_far_from_bottom(min_px)` for the jump-to-latest button, separate from following; a long jump to the end cuts to two viewports above it, then glides | `runtime/scroll/bottom.rs` | S | yes |
 | 4 | Bottom slack: when the composer shrinks after a send, keep the freed room under the last block until growth stops (~120 ms) | `bottom.rs` | S–M | yes |
 | 5 | Stream pacing at word boundaries: backlogs under 512 chars at once, else ~24 ms chunks cut at words; hold back a trailing partial word | `research/18` | S | yes (fewer reflows) |
 | 6 | Native Mermaid (flowchart, sequence, state) as polygons/polylines + labels drawn with `gfx` in an embed, instead of a 150–240 MB helper | `crates/rune-mermaid` (layered layout, cubic routing) | L | yes |

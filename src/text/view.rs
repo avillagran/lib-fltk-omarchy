@@ -274,6 +274,7 @@ pub(super) enum Note {
     Hidden(Arc<str>),
     Image(Arc<str>),
     Follow(bool),
+    Far(bool),
     Selection,
     Action(BlockActionEvent),
     Embed(String, Option<(i32, i32)>),
@@ -380,6 +381,8 @@ pub(super) struct Inner {
     pub(super) find: Option<Find>,
     notes: Vec<Note>,
     seen_follow: bool,
+    /// `on_far_from_bottom`: (threshold px, last state reported).
+    far: Option<(i64, bool)>,
     seen_sel: Option<(TextPos, TextPos)>,
 }
 
@@ -441,6 +444,7 @@ impl Inner {
             find: None,
             notes: Vec::new(),
             seen_follow: false,
+            far: None,
             seen_sel: None,
         }
     }
@@ -1576,6 +1580,7 @@ pub(super) struct Hooks {
     pub action: Hook<dyn FnMut(&BlockActionEvent)>,
     pub embed: Hook<dyn FnMut(&str, Option<(i32, i32)>)>,
     pub follow: Hook<dyn FnMut(bool)>,
+    pub far: Hook<dyn FnMut(bool)>,
     pub selection: Hook<dyn FnMut()>,
 }
 
@@ -1588,6 +1593,15 @@ pub(super) fn dispatch(inn: &Rc<RefCell<Inner>>, hooks: &Hooks) {
             if f != i.seen_follow {
                 i.seen_follow = f;
                 i.notes.push(Note::Follow(f));
+            }
+            if let Some((min, was)) = i.far {
+                // Following the end is never far (heights still settling
+                // while content arrives do not count).
+                let now = !i.stuck && i.max_top() - i.top > min;
+                if now != was {
+                    i.far = Some((min, now));
+                    i.notes.push(Note::Far(now));
+                }
             }
             let s = i.sel_range();
             if s != i.seen_sel {
@@ -1605,6 +1619,7 @@ pub(super) fn dispatch(inn: &Rc<RefCell<Inner>>, hooks: &Hooks) {
                 Note::Hidden(id) => call(&hooks.visibility, |f| f(&id, false)),
                 Note::Image(src) => call(&hooks.image, |f| f(&src)),
                 Note::Follow(on) => call(&hooks.follow, |f| f(on)),
+                Note::Far(on) => call(&hooks.far, |f| f(on)),
                 Note::Selection => call(&hooks.selection, |f| f()),
                 Note::Action(ev) => call(&hooks.action, |f| f(&ev)),
                 Note::Embed(id, at) => call(&hooks.embed, |f| f(&id, at)),
