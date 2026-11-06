@@ -444,6 +444,44 @@ fn bench() {
             view.rows_drawn()
         );
     }
+    // Annotations: one 48 px painted thread per file (200), unified no-wrap.
+    view.set_split(false);
+    view.set_wrap(false);
+    view.set_scroll_offset(0);
+    fltk::app::flush();
+    let notes: Vec<Annotation> = (0..200).map(|f| Annotation::new(f, diff::LineRef::new(Side::New, 25), format!("n{f}"), 48)).collect();
+    let mut view = view.annotation_painter(|a| {
+        fltk_omarchy::paint::fill(a.x + 4, a.y + 4, a.w - 8, a.h - 8, a.theme.radius, a.theme.palette.lighter_background);
+        fltk_omarchy::paint::text(&a.annotation.id, a.x + 12, a.y + 4, a.w - 24, a.h - 8, a.theme.font.body, false, a.theme.palette.foreground, fltk::enums::Align::Left);
+    });
+    let t = Instant::now();
+    view.set_annotations(notes);
+    view.redraw();
+    fltk::app::flush();
+    let set_ms = t.elapsed().as_secs_f64() * 1e3;
+    let total = view.content_height();
+    let mut frames = Vec::new();
+    let mut y = 0;
+    while y < total.min(60_000) {
+        view.set_scroll_offset(y);
+        let t = Instant::now();
+        fltk::app::flush();
+        frames.push(t.elapsed().as_secs_f64() * 1e3);
+        y += 37;
+    }
+    frames.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let avg = frames.iter().sum::<f64>() / frames.len() as f64;
+    let p95 = frames[(frames.len() as f64 * 0.95) as usize];
+    view.set_scroll_offset(total / 2);
+    fltk::app::flush();
+    let t = Instant::now();
+    for k in 0..50 {
+        view.set_annotation_height("n100", 48 + k);
+        fltk::app::flush();
+    }
+    let grow_ms = t.elapsed().as_secs_f64() * 1e3 / 50.0;
+    println!("annotations (200 × 48 px): set + frame {set_ms:.2} ms; {} scroll frames: avg {avg:.2} ms, p95 {p95:.2} ms; height change + frame {grow_ms:.2} ms", frames.len());
+    view.set_annotations(Vec::new());
     let t = Instant::now();
     let n = view.find("changed_3");
     let find_ms = t.elapsed().as_secs_f64() * 1e3;
