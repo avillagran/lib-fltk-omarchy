@@ -6,6 +6,7 @@ use fltk_omarchy::{paint, scene::{self, Rect, Scene}, theme, AppWindow};
 use std::path::Path;
 
 mod nodes;
+mod motion;
 
 type Check<'a> = &'a dyn Fn(&Path) -> Result<(), String>;
 
@@ -40,6 +41,7 @@ fn content(x: i32, y: i32) {
 
 pub fn checks(run: &mut dyn FnMut(&str, Check)) {
     nodes::checks(run);
+    motion::checks(run);
     run("scene surface CPU: retained painter, coordinates, invalidation, snapshots and keyboard", &|shots| {
         use fltk_omarchy::{gfx::Backend, focus, State};
         let color=State::new(theme::with(|t|t.palette.accent));

@@ -1,5 +1,5 @@
 //! Managed local-coordinate scene surface. No GL calls in application code.
-use super::{NodeError, NodeId, Rect, Scene};
+use super::{NodeError, NodeId, NodeMotion, Rect, Scene};
 use crate::{
     anim::{self, Pace},
     gfx::Backend,
@@ -51,6 +51,7 @@ struct State {
     gpu_renderer: Option<String>,
     time: Option<f32>,
     pace: Option<Pace>,
+    motion: super::motion::Motions,
     stats: SurfaceStats,
     started: std::time::Instant,
     activation_pending: bool,
@@ -101,6 +102,7 @@ impl Surface {
             gpu_renderer: None,
             time: None,
             pace: None,
+            motion: super::motion::Motions::default(),
             stats: SurfaceStats::default(),
             started: anim::now(),
             activation_pending: false,
@@ -113,6 +115,10 @@ impl Surface {
         let s = st.clone();
         group.handle(move |g, event| {
             if event == Event::Hide {
+                sample_motions(&s, true);
+                #[cfg(feature = "gpu")]
+                native::sync_motion(&s);
+                dispatch_done(g, &s);
                 s.borrow_mut().ready = false;
                 #[cfg(feature = "gpu")]
                 native::hide(&s);
@@ -148,19 +154,33 @@ impl Surface {
                 return;
             }
             let now = anim::enabled();
-            if enabled.replace(now) != now && s.borrow().pace.is_some() {
-                g.redraw();
+            if enabled.replace(now) != now {
+                let had_motion = s.borrow().motion.any();
+                if !now && had_motion {
+                    sample_motions(&s, true);
+                    #[cfg(feature = "gpu")]
+                    native::sync_motion(&s);
+                    dispatch_done(&g, &s);
+                }
+                if had_motion || s.borrow().pace.is_some() {
+                    g.redraw();
+                }
             }
         });
         Self { group, st }
     }
     pub fn paint(self, painter: impl FnMut(Rect, &theme::Theme) + 'static) -> Self {
-        self.st.borrow_mut().painter = Some(Box::new(painter));
+        {
+            let mut s = self.st.borrow_mut();
+            s.motion.clear();
+            s.painter = Some(Box::new(painter));
+        }
         self.invalidate();
         self
     }
     pub fn set_scene(&self, scene: Scene) {
         let mut s = self.st.borrow_mut();
+        s.motion.clear();
         s.painter = None;
         s.scene = Rc::new(scene);
         drop(s);
@@ -214,25 +234,72 @@ impl Surface {
     pub fn move_node(&self, id: NodeId, x: i32, y: i32) -> Result<(), NodeError> {
         {
             let mut s = self.st.borrow_mut();
+            let State { scene, motion, .. } = &mut *s;
+            motion.cancel(Rc::make_mut(scene), id)?;
             Rc::make_mut(&mut s.scene).move_node(id, x, y)?;
         }
         #[cfg(feature = "gpu")]
-        native::update_node(&self.st, id, Some((x, y)), None);
+        {
+            native::sync_motion(&self.st);
+            native::update_node(&self.st, id, Some((x, y)), None);
+        }
         self.redraw_content();
         Ok(())
     }
     pub fn set_node_opacity(&self, id: NodeId, opacity: f32) -> Result<(), NodeError> {
         {
             let mut s = self.st.borrow_mut();
+            // Invalid input must not cancel an existing transition.
+            super::node::opacity(opacity)?;
+            let State { scene, motion, .. } = &mut *s;
+            motion.cancel(Rc::make_mut(scene), id)?;
             Rc::make_mut(&mut s.scene).set_node_opacity(id, opacity)?;
         }
         #[cfg(feature = "gpu")]
-        native::update_node(&self.st, id, None, Some(opacity));
+        {
+            native::sync_motion(&self.st);
+            native::update_node(&self.st, id, None, Some(opacity));
+        }
         self.redraw_content();
         Ok(())
     }
     pub fn node_bounds(&self, id: NodeId) -> Result<Rect, NodeError> {
         self.st.borrow().scene.node_bounds(id)
+    }
+    pub fn node_opacity(&self, id: NodeId) -> Result<f32, NodeError> {
+        self.st.borrow().scene.node_opacity(id)
+    }
+    /// Retargets from the current sampled pose, using the shared clock.
+    /// Active transitions survive automatic painter invalidation. Keep
+    /// durable final positions in app state: later painter rebuilds supply
+    /// new properties, as with immediate keyed updates.
+    pub fn animate_node(&self, id: NodeId, target: NodeMotion) -> Result<(), NodeError> {
+        {
+            let mut s = self.st.borrow_mut();
+            let State { scene, motion, .. } = &mut *s;
+            let hidden = !self.group.visible_r() && !anim::clock::frozen();
+            motion.start(Rc::make_mut(scene), id, target, hidden)?;
+        }
+        #[cfg(feature = "gpu")]
+        native::sync_motion(&self.st);
+        dispatch_done(&self.group, &self.st);
+        self.redraw_content();
+        Ok(())
+    }
+    pub fn node_animating(&self, id: NodeId) -> bool {
+        self.st.borrow().motion.active(id)
+    }
+    /// Holds the current pose and drops the old completion callback.
+    pub fn cancel_node_motion(&self, id: NodeId) -> Result<(), NodeError> {
+        {
+            let mut s = self.st.borrow_mut();
+            let State { scene, motion, .. } = &mut *s;
+            motion.cancel(Rc::make_mut(scene), id)?;
+        }
+        #[cfg(feature = "gpu")]
+        native::sync_motion(&self.st);
+        self.redraw_content();
+        Ok(())
     }
     pub fn raise_node(&self, id: NodeId) -> Result<(), NodeError> {
         {
@@ -325,6 +392,61 @@ impl Surface {
         self
     }
 }
+fn sample_motions(st: &Rc<RefCell<State>>, settle: bool) {
+    let mut s = st.borrow_mut();
+    let State { scene, motion, .. } = &mut *s;
+    if motion.any() {
+        motion.sample(Rc::make_mut(scene), settle || !anim::enabled());
+    } else {
+        motion.frame.clear();
+    }
+}
+fn dispatch_done(group: &Group, st: &Rc<RefCell<State>>) {
+    let mut callbacks = std::mem::take(&mut st.borrow_mut().motion.done);
+    if callbacks.is_empty() {
+        return;
+    }
+    let (group, owner) = (group.clone(), Rc::downgrade(st));
+    app::add_timeout3(0.0, move |_| {
+        let Some(st) = owner.upgrade() else { return };
+        for (id, serial, callback) in callbacks.drain(..) {
+            if group.was_deleted() {
+                break;
+            }
+            let current = st.borrow().motion.current(id, serial);
+            if current {
+                callback(
+                    &Surface {
+                        group: group.clone(),
+                        st: st.clone(),
+                    },
+                    id,
+                );
+            }
+        }
+    });
+}
+fn frame_pace(s: &State, gpu: bool) -> Option<Pace> {
+    if !anim::enabled() || anim::clock::frozen() {
+        return None;
+    }
+    let nodes = s
+        .motion
+        .any()
+        .then_some(if gpu { Pace::Display } else { Pace::Low });
+    let shader = s.pace.filter(|_| {
+        s.time.is_none()
+            && s.scene
+                .commands()
+                .iter()
+                .any(|c| matches!(c, super::Command::Shader { .. }))
+    });
+    nodes
+        .into_iter()
+        .chain(shader)
+        .max()
+        .map(|pace| if gpu { pace } else { pace.min(Pace::Low) })
+}
 fn invalidate(st: &Rc<RefCell<State>>) {
     let mut s = st.borrow_mut();
     s.dirty = true;
@@ -404,9 +526,15 @@ fn draw(g: &mut Group, st: &Rc<RefCell<State>>) {
         if s.painter.is_none() {
             s.painter = painter;
         }
-        drop(s);
-        #[cfg(feature = "gpu")]
+        let State { scene, motion, .. } = &mut *s;
+        motion.prune(scene);
+    }
+    sample_motions(st, false);
+    #[cfg(feature = "gpu")]
+    if rebuild {
         native::prepare(g, st);
+    } else {
+        native::sync_motion(st);
     }
     #[cfg(feature = "gpu")]
     let mut gpu = false;
@@ -476,19 +604,16 @@ fn draw(g: &mut Group, st: &Rc<RefCell<State>>) {
     if st.borrow().backend == Backend::Gpu {
         st.borrow_mut().error = Some("built without the gpu feature".into());
     }
-    if !gpu && shown && !offscreen && anim::enabled() {
+    if !gpu && shown && !offscreen {
         let s = st.borrow();
-        if let Some(pace) = s.pace {
-            if !s.activation_pending
-                && s.time.is_none()
-                && s.scene
-                    .commands()
-                    .iter()
-                    .any(|c| matches!(c, super::Command::Shader { .. }))
-            {
-                anim::request_redraw_at(g, pace.min(Pace::Low));
+        if !s.activation_pending {
+            if let Some(pace) = frame_pace(&s, false) {
+                anim::request_redraw_at(g, pace);
             }
         }
+    }
+    if !gpu {
+        dispatch_done(g, st);
     }
 }
 
@@ -572,6 +697,32 @@ mod native {
             if let Some(alpha) = opacity {
                 let _ = renderer.set_node_opacity(id, alpha);
             }
+        }
+    }
+    fn apply_frames(gl: &mut Gl, frames: &[super::super::motion::Frame]) {
+        for frame in frames {
+            if let Some(prepared) = gl.prepared.as_mut() {
+                if let Some((x, y)) = frame.position {
+                    let _ = prepared.move_node(frame.id, x, y);
+                }
+                if let Some(alpha) = frame.opacity {
+                    let _ = prepared.set_node_opacity(frame.id, alpha);
+                }
+            }
+            if let Some(renderer) = gl.renderer.as_mut() {
+                if let Some((x, y)) = frame.position {
+                    let _ = renderer.move_node(frame.id, x, y);
+                }
+                if let Some(alpha) = frame.opacity {
+                    let _ = renderer.set_node_opacity(frame.id, alpha);
+                }
+            }
+        }
+    }
+    pub fn sync_motion(st: &Rc<RefCell<State>>) {
+        let gl = st.borrow().native.as_ref().and_then(|n| n.gl.upgrade());
+        if let Some(gl) = gl {
+            apply_frames(&mut gl.borrow_mut(), &st.borrow().motion.frame);
         }
     }
     pub fn raise_node(st: &Rc<RefCell<State>>, id: NodeId) {
@@ -762,6 +913,8 @@ mod native {
         let Some(owner) = gl.owner.upgrade() else {
             return;
         };
+        sample_motions(&owner, false);
+        apply_frames(&mut gl, &owner.borrow().motion.frame);
         let context = win.context().map_or(0, |c| c as usize);
         let fresh_context = !win.context_valid() || gl.context != context;
         if fresh_context {
@@ -885,21 +1038,19 @@ mod native {
         drop(gl);
         // Animate the native child, not its CPU parent. Otherwise every
         // shader frame would also repaint AppWindow's full background.
-        if win.visible_r() && win.shown() && anim::enabled() {
+        if win.visible_r() && win.shown() {
             let s = owner.borrow();
-            if let Some(pace) = s.pace {
-                if s.time.is_none()
-                    && s.scene
-                        .commands()
-                        .iter()
-                        .any(|c| matches!(c, super::super::Command::Shader { .. }))
-                {
-                    anim::request_redraw_at(win, pace);
-                }
+            if let Some(pace) = frame_pace(&s, true) {
+                anim::request_redraw_at(win, pace);
             }
         }
         for (f, value) in results {
             f(value);
+        }
+        if !win.was_deleted() {
+            if let Some(parent) = win.parent() {
+                dispatch_done(&parent, &owner);
+            }
         }
     }
 }

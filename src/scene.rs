@@ -11,6 +11,8 @@ mod image;
 mod layer;
 mod shader;
 mod node;
+mod motion;
+pub use motion::NodeMotion;
 pub use node::{NodeError, NodeId};
 pub(crate) mod surface;
 pub use surface::{Surface, SurfaceStats};
@@ -203,7 +205,11 @@ impl Scene {
     pub fn clear_raster(&self) {
         *self.raster.borrow_mut() = None;
         for command in &self.commands {
-            if let Command::Layer { layer, .. } = command { layer.clear_raster(); }
+            match command {
+                Command::Layer { layer, .. } => layer.clear_raster(),
+                Command::Image { image, .. } => image.clear_cache(),
+                _ => {}
+            }
         }
     }
 

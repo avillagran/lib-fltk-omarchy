@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Managed node motion**: `Surface::animate_node(NodeId, NodeMotion)`
+  transitions position/opacity on the shared clock, retargets from the
+  current pose, and submits no new GPU resources or CPU parent redraws.
+  Reduced motion/hidden/unchanged targets settle; completion idles.
+  Deferred owner-aware callbacks suppress cancelled/replaced/deleted work.
+  Frozen-frame, backend-switch, completion and idle checks. docs/SCENE.md.
+
 - **Deterministic scene image scaling**: `Image::resampled` shares
   pixel-center bilinear filtering in premultiplied alpha between CPU replay
   and GPU preparation. Image samples stay unchanged when moved or clipped;

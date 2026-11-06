@@ -14,6 +14,7 @@ pub enum NodeError {
     NotFound(NodeId),
     Duplicate(NodeId),
     InvalidOpacity,
+    InvalidEasing,
 }
 impl fmt::Display for NodeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -21,6 +22,7 @@ impl fmt::Display for NodeError {
             Self::NotFound(id) => write!(f, "scene node {} not found", id.0),
             Self::Duplicate(id) => write!(f, "duplicate scene node {}", id.0),
             Self::InvalidOpacity => f.write_str("scene node opacity must be finite"),
+            Self::InvalidEasing => f.write_str("scene node easing must be finite"),
         }
     }
 }
@@ -132,6 +134,13 @@ impl Scene {
     pub fn node_bounds(&self, id: NodeId) -> Result<Rect, NodeError> {
         let i = self.node_command(id)?;
         Ok(self.commands[i].bounds().unwrap())
+    }
+    pub fn node_opacity(&self, id: NodeId) -> Result<f32, NodeError> {
+        let i = self.node_command(id)?;
+        let Command::Layer { opacity, .. } = self.commands[i] else {
+            unreachable!()
+        };
+        Ok(opacity as f32 / 255.0)
     }
 
     /// Raises a keyed layer to the end of its immediate clip scope. It

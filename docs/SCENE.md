@@ -292,8 +292,66 @@ those behaviors.
 or `set_scene` supplies new node properties: keep durable positions in app
 state and use them in the painter. This is not automatic keyed layout or
 selection, a reflow operation, a nested-node update API or affine
-transformation. Automatic motion and the complete falling/reorder
-interaction remain work.
+transformation. The complete falling/reorder interaction remains work.
+
+## Managed node motion
+
+`Surface::animate_node(id, NodeMotion)` handles position and/or group
+opacity with the shared toolkit clock. Defaults are 190 ms OutCubic, like
+layout transitions. For a falling card, use an explicit duration/ease:
+
+```rust,ignore
+use fltk_omarchy::{anim::Ease, scene::{NodeId, NodeMotion}};
+// Update durable final targets in app State/ListModel first.
+surface.animate_node(NodeId(42), NodeMotion::new()
+    .position(70, 360)
+    .opacity(0.0)
+    .duration_ms(350)
+    .ease(Ease::InCubic)
+    .on_done(|surface, id| {
+        assert!(!surface.node_animating(id));
+        // Remove the item from the app model, or start the next action.
+    }))?;
+```
+
+Retargeting samples the previous transition at the current clock time and
+starts there without a jump. Omitted properties remain unchanged. Immediate
+`move_node` / `set_node_opacity` setters and `cancel_node_motion` hold the
+current pose and cancel the old transition. Invalid IDs, opacity or easing
+fail before interrupting it. Unchanged targets and zero duration settle
+without starting a frame loop.
+
+Only moving nodes are sampled; frame storage is reused. GPU frames update
+the prepared draws and redraw the GL child at `Pace::Display`, without
+rebuilding the painter, rasterizing or uploading. CPU requests are capped
+at `Pace::Low` before the global pace policy. The faster of node and shader
+pacing wins while both are active. After the last node finishes, a static
+scene stops requesting frames; there is no per-node timer.
+
+Reduced motion and hiding a widget settle transitions to their targets.
+New transitions on an already hidden widget also settle immediately.
+Frozen-clock offscreen snapshots can still sample intermediate frames;
+`anim::clock::advance` plus a snapshot/read-back drives those tests without
+a repeating timer. `Surface::set_time` affects shader time only; the shared
+frozen clock also stops node timelines and automatic frame requests.
+
+Active transitions survive automatic size/theme/language/focus rebuilds
+and CPU/GPU switches. A new painter recording supplies layout/colors and
+then the active transition supplies its current position/opacity. Missing
+IDs cancel their transitions. Final durable properties belong to app state
+and should be reflected in its painter, as for immediate keyed updates.
+Calling `paint` or `set_scene` replaces content and cancels old transitions.
+
+`on_done` runs once on a later UI turn, outside native draw callbacks and
+state borrows. It can safely update its surface or app model. Completion
+means the final draw was submitted, or an immediate/hidden/reduced-motion
+target settled; it is not a compositor presentation acknowledgement.
+Retargeting, immediate setters, cancellation, content replacement and
+widget deletion suppress stale callbacks, even if already queued. The
+callback receives its surface so it need not capture its owner's strong
+clone. `node_bounds`, `node_opacity` and `node_animating` expose the current
+sampled state. Motion preserves node size, paint order and ancestor clips;
+use a root preview layer for a drag that leaves a list clip.
 
 ## Single-surface GL compositor spike
 
