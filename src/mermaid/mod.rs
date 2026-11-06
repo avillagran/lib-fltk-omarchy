@@ -45,7 +45,7 @@ mod shapes;
 mod state;
 mod view;
 
-pub use paint::{color, Picture};
+pub use paint::{color, draw_text, rasterize, Picture};
 pub use rich::{is_mermaid, SHOW_DIAGRAM, SHOW_SOURCE};
 pub use view::MermaidView;
 

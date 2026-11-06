@@ -91,7 +91,7 @@ impl MermaidView {
             let s = s.borrow();
             let name = match &s.result {
                 Some(Ok(d)) => d.summary.clone(),
-                Some(Err(e)) => format!("{}: {e}", crate::tr!("Diagram")),
+                Some(Err(e)) => crate::tr!("Diagram: {reason}", reason = e.to_string()),
                 None => crate::tr!("Diagram"),
             };
             n.role(A11yRole::Image).name(&name);
@@ -157,6 +157,15 @@ impl MermaidView {
         s.result.as_ref().and_then(|r| r.as_ref().err().cloned())
     }
 
+    /// Window rectangle where the diagram is drawn (hit tests, tests).
+    pub fn diagram_rect(&self) -> Option<(i32, i32, i32, i32)> {
+        let d = self.diagram()?;
+        let pad = self.st.borrow().pad;
+        let ww = self.inner.w();
+        let dx = ((ww - 2 * pad) as f32 - d.width).max(0.0) as i32 / 2;
+        Some((self.inner.x() + pad + dx, self.inner.y() + pad, d.width.ceil() as i32, d.height.ceil() as i32))
+    }
+
     /// The height the widget needs at `width`.
     pub fn preferred_height(&self, width: i32) -> i32 {
         let mut s = self.st.borrow_mut();
@@ -211,7 +220,7 @@ fn draw(w: &mut Widget, s: &mut ViewState) {
             theme::with(|t| {
                 let lh = (t.font.body as f32 * 1.4) as i32;
                 let dim = t.palette.foreground.darker(1.4);
-                paint::text(&format!("{}: {e}", crate::tr!("Diagram")), x + pad, y + pad, ww - 2 * pad, lh, t.font.caption, false, dim, Align::Left);
+                paint::text(&crate::tr!("Diagram: {reason}", reason = e.to_string()), x + pad, y + pad, ww - 2 * pad, lh, t.font.caption, false, dim, Align::Left);
                 fltk::draw::set_font(Font::Courier, t.font.body);
                 fltk::draw::set_draw_color(t.palette.foreground.fl());
                 fltk::draw::draw_text2(&paint::escape(&s.src), x + pad, y + pad + lh, ww - 2 * pad, wh - 2 * pad - lh, Align::Left | Align::Top | Align::Inside | Align::Clip);
