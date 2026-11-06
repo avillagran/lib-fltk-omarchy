@@ -38,8 +38,10 @@ const COLOR_SHIFT: u32 = 4;
 const LINK: u32 = 1 << 8;
 /// The run starts a new link (the next URL of the block's link table).
 const LINK_START: u32 = 1 << 9;
-const STYLE_MASK: u32 = (1 << 10) - 1;
-const END_SHIFT: u32 = 10;
+/// Drawn as a chip (`Style::chip`).
+const CHIP: u32 = 1 << 10;
+const STYLE_MASK: u32 = (1 << 11) - 1;
+const END_SHIFT: u32 = 11;
 /// Blocks at least this long store two words per run.
 const NARROW_MAX: usize = 1 << (32 - END_SHIFT);
 
@@ -75,6 +77,7 @@ fn flag_bits(s: &Style) -> u32 {
         | (s.italic as u32 * ITALIC)
         | (s.strike as u32 * STRIKE)
         | (s.code as u32 * CODE)
+        | (s.chip as u32 * CHIP)
         | (color_code(s.color) << COLOR_SHIFT)
 }
 
@@ -688,6 +691,7 @@ impl Store {
                         code: c.style & CODE != 0,
                         link: if c.link() { link.clone() } else { None },
                         color: color_of((c.style >> COLOR_SHIFT) & 15),
+                        chip: c.style & CHIP != 0,
                     },
                 };
                 start = c.end;

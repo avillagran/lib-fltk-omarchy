@@ -3027,7 +3027,11 @@ pub(super) fn draw_block(
             if st.code && !b.is_code() {
                 paint::fill(x - 2, ly + 1, fw + 4, ln.h - 2, 3, surface);
             }
-            let link = st.link.is_some();
+            if st.chip {
+                // The Composer's chip: accent-tinted pill, no underline.
+                paint::fill(x - 4, ly + 1, fw + 8, ln.h - 2, (ln.h - 2) / 2, p.accent.over(c.under, 0.16));
+            }
+            let link = st.link.is_some() && !st.chip;
             let color = match st.color {
                 Some(role) => role.rgb(t),
                 None if link => p.accent,

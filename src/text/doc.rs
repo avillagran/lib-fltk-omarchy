@@ -89,6 +89,9 @@ pub struct Style {
     pub link: Option<Arc<str>>,
     /// Text color role (links default to the accent).
     pub color: Option<ColorRole>,
+    /// Drawn as a chip (an accent-tinted pill, no underline), like the
+    /// Composer's mention chips: `@file`, `$skill` in a sent message.
+    pub chip: bool,
 }
 
 impl Style {
@@ -113,6 +116,10 @@ impl Style {
     }
     pub fn link(mut self, url: &str) -> Style {
         self.link = Some(Arc::from(url));
+        self
+    }
+    pub fn chip(mut self) -> Style {
+        self.chip = true;
         self
     }
     pub fn color(mut self, role: ColorRole) -> Style {

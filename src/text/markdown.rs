@@ -65,7 +65,13 @@ pub struct MarkdownOptions {
     /// it is part of a table. Committed blocks and the final result
     /// ([`MarkdownStream::finish`]) are always the exact parse.
     pub settle_tail: bool,
+    /// Links whose target this rule accepts are drawn as chips (mentions:
+    /// `[@notes.md](file:notes.md)`), still activatable with `on_link`.
+    pub chip_links: Option<ChipLink>,
 }
+
+/// Rule for [`MarkdownOptions::chip_links`].
+pub type ChipLink = Arc<dyn Fn(&str) -> bool + Send + Sync>;
 
 impl Default for MarkdownOptions {
     fn default() -> Self {
@@ -75,6 +81,7 @@ impl Default for MarkdownOptions {
             code_links: None,
             math: false,
             settle_tail: false,
+            chip_links: None,
         }
     }
 }
@@ -98,6 +105,12 @@ impl MarkdownOptions {
     /// ([`file_path_link`]).
     pub fn with_path_links(mut self) -> Self {
         self.code_links = Some(Arc::new(file_path_link));
+        self
+    }
+
+    /// Links accepted by `f` are drawn as chips (see [`MarkdownOptions::chip_links`]).
+    pub fn with_chip_links(mut self, f: impl Fn(&str) -> bool + Send + Sync + 'static) -> Self {
+        self.chip_links = Some(Arc::new(f));
         self
     }
 
@@ -128,6 +141,7 @@ impl fmt::Debug for MarkdownOptions {
             .field("code_links", &self.code_links.is_some())
             .field("math", &self.math)
             .field("settle_tail", &self.settle_tail)
+            .field("chip_links", &self.chip_links.is_some())
             .finish()
     }
 }
@@ -582,6 +596,7 @@ impl<'s> Conv<'s> {
             code: false,
             link: self.links.last().cloned(),
             color: None,
+            chip: self.links.last().is_some_and(|u| self.opts.chip_links.as_ref().is_some_and(|f| f(u))),
         }
     }
 
@@ -1126,6 +1141,17 @@ pub(crate) fn find_urls(s: &str) -> Vec<(Range<usize>, String)> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn chip_links_are_chips() {
+        let opts = MarkdownOptions::plain().with_chip_links(|u| u.starts_with("file:"));
+        let b = parse_with("See [@notes.md](file:notes.md) and [site](https://x.dev).", &opts);
+        let runs = b[0].content.runs();
+        let chip = runs.iter().find(|r| r.style.chip).expect("a chip run");
+        assert_eq!(&b[0].content.text()[chip.range.clone()], "@notes.md");
+        assert_eq!(chip.style.link.as_deref(), Some("file:notes.md"));
+        assert!(runs.iter().any(|r| r.style.link.as_deref() == Some("https://x.dev") && !r.style.chip));
+    }
 
     #[test]
     fn settle_tail_closes_and_holds_back() {
