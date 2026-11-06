@@ -85,6 +85,23 @@ pub fn cache() -> PathBuf {
     }
 }
 
+/// Runtime files (sockets, locks) that live as long as the session.
+/// Linux/BSDs: `$XDG_RUNTIME_DIR` (private, 0700), else the temporary
+/// directory; macOS: `$TMPDIR` (per user); Windows: `%TEMP%` (per user).
+/// The temporary-directory fallback can be shared by every user (`/tmp`):
+/// code that puts sockets here makes a private subdirectory first, as
+/// [`crate::instance`] does. `OMARCHY_FLTK_RUNTIME_DIR` overrides it
+/// (tests, sandboxes).
+pub fn runtime() -> PathBuf {
+    if let Some(p) = env_abs("OMARCHY_FLTK_RUNTIME_DIR") {
+        return p;
+    }
+    match OS {
+        Os::MacOs | Os::Windows => std::env::temp_dir(),
+        _ => env_abs("XDG_RUNTIME_DIR").unwrap_or_else(std::env::temp_dir),
+    }
+}
+
 /// `config()/<app_id>`.
 pub fn app_config(app_id: &str) -> PathBuf {
     config().join(app_id)

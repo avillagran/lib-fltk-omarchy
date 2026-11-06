@@ -24,6 +24,8 @@ pub mod dirs;
 pub(crate) mod fl_abi;
 pub mod fonts;
 mod generic;
+/// Local IPC transport for `crate::instance` (Unix sockets, named pipes).
+pub(crate) mod instance;
 pub mod languages;
 pub(crate) mod poll;
 

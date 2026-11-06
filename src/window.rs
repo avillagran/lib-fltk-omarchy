@@ -368,6 +368,68 @@ impl AppWindow {
         }
     }
 
+    /// Shows the window (when hidden) and brings it to the front with the
+    /// keyboard focus, as far as the OS lets an app do it: FLTK restores
+    /// and raises it (X11: `_NET_ACTIVE_WINDOW`), macOS activates the app,
+    /// Windows foregrounds it, Hyprland focuses it (`focuswindow`, on this
+    /// window only). Other Wayland compositors decide themselves (FLTK has
+    /// no xdg-activation): a newly mapped window usually gets the focus.
+    /// For single-instance apps, see [`crate::instance`].
+    pub fn raise(&mut self) {
+        if self.win.shown() {
+            self.win.show(); // restore + raise
+        } else {
+            self.show();
+        }
+        let has_focus = app::focus().is_some_and(|f| f.inside(&self.win));
+        if !has_focus {
+            // Fl::focus() on a window the OS has not focused asks the OS
+            // for it (X11 EWMH activation); the window restores its own
+            // last focused widget.
+            let _ = self.win.take_focus();
+        }
+        crate::platform::instance::raise_native(&self.win);
+        if hyprland::available() {
+            // A window being mapped is listed a moment later.
+            let title = self.win.label();
+            let tries = Cell::new(0u32);
+            app::add_timeout3(0.0, move |h| {
+                if let Some(c) = hyprland::own_clients(Some(&title)).into_iter().next() {
+                    hyprland::focus(&c.address);
+                } else if tries.replace(tries.get() + 1) < 50 {
+                    app::repeat_timeout3(0.02, h);
+                }
+            });
+        }
+    }
+
+    /// True when this window is shown and has the keyboard focus. On
+    /// Hyprland the compositor's active window decides; elsewhere FLTK's
+    /// focus (cleared when the OS takes the focus away).
+    pub fn is_active(&self) -> bool {
+        if !self.win.shown() {
+            return false;
+        }
+        if hyprland::available() {
+            if let Some((pid, _, title)) = hyprland::active_window() {
+                return pid == i64::from(std::process::id()) && title == self.win.label();
+            }
+        }
+        app::focus().is_some_and(|f| f.inside(&self.win))
+    }
+
+    /// Toggles like a launcher button: hides the window when it is shown
+    /// and active, raises it otherwise. Returns true when it is shown after.
+    pub fn toggle(&mut self) -> bool {
+        if self.win.shown() && self.is_active() {
+            self.win.hide();
+            false
+        } else {
+            self.raise();
+            true
+        }
+    }
+
     /// Renders the window contents offscreen into a PNG (works before
     /// `show()`), so tests and agents can look at the UI.
     pub fn snapshot(&mut self, path: impl AsRef<Path>) -> std::io::Result<()> {
