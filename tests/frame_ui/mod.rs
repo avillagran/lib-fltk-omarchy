@@ -286,7 +286,7 @@ pub fn a11y_checks(run: &mut dyn FnMut(&str, Check)) {
     run("a11y: a FrameView is a named, focusable Document (or Image)", &|_| {
         use fltk_omarchy::a11y;
         use fltk_omarchy::frame::FrameRole;
-        let mut win = plain(300, 200);
+        let win = plain(300, 200);
         let mut a = FrameView::new(120, 80).name("Browser preview");
         a.set_pos(10, 10);
         let mut b = FrameView::new(120, 80).name("Phone screen").role(FrameRole::Image);
