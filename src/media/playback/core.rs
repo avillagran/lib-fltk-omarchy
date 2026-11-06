@@ -77,7 +77,7 @@ pub(crate) struct Core {
     tick_armed: bool,
     /// Last time a view of this player was drawn.
     drawn: Option<Instant>,
-    need_poster: bool,
+    need_start: bool,
     settle_gen: u64,
     played_at: Option<Instant>,
     pub stats: Stats,
@@ -133,7 +133,7 @@ impl Player {
             anchor: None,
             tick_armed: false,
             drawn: None,
-            need_poster: false,
+            need_start: false,
             settle_gen: 0,
             played_at: None,
             stats: Stats::default(),
@@ -221,7 +221,7 @@ impl Player {
             c.image = None;
             c.stats = Stats::default();
             c.scrub = None;
-            c.need_poster = false;
+            c.need_start = false;
             c.gen += 1;
         }
         self.notify();
@@ -299,7 +299,7 @@ impl Player {
     /// Jumps to `t` seconds (clamped). Playing: ffmpeg restarts there once
     /// the seeks settle; paused: the frame there is shown.
     pub(crate) fn seek(&self, t: f64) {
-        let playing = {
+        {
             let mut c = self.0.borrow_mut();
             let Some(d) = c.clock.duration else { return };
             if c.info.is_none() || !t.is_finite() {
@@ -310,8 +310,7 @@ impl Player {
             if c.state == PlayState::Ended {
                 c.state = PlayState::Paused;
             }
-            c.state == PlayState::Playing
-        };
+        }
         self.stop_segment();
         self.settle(SEEK_SETTLE, move |p| {
             let (pos, playing_now) = {
@@ -324,7 +323,6 @@ impl Player {
                 p.start_poster(pos);
             }
         });
-        let _ = playing;
         self.notify();
     }
 
@@ -537,9 +535,22 @@ impl Player {
 
     fn drain(&self) {
         let events = self.0.borrow().events.take();
-        let mut redraw = false;
+        // Frames only redraw the picture; the controls follow the tick.
+        let only_frames = events.iter().all(|e| matches!(e, Event::Frame { .. }));
+        if only_frames && !events.is_empty() {
+            for ev in events {
+                if let Event::Frame { gen } = ev {
+                    self.on_frame(gen);
+                }
+            }
+            let anchor = self.0.borrow().anchor.clone();
+            if let Some(mut w) = anchor.filter(|w| !w.was_deleted()) {
+                w.redraw();
+            }
+            return;
+        }
+        let redraw = !events.is_empty();
         for ev in events {
-            redraw = true;
             match ev {
                 Event::Probed { gen, result } => self.on_probed(gen, result),
                 Event::Started { gen, at } => {
@@ -596,12 +607,13 @@ impl Player {
                 }
             }
         };
-        if play && self.visible() {
+        if !self.visible() {
+            // Shown later: `drawn` starts it then.
+            self.0.borrow_mut().need_start = true;
+        } else if play {
             self.play();
-        } else if self.visible() {
-            self.start_poster(0.0);
         } else {
-            self.0.borrow_mut().need_poster = true;
+            self.start_poster(0.0);
         }
     }
 
@@ -666,16 +678,19 @@ impl Player {
         c.anchor.as_ref().map_or(true, |w| !w.was_deleted() && (w.visible_r() || recent))
     }
 
-    /// A view was drawn (the player is on screen): starts the probe and a
-    /// pending poster frame.
+    /// A view was drawn (the player is on screen): starts the probe, and
+    /// what waited for the player to be shown (autoplay or the poster).
     pub(crate) fn drawn(&self) {
-        let poster = {
+        let (start, play) = {
             let mut c = self.0.borrow_mut();
             c.drawn = Some(Instant::now());
-            std::mem::take(&mut c.need_poster) && c.state == PlayState::Paused
+            let start = std::mem::take(&mut c.need_start) && c.state == PlayState::Paused;
+            (start, c.want_play || c.autoplay)
         };
         self.ensure_loaded();
-        if poster {
+        if start && play {
+            self.play();
+        } else if start {
             let pos = self.0.borrow().clock.base;
             self.start_poster(pos);
         }
