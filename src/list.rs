@@ -52,6 +52,10 @@ struct Inner {
     selected: Option<usize>,
     fetched: usize,
     dragging_thumb: Option<(i32, i64)>,
+    /// Reorder drag: (row pressed, pointer y at press, past the threshold).
+    drag_row: Option<(usize, i32, bool)>,
+    /// Insertion point shown while dragging (0..=count).
+    drop_at: Option<usize>,
     // Model-backed lists (from_model): stable IDs, the selected ID and the
     // IDs drawn per row slot, to redraw only rows that changed.
     ids: Option<IdSource>,
@@ -86,8 +90,19 @@ pub struct List {
     activate_cb: Rc<RefCell<Option<Box<dyn FnMut(usize)>>>>,
     selected_state: Rc<RefCell<Option<State<Option<usize>>>>>,
     activations: Rc<Cell<usize>>,
+    reorder_cb: Rc<RefCell<Option<Box<dyn FnMut(usize, usize)>>>>,
 }
 fltk::widget_extends!(List, Widget, widget);
+
+/// Pointer travel before a press on a row becomes a reorder drag (o3's queue).
+const DRAG_THRESHOLD: i32 = 5;
+
+/// The index an item at `from` ends at when dropped at insertion point
+/// `gap` (0..=count): `None` when it would not move.
+fn moved_to(from: usize, gap: usize) -> Option<usize> {
+    let to = if gap > from { gap - 1 } else { gap };
+    (to != from).then_some(to)
+}
 
 const BAR: i32 = 4;
 
@@ -147,7 +162,7 @@ impl List {
         widget.set_visible_focus();
         let row_h = theme::with(|t| t.font.body + 4 + 2 * t.spacing.xl);
         let inner = Rc::new(RefCell::new(Inner {
-            row: Box::new(row), count, top: 0, motion: crate::scroll::Scroll::new(), row_h, hover: None, selected: None, fetched: 0, dragging_thumb: None,
+            row: Box::new(row), count, top: 0, motion: crate::scroll::Scroll::new(), row_h, hover: None, selected: None, fetched: 0, dragging_thumb: None, drag_row: None, drop_at: None,
             ids: None, sel_id: None, slots: RowSlots::default(), inval: Invalidations::default(),
             rm: Default::default(),
         }));
@@ -158,6 +173,7 @@ impl List {
             activate_cb: Rc::default(),
             selected_state: Rc::default(),
             activations: Rc::default(),
+            reorder_cb: Rc::default(),
         };
         list.install();
         list.describe();
@@ -313,6 +329,13 @@ impl List {
                     i.rm.end(drawn);
                     if i.rm.running() { crate::anim::request_redraw(w); }
                 }
+                // Reorder drag: the dragged row dimmed, a line at the drop point.
+                if let (Some((from, _, true)), Some(gap)) = (i.drag_row, i.drop_at) {
+                    let fy = w.y() + (from as i64 * i.row_h as i64 - i.top) as i32;
+                    paint::alpha_fill(m.x(w.x(), text_w), fy, text_w, i.row_h, under, 0.5);
+                    let gy = w.y() + (gap as i64 * i.row_h as i64 - i.top) as i32;
+                    paint::fill(m.x(w.x(), text_w), (gy - 1).clamp(w.y(), w.y() + w.h() - 2), text_w, 2, 0, t.palette.accent);
+                }
                 if max_top > 0 {
                     let track = w.h();
                     let thumb = ((w.h() as f64 / (i.count as f64 * i.row_h as f64)) * track as f64).max(24.0) as i32;
@@ -340,6 +363,7 @@ impl List {
 
         let (inn, sel_cb, act_cb, sel_state, acts) =
             (self.inner.clone(), self.select_cb.clone(), self.activate_cb.clone(), self.selected_state.clone(), self.activations.clone());
+        let reorder = self.reorder_cb.clone();
         w.handle(move |w, ev| {
             let wy = w.y();
             let row_at = move |i: &Inner, ey: i32| -> Option<usize> {
@@ -382,7 +406,30 @@ impl List {
                     if let Some(idx) = idx {
                         select(idx, w);
                         if app::event_clicks() { activate(idx); }
+                        if reorder.borrow().is_some() {
+                            inn.borrow_mut().drag_row = Some((idx, app::event_y(), false));
+                        }
                     }
+                    true
+                }
+                Event::Drag if inn.borrow().drag_row.is_some() => {
+                    let (from, y0, active) = inn.borrow().drag_row.unwrap();
+                    let ey = app::event_y();
+                    if !active && (ey - y0).abs() < DRAG_THRESHOLD { return true; }
+                    let mut i = inn.borrow_mut();
+                    // Near an edge the list scrolls toward the pointer.
+                    let max = (i.count as i64 * i.row_h as i64 - w.h() as i64).max(0);
+                    let edge = i.row_h / 2;
+                    if ey < w.y() + edge { i.top = (i.top - (i.row_h / 3) as i64).max(0) }
+                    else if ey > w.y() + w.h() - edge { i.top = (i.top + (i.row_h / 3) as i64).min(max) }
+                    let top = i.top;
+                    i.motion.jump(top);
+                    let gap = (((ey - w.y()) as i64 + i.top + i.row_h as i64 / 2) / i.row_h as i64).clamp(0, i.count as i64) as usize;
+                    i.drag_row = Some((from, y0, true));
+                    i.drop_at = Some(gap);
+                    drop(i);
+                    if let Some(mut win) = w.window() { win.set_cursor(Cursor::Move); }
+                    w.redraw();
                     true
                 }
                 Event::Drag => {
@@ -396,7 +443,18 @@ impl List {
                     }
                     true
                 }
-                Event::Released => { inn.borrow_mut().dragging_thumb = None; true }
+                Event::Released => {
+                    let (drag, gap) = { let mut i = inn.borrow_mut(); i.dragging_thumb = None; (i.drag_row.take(), i.drop_at.take()) };
+                    if let (Some((from, _, true)), Some(gap)) = (drag, gap) {
+                        if let Some(mut win) = w.window() { win.set_cursor(Cursor::Default); }
+                        if let Some(to) = moved_to(from, gap) {
+                            if let Some(f) = reorder.borrow_mut().as_mut() { f(from, to); }
+                            select(to, w);
+                        }
+                        w.redraw();
+                    }
+                    true
+                }
                 Event::MouseWheel => {
                     let mut i = inn.borrow_mut();
                     let max = (i.count as i64 * i.row_h as i64 - w.h() as i64).max(0);
@@ -411,6 +469,17 @@ impl List {
                     let (count, cur, page) = { let i = inn.borrow(); (i.count, i.selected, (w.h() / i.row_h).max(1) as usize) };
                     if count == 0 { return false; }
                     let k = app::event_key();
+                    // Alt+Up / Alt+Down move the selected item (reorderable lists).
+                    if app::event_state().contains(fltk::enums::Shortcut::Alt) && matches!(k, Key::Up | Key::Down) {
+                        let Some(c) = cur else { return false };
+                        if reorder.borrow().is_none() { return false; }
+                        let to = if k == Key::Up { c.checked_sub(1) } else { (c + 1 < count).then_some(c + 1) };
+                        if let Some(to) = to {
+                            if let Some(f) = reorder.borrow_mut().as_mut() { f(c, to); }
+                            select(to, w);
+                        }
+                        return true;
+                    }
                     let next = match k {
                         Key::Down => Some(cur.map_or(0, |c| (c + 1).min(count - 1))),
                         Key::Up => Some(cur.map_or(0, |c| c.saturating_sub(1))),
@@ -429,6 +498,20 @@ impl List {
                 _ => false,
             }
         });
+    }
+
+    /// Lets the user reorder the rows: drag a row (after 5 px of travel) to
+    /// a new place, or Alt+Up / Alt+Down on the selected row. `f(from, to)`
+    /// runs with the item's index before the move and the index it should
+    /// end at; the app moves it in its data (`ListModel::move_key`, a Vec…).
+    pub fn reorderable(self, f: impl FnMut(usize, usize) + 'static) -> Self {
+        *self.reorder_cb.borrow_mut() = Some(Box::new(f));
+        self
+    }
+
+    /// The insertion point (0..=count) shown while a row is dragged.
+    pub fn drop_point(&self) -> Option<usize> {
+        self.inner.borrow().drop_at
     }
 
     pub fn row_height(self, px: i32) -> Self {
@@ -582,4 +665,18 @@ fn apply_changes(inn: &Rc<RefCell<Inner>>, w: &mut Widget, len: usize, changes: 
         w.set_damage_area(Damage::User1, x, w.y(), BAR, w.h());
     }
     moved
+}
+
+#[cfg(test)]
+mod tests {
+    use super::moved_to;
+
+    #[test]
+    fn drop_gap_to_index() {
+        assert_eq!(moved_to(2, 0), Some(0));
+        assert_eq!(moved_to(2, 2), None);
+        assert_eq!(moved_to(2, 3), None);
+        assert_eq!(moved_to(2, 5), Some(4));
+        assert_eq!(moved_to(0, 1), None);
+    }
 }

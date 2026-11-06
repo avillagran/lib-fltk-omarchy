@@ -36,6 +36,7 @@ mod popup_ui;
 mod split_ui;
 mod chart_ui;
 mod keys_ui;
+mod list_ui;
 
 const COLORS_A: &str = "accent = \"#e68e0d\"\nbackground = \"#121212\"\nforeground = \"#bebebe\"\nred = \"#d35f5f\"\n";
 const COLORS_B: &str = "accent = \"#33ccff\"\nbackground = \"#1a1b26\"\nforeground = \"#c0caf5\"\nred = \"#f7768e\"\n";
@@ -2004,6 +2005,7 @@ fn main() {
     split_ui::checks(&mut run);
     chart_ui::checks(&mut run);
     keys_ui::checks(&mut run);
+    list_ui::checks(&mut run);
     #[cfg(feature = "a11y")]
     a11y_checks(&mut run);
     #[cfg(feature = "a11y")]
