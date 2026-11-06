@@ -170,8 +170,10 @@ replay, even after GL activation. Use `read_gpu_pixel` for actual GL output.
 Other custom offscreen harnesses should render the local `Scene` directly;
 a generic native widget capture is not automatically detectable everywhere.
 The widget retains scene content across shader time changes. `SurfaceStats`
-separates scene builds, parent surface draws, CPU frames, GPU submissions and
-retained texture bytes; frame counts are not presentation callbacks.
+separates scene builds, parent surface draws, CPU frames, GPU submissions,
+GPU preparations, scene uploads and retained texture bytes. Frame counts
+are not presentation callbacks; scene uploads count renderer creation,
+including resource recovery after context loss.
 
 Try `examples/scene_surface.rs`: same painter and two shared translucent
 cards over a portable gradient, live theme/language and snapshot support.
@@ -221,6 +223,54 @@ controls remain work. Atlases, batched geometry and native isolated shader
 layers are also pending. Prefer one surface for a whole composed region,
 not a GL surface per row, and retain the CPU policy for ordinary app UI.
 
+## Keyed card updates
+
+Record an isolated layer with `layer.draw_keyed(NodeId(42), x, y, opacity)`
+instead of `draw_at` when it needs to move or fade without a scene rebuild.
+The ID belongs to the application and is unique among the keyed layers in
+that scene. Child scenes inside isolated layers have their own ID scope.
+`draw_keyed` returns a finite-opacity validation error, or the same native
+draw success flag as `draw_at` outside recording.
+
+```rust,no_run
+use fltk_omarchy::{App, scene::{Layer, NodeId, Rect, Scene, Surface}};
+let app = App::new("dev.example.keyed-scene");
+let card = Layer::new(Rect::new(0, 0, 120, 50), Scene::default()).unwrap();
+let (scene, ()) = Scene::record(|| {
+    card.draw_keyed(NodeId(42), 20, 30, 1.0).unwrap();
+});
+let surface = Surface::new(400, 240);
+surface.set_scene(scene);
+surface.move_node(NodeId(42), 70, 90).unwrap();
+surface.set_node_opacity(NodeId(42), 0.4).unwrap();
+assert_eq!(surface.node_bounds(NodeId(42)).unwrap().x, 70);
+```
+
+The same `move_node` / `set_node_opacity` operations are available on
+`Scene`, `gpu::PreparedScene` and `gpu::Renderer`. The ID maps to its
+command/prepared draw in constant expected time after indexing. It does
+not depend on how many earlier commands were clipped out. A keyed layer
+that starts outside the viewport or at zero opacity is retained, so a
+later update can make it visible without preparing/uploading a texture.
+This retention uses the same 64 MiB resource budget: use keyed layers for
+the composed region, not every row in a large virtual collection.
+
+Updates preserve size, paint order and ancestor clips. Opacity applies
+once to the isolated group and uses the same quantized 8-bit value on CPU
+and GL. NaN/infinity, missing IDs and duplicate IDs produce `NodeError`;
+duplicate detection precedes mutation, and GL preparation also rejects
+duplicates. Appending a scene invalidates its ID index. CPU updates drop
+the optional whole-scene damage backing but retain the isolated resources.
+GL updates change retained draw values only, without context calls,
+preparation, rasterization or uploads; a managed surface redraws its GL
+child only. Updates also reach a prepared scene awaiting its first upload.
+
+`Surface` updates affect the currently retained scene. A painter rebuild
+or `set_scene` supplies new node properties: keep durable positions in app
+state and use them in the painter. This is not automatic keyed layout or
+selection, a z-order/reflow operation, a nested-node update API or affine
+transformation. The falling/reorder interaction still needs those pieces.
+
 ## Single-surface GL compositor spike
 
 With feature `gpu`, `scene::gpu::{PreparedScene, Renderer}` composes a
@@ -235,7 +285,8 @@ AppWindow controls keep their CPU renderer.
    shader sources and caps retained textures at 64 MiB.
 3. `Renderer::move_to` and `set_opacity` update a prepared card/sprite
    without reflow, rasterization or uploads. Indexes use visible prepared
-   paint order; stable app keys and keyed hit testing are still pending.
+   paint order; prefer the keyed methods above for application identities.
+   Keyed hit testing is still pending.
    Top-level shader opacity changes are not yet supported.
 4. `Renderer::draw(logical_size, framebuffer_size, time_override)` submits
    quads in scene order to the bound framebuffer, using scissor clips and

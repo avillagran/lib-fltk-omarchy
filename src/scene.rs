@@ -10,6 +10,8 @@
 mod image;
 mod layer;
 mod shader;
+mod node;
+pub use node::{NodeError, NodeId};
 pub(crate) mod surface;
 pub use surface::{Surface, SurfaceStats};
 pub use shader::shader;
@@ -55,7 +57,7 @@ pub enum Command {
     SpacedText { rect: Rect, text: String, size: i32, weight: paint::Weight, spacing: f64, color: Rgb, align: Align },
     AlphaFill { rect: Rect, color: Rgb, alpha: f64 },
     Image { rect: Rect, image: Image },
-    Layer { rect: Rect, layer: Layer, opacity: u8 },
+    Layer { rect: Rect, layer: Layer, opacity: u8, id: Option<NodeId> },
     Shader { rect: Rect, program: crate::gfx::sl::Shader, uniforms: crate::gfx::Uniforms },
     PushClip(Rect),
     PopClip,
@@ -77,6 +79,7 @@ impl Command {
 pub struct Scene {
     commands: Vec<Command>,
     raster: RefCell<Option<Raster>>,
+    nodes: RefCell<Option<node::Index>>,
 }
 
 #[derive(Debug, Clone)]
@@ -126,6 +129,7 @@ impl Scene {
     /// Copies another list, preserving its order and balanced clips.
     pub fn append(&mut self, scene: &Scene) {
         self.commands.extend_from_slice(&scene.commands);
+        *self.nodes.get_mut() = None;
         *self.raster.get_mut() = None;
     }
 
@@ -142,7 +146,7 @@ impl Scene {
     }
 
     fn translated(&self, dx: i32, dy: i32, time: Option<f32>) -> Option<Scene> {
-        let mut scene = Scene { commands: self.commands.clone(), raster: RefCell::new(None) };
+        let mut scene = Scene { commands: self.commands.clone(), ..Scene::default() };
         for command in &mut scene.commands {
             let rect = match command {
                 Command::Fill { rect, .. } | Command::Stroke { rect, .. }
@@ -214,7 +218,7 @@ impl Scene {
     // ImageSurface::set_origin only offsets widget drawing, not all raw
     // drawing helpers on every platform.
     fn render(&self, r: Rect, background: Option<Rgb>) -> Option<fltk::image::RgbImage> {
-        let mut local = Scene { commands: self.commands.clone(), raster: RefCell::new(None) };
+        let mut local = Scene { commands: self.commands.clone(), ..Scene::default() };
         for command in &mut local.commands {
             let rect = match command {
                 Command::Fill { rect, .. } | Command::Stroke { rect, .. }
@@ -260,7 +264,7 @@ impl Scene {
                 }
                 Command::AlphaFill { rect: r, color, alpha } => paint::alpha_fill(r.x, r.y, r.w, r.h, *color, *alpha),
                 Command::Image { rect, image } => image.draw(*rect),
-                Command::Layer { rect, layer, opacity } => { layer.draw_quantized(*rect, *opacity); }
+                Command::Layer { rect, layer, opacity, .. } => { layer.draw_quantized(*rect, *opacity); }
                 Command::Shader { rect, program, uniforms } => { shader(*rect, program, uniforms); }
                 Command::PushClip(r) => draw::push_clip(r.x, r.y, r.w.max(0), r.h.max(0)),
                 Command::PopClip => draw::pop_clip(),

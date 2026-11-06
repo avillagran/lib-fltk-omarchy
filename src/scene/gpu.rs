@@ -5,7 +5,7 @@
 //! portable shaders are native GL; text, rounded borders and isolated
 //! layers are retained CPU RGBA textures for now, not a glyph atlas.
 //! This low-level spike does not change AppWindow's CPU default.
-use super::{Command, Image, Layer, Rect, Scene, MAX_IMAGE_BYTES};
+use super::{Command, Image, Layer, Rect, Scene, NodeId, NodeError, MAX_IMAGE_BYTES};
 use crate::gfx::{Color, Uniforms};
 use glow::HasContext;
 use std::{collections::{HashMap, HashSet}, rc::Rc};
@@ -50,16 +50,18 @@ enum Paint {
     Shader(String, Uniforms),
 }
 #[derive(Clone)]
-struct Item { rect: Rect, clip: Rect, paint: Paint }
+struct Item { rect: Rect, clip: Rect, paint: Paint, id: Option<NodeId> }
 
 /// CPU preparation, including bounded native fallbacks. Rebuild on
 /// theme/font/layout/language/scale changes. No GL calls here.
 #[derive(Clone)]
-pub struct PreparedScene { items: Vec<Item> }
+pub struct PreparedScene { items: Vec<Item>, nodes: HashMap<NodeId, usize> }
 
 impl PreparedScene {
     pub fn new(scene: &Scene, viewport: Rect) -> Result<Self, String> {
         if viewport.w <= 0 || viewport.h <= 0 { return Err("empty scene viewport".into()); }
+        scene.validate_nodes().map_err(|e| e.to_string())?;
+        let mut nodes = HashMap::new();
         let mut clips = vec![viewport];
         let mut items = Vec::new();
         let mut resources = HashSet::new();
@@ -72,7 +74,10 @@ impl PreparedScene {
             }
             let Some(rect) = command.bounds() else { continue };
             let clip = *clips.last().unwrap();
-            if !rect.intersects(clip) { continue; }
+            let id = match command { Command::Layer { id, .. } => *id, _ => None };
+            // Keyed layers must survive initial culling/zero opacity: an
+            // update may bring them into view without rebuilding resources.
+            if id.is_none() && !rect.intersects(clip) { continue; }
             let paint = match command {
                 Command::Fill { radius: 0, color, .. } => Paint::Solid((*color).into()),
                 Command::AlphaFill { color, alpha, .. } => Paint::Solid(Color::from(*color).with_alpha(alpha.clamp(0.0, 1.0) as f32)),
@@ -92,9 +97,24 @@ impl PreparedScene {
                     if resource_bytes > MAX_IMAGE_BYTES { return Err("prepared scene texture budget exceeded (64 MiB)".into()); }
                 }
             }
-            items.push(Item { rect, clip, paint });
+            if let Some(id) = id { nodes.insert(id, items.len()); }
+            items.push(Item { rect, clip, paint, id });
         }
-        Ok(Self { items })
+        Ok(Self { items, nodes })
+    }
+    /// Same keyed position update as Scene, before any GL upload.
+    pub fn move_node(&mut self, id: NodeId, x: i32, y: i32) -> Result<(), NodeError> {
+        let i = *self.nodes.get(&id).ok_or(NodeError::NotFound(id))?;
+        self.items[i].rect.x = x;
+        self.items[i].rect.y = y;
+        Ok(())
+    }
+    pub fn set_node_opacity(&mut self, id: NodeId, value: f32) -> Result<(), NodeError> {
+        let opacity = super::node::opacity(value)? as f32 / 255.0;
+        let i = *self.nodes.get(&id).ok_or(NodeError::NotFound(id))?;
+        let Paint::Image(_, alpha) = &mut self.items[i].paint else { unreachable!() };
+        *alpha = opacity;
+        Ok(())
     }
     pub fn primitive_count(&self) -> usize { self.items.len() }
 }
@@ -121,6 +141,7 @@ pub struct Renderer {
     draws: Vec<Draw>,
     texture_bytes: usize,
     context_alive: bool,
+    nodes: HashMap<NodeId, usize>,
 }
 
 impl Renderer {
@@ -131,7 +152,7 @@ impl Renderer {
     pub unsafe fn new(gl: Rc<glow::Context>, scene: PreparedScene) -> Result<Self, String> {
         let basic = link(&gl, FRAGMENT)?;
         let vao = match gl.create_vertex_array() { Ok(v) => v, Err(e) => { gl.delete_program(basic); return Err(e); } };
-        let mut renderer = Self { gl, basic, vao, textures: Vec::new(), programs: Vec::new(), draws: Vec::new(), texture_bytes: 0, context_alive: true };
+        let mut renderer = Self { gl, basic, vao, textures: Vec::new(), programs: Vec::new(), draws: Vec::new(), texture_bytes: 0, context_alive: true, nodes: scene.nodes };
         let mut textures = HashMap::new();
         let mut programs = HashMap::new();
         for item in scene.items {
@@ -177,6 +198,7 @@ impl Renderer {
                     (None, program, Color::TRANSPARENT, Some(uniforms))
                 }
             };
+            debug_assert!(item.id.map_or(true, |id| renderer.nodes.get(&id) == Some(&renderer.draws.len())));
             renderer.draws.push(Draw { rect: item.rect, clip: item.clip, texture, program, color, uniforms });
         }
         Ok(renderer)
@@ -207,6 +229,21 @@ impl Renderer {
         if draw.uniforms.is_some() || !opacity.is_finite() { return false; }
         draw.color.a = opacity.clamp(0.0, 1.0);
         true
+    }
+
+    /// O(1) stable-ID update. Unlike visible primitive indexes, keys also
+    /// address layers initially outside the viewport or fully transparent.
+    /// No context, compilation, rasterization or texture upload is needed.
+    pub fn move_node(&mut self, id: NodeId, x: i32, y: i32) -> Result<(), NodeError> {
+        let i = *self.nodes.get(&id).ok_or(NodeError::NotFound(id))?;
+        self.move_to(i, x, y);
+        Ok(())
+    }
+    pub fn set_node_opacity(&mut self, id: NodeId, value: f32) -> Result<(), NodeError> {
+        let opacity = super::node::opacity(value)? as f32 / 255.0;
+        let i = *self.nodes.get(&id).ok_or(NodeError::NotFound(id))?;
+        self.set_opacity(i, opacity);
+        Ok(())
     }
 
     /// Render to the current framebuffer; caller clears/retains it.

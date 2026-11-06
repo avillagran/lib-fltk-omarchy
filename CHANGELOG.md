@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **Stable scene node updates**: `Layer::draw_keyed(NodeId, ..)` and
+  `Scene` / `Surface` / prepared GL `move_node` / `set_node_opacity`.
+  Initially clipped and zero-alpha cards retain their identities/resources;
+  moving or fading changes draw values without rebuilding, preparation,
+  uploads or CPU parent redraws. Shared CPU/GL opacity, duplicate/invalid
+  ID errors and damage cache invalidation; pixel read-back and lifecycle
+  checks. Paint order, size and ancestor clips remain fixed. docs/SCENE.md.
+
 - **Managed scene surface** (`scene::Surface`): retained local-coordinate
   painter, explicit CPU/GL policy with CPU default/fallback, automatic
   theme/language/size/focus invalidation, local input and one keyboard stop,

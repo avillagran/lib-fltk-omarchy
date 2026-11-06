@@ -1,6 +1,6 @@
 //! Isolated transparent scene layers: composite the finished group once,
 //! rather than applying opacity to each overlapping primitive.
-use super::{record, Command, Image, ImageError, Rect, Scene, MAX_IMAGE_BYTES};
+use super::{record, Command, Image, ImageError, Rect, Scene, NodeId, MAX_IMAGE_BYTES};
 use crate::theme::Rgb;
 use fltk::{enums::ColorDepth, image::RgbImage, prelude::*};
 use std::{cell::RefCell, rc::Rc};
@@ -53,9 +53,23 @@ impl Layer {
         self.draw_quantized(Rect::new(x, y, self.0.bounds.w, self.0.bounds.h), opacity)
     }
 
+    /// Records a keyed isolated layer. Use the same application ID after
+    /// reordering or clipping changes; duplicate IDs make keyed updates
+    /// and GL preparation fail. IDs are scoped to this recorded scene,
+    /// not to the contents of nested isolated layers.
+    /// Zero opacity is retained so the node can be faded in later.
+    pub fn draw_keyed(&self, id: NodeId, x: i32, y: i32, opacity: f32) -> Result<bool, super::NodeError> {
+        let opacity = super::node::opacity(opacity)?;
+        let rect = Rect::new(x, y, self.0.bounds.w, self.0.bounds.h);
+        if record(|| Command::Layer { rect, layer: self.clone(), opacity, id: Some(id) }) {
+            return Ok(true);
+        }
+        Ok(self.draw_quantized(rect, opacity))
+    }
+
     pub(super) fn draw_quantized(&self, rect: Rect, opacity: u8) -> bool {
         if opacity == 0 { return true; }
-        if record(|| Command::Layer { rect, layer: self.clone(), opacity }) { return true; }
+        if record(|| Command::Layer { rect, layer: self.clone(), opacity, id: None }) { return true; }
         if self.0.image.borrow().is_none() {
             let Some(image) = self.rasterize() else { return false };
             *self.0.image.borrow_mut() = Some(image);

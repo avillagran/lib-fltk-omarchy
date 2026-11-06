@@ -2,7 +2,7 @@
 //! env -u WAYLAND_DISPLAY xvfb-run -a cargo run --features gpu --example scene_gpu_check
 //! Writes CPU/GPU PNGs and JSON in target/scene-gpu-check; exits nonzero on failure.
 use fltk::{app, enums::*, prelude::*, window::GlWindow};
-use fltk_omarchy::{gfx::{self, sl}, paint, scene::{self, gpu::{PreparedScene, Renderer}, Rect, Scene}, theme, tr, App};
+use fltk_omarchy::{gfx::{self, sl}, paint, scene::{self, gpu::{PreparedScene, Renderer}, NodeId, Rect, Scene}, theme, tr, App};
 use glow::HasContext;
 use std::{cell::RefCell, rc::Rc};
 
@@ -26,7 +26,8 @@ fn main() {
     let (scene, ()) = Scene::record(|| {
         paint::fill(0, 0, W, H, 0, t.palette.background);
         assert!(scene::shader(Rect::new(0, 0, W, H), &shader, &uniforms));
-        assert!(card.draw_at(14, 12, 0.7));
+        assert!(card.draw_keyed(NodeId(7),14,12,0.7).unwrap());
+        assert!(card.draw_keyed(NodeId(91),-200,-200,0.0).unwrap());
         scene::clip(Rect::new(90, 60, 150, 115), || {
         scene::clip(Rect::new(100, 65, 120, 105), || {
             paint::fill(90, 65, 140, 48, 9, t.palette.accent);
@@ -38,7 +39,7 @@ fn main() {
         });
         });
     });
-    let cpu = {
+    let render_cpu = |scene: &Scene| {
         let surface = fltk::surface::ImageSurface::new(W, H, false);
         fltk::surface::ImageSurface::push_current(&surface);
         scene.draw();
@@ -46,6 +47,19 @@ fn main() {
         fltk::surface::ImageSurface::pop_current();
         image.to_rgb_data()
     };
+    let cpu = render_cpu(&scene);
+    let mut updated_scene = scene.clone();
+    updated_scene.move_node(NodeId(7), 36, 25).unwrap();
+    updated_scene.set_node_opacity(NodeId(7), 0.4).unwrap();
+    updated_scene.move_node(NodeId(91), 185, 158).unwrap();
+    updated_scene.set_node_opacity(NodeId(91), 0.6).unwrap();
+    let updated_cpu = render_cpu(&updated_scene);
+    let mut deferred = PreparedScene::new(&scene, Rect::new(0, 0, W, H)).unwrap();
+    deferred.move_node(NodeId(7), 36, 25).unwrap();
+    deferred.set_node_opacity(NodeId(7), 0.4).unwrap();
+    deferred.move_node(NodeId(91), 185, 158).unwrap();
+    deferred.set_node_opacity(NodeId(91), 0.6).unwrap();
+    let mut deferred = Some(deferred);
     fltk_omarchy::png::write(&output.join("cpu.png"), W as u32, H as u32, 3, &cpu).unwrap();
     let prepared = PreparedScene::new(&scene, Rect::new(0, 0, W, H)).unwrap();
     let count = prepared.primitive_count();
@@ -85,21 +99,34 @@ fn main() {
                 gl.read_pixels(0, 0, W, H, glow::RGBA, glow::UNSIGNED_BYTE, glow::PixelPackData::Slice(Some(&mut animated)));
                 let time_changed = animated != rgba;
                 let bytes = renderer.texture_bytes();
-                assert!(renderer.move_to(2, 36, 25));
-                assert!(renderer.set_opacity(2, 0.4));
-                renderer.draw((W, H), (W, H), Some(2.0));
+                renderer.move_node(NodeId(7), 36, 25).unwrap();
+                renderer.set_node_opacity(NodeId(7), 0.4).unwrap();
+                renderer.move_node(NodeId(91), 185, 158).unwrap();
+                renderer.set_node_opacity(NodeId(91), 0.6).unwrap();
+                renderer.draw((W, H), (W, H), None);
                 let mut moved = vec![0; rgba.len()];
                 gl.read_pixels(0, 0, W, H, glow::RGBA, glow::UNSIGNED_BYTE, glow::PixelPackData::Slice(Some(&mut moved)));
                 let card_changed_without_upload = moved != animated && bytes == renderer.texture_bytes();
+                let rgb_of = |rgba: &[u8]| -> Vec<u8> { rgba.chunks_exact((W * 4) as usize).rev().flat_map(|row| row.chunks_exact(4).flat_map(|p|p[..3].iter().copied())).collect() };
+                let updated_rgb = rgb_of(&moved);
+                let keyed_delta = updated_rgb.iter().zip(&updated_cpu).map(|(a,b)|a.abs_diff(*b)).max().unwrap();
+                fltk_omarchy::png::write(&output.join("keyed-gpu.png"), W as u32, H as u32, 3, &updated_rgb).unwrap();
+                fltk_omarchy::png::write(&output.join("keyed-cpu.png"), W as u32, H as u32, 3, &updated_cpu).unwrap();
+                let deferred_renderer = Renderer::new(gl.clone(), deferred.take().unwrap())?;
+                deferred_renderer.draw((W,H),(W,H),None);
+                let mut deferred_pixels = vec![0;rgba.len()];
+                gl.read_pixels(0,0,W,H,glow::RGBA,glow::UNSIGNED_BYTE,glow::PixelPackData::Slice(Some(&mut deferred_pixels)));
+                let deferred_delta = rgb_of(&deferred_pixels).iter().zip(&updated_cpu).map(|(a,b)|a.abs_diff(*b)).max().unwrap();
+                drop(deferred_renderer);
                 let error = gl.get_error();
-                let report = serde_json::json!({"max_channel_delta":max_delta,"different_pixels":changed,"shader_time_changed":time_changed,"card_changed_without_upload":card_changed_without_upload,"gl_error":error,"primitives":count,"texture_bytes":renderer.texture_bytes(),"renderer":gl.get_parameter_string(glow::RENDERER),"correctness_check_not_an_efficiency_benchmark":true});
+                let report = serde_json::json!({"max_channel_delta":max_delta,"keyed_update_max_delta":keyed_delta,"deferred_update_max_delta":deferred_delta,"different_pixels":changed,"shader_time_changed":time_changed,"card_changed_without_upload":card_changed_without_upload,"gl_error":error,"primitives":count,"texture_bytes":renderer.texture_bytes(),"renderer":gl.get_parameter_string(glow::RENDERER),"correctness_check_not_an_efficiency_benchmark":true});
                 println!("{report}");
                 std::fs::write(output.join("report.json"), report.to_string()).unwrap();
                 gl.bind_framebuffer(glow::FRAMEBUFFER, None);
                 gl.delete_framebuffer(fbo);
                 gl.delete_texture(texture);
                 drop(renderer);
-                if max_delta > 2 || !time_changed || !card_changed_without_upload || error != glow::NO_ERROR { return Err("scene compositor parity/time/GL check failed".into()); }
+                if max_delta > 2 || keyed_delta > 2 || deferred_delta > 2 || !time_changed || !card_changed_without_upload || error != glow::NO_ERROR { return Err("scene compositor parity/time/GL check failed".into()); }
             }
             Ok(())
         };

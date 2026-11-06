@@ -347,8 +347,10 @@ Continue section 4 without changing the CPU default:
 3. One GL scene surface: low-level `scene::gpu::Renderer` now composes
    rectangles, portable shader commands and CPU texture fallbacks into a
    single framebuffer (read-back check added). Managed `scene::Surface` now owns CPU/GL lifecycle, snapshots, input,
-   invalidation and paced shader frames. Next: batched quads, glyph/image
-   atlases, keyed scene updates, CPU widget/overlay texture bridge and
+   invalidation and paced shader frames. Stable keyed position/opacity updates
+   now preserve initially culled/zero-alpha cards without preparation/uploads.
+   Next: batched quads, glyph/image atlases, keyed order/hit testing,
+   CPU widget/overlay texture bridge and
    native isolated shader layers.
 4. Exercise a live version of the video interaction; measure CPU, GPU and
    total PSS at normal and high-refresh resolutions. Keep effects bounded,

@@ -1,5 +1,5 @@
 //! Managed local-coordinate scene surface. No GL calls in application code.
-use super::{Rect, Scene};
+use super::{NodeError, NodeId, Rect, Scene};
 use crate::{
     anim::{self, Pace},
     gfx::Backend,
@@ -34,6 +34,8 @@ pub struct SurfaceStats {
     pub cpu_frames: u64,
     pub gpu_frames: u64,
     pub texture_bytes: usize,
+    pub gpu_preparations: u64,
+    pub gpu_scene_uploads: u64,
 }
 struct State {
     scene: Rc<Scene>,
@@ -204,6 +206,45 @@ impl Surface {
     }
     pub fn stats(&self) -> SurfaceStats {
         self.st.borrow().stats
+    }
+    /// Moves a keyed isolated layer without invalidating/re-recording the
+    /// painter or preparing/uploading GPU resources. Positions are local;
+    /// ancestor clips and paint order stay fixed. A painter rebuild or
+    /// set_scene replaces these retained properties with the new content.
+    pub fn move_node(&self, id: NodeId, x: i32, y: i32) -> Result<(), NodeError> {
+        {
+            let mut s = self.st.borrow_mut();
+            Rc::make_mut(&mut s.scene).move_node(id, x, y)?;
+        }
+        #[cfg(feature = "gpu")]
+        native::update_node(&self.st, id, Some((x, y)), None);
+        self.redraw_content();
+        Ok(())
+    }
+    pub fn set_node_opacity(&self, id: NodeId, opacity: f32) -> Result<(), NodeError> {
+        {
+            let mut s = self.st.borrow_mut();
+            Rc::make_mut(&mut s.scene).set_node_opacity(id, opacity)?;
+        }
+        #[cfg(feature = "gpu")]
+        native::update_node(&self.st, id, None, Some(opacity));
+        self.redraw_content();
+        Ok(())
+    }
+    pub fn node_bounds(&self, id: NodeId) -> Result<Rect, NodeError> {
+        self.st.borrow().scene.node_bounds(id)
+    }
+    fn redraw_content(&self) {
+        #[cfg(feature = "gpu")]
+        if self.active_backend() == Backend::Gpu {
+            if let Some(n) = &self.st.borrow().native {
+                n.win.clone().redraw();
+                return;
+            }
+        }
+        if !self.group.was_deleted() {
+            self.group.clone().redraw();
+        }
     }
     /// None uses the time recorded in the shader commands. A frozen
     /// override updates only uniforms on GL and portable shaders on CPU.
@@ -474,6 +515,35 @@ mod native {
             !self.win.was_deleted() && self.win.visible() && self.win.shown()
         }
     }
+    pub fn update_node(
+        st: &Rc<RefCell<State>>,
+        id: NodeId,
+        position: Option<(i32, i32)>,
+        opacity: Option<f32>,
+    ) {
+        let gl = st.borrow().native.as_ref().and_then(|n| n.gl.upgrade());
+        let Some(gl) = gl else { return };
+        let mut gl = gl.borrow_mut();
+        // Update both sides of a deferred upload. These are plain retained
+        // values and do not need a current GL context. A stale renderer may
+        // still represent the previous scene until its queued replacement.
+        if let Some(prepared) = gl.prepared.as_mut() {
+            if let Some((x, y)) = position {
+                let _ = prepared.move_node(id, x, y);
+            }
+            if let Some(alpha) = opacity {
+                let _ = prepared.set_node_opacity(id, alpha);
+            }
+        }
+        if let Some(renderer) = gl.renderer.as_mut() {
+            if let Some((x, y)) = position {
+                let _ = renderer.move_node(id, x, y);
+            }
+            if let Some(alpha) = opacity {
+                let _ = renderer.set_node_opacity(id, alpha);
+            }
+        }
+    }
     pub fn hide(st: &Rc<RefCell<State>>) {
         let native = st
             .borrow()
@@ -517,6 +587,7 @@ mod native {
         };
         let result = PreparedScene::new(&scene, Rect::new(0, 0, g.w(), g.h()));
         let mut s = st.borrow_mut();
+        s.stats.gpu_preparations += 1;
         match result {
             Ok(prepared) => {
                 if let Some(n) = &s.native {
@@ -580,6 +651,7 @@ mod native {
                 let s = st.borrow();
                 with_ring(&s.scene, s.ring, group.w(), group.h())
             };
+            st.borrow_mut().stats.gpu_preparations += 1;
             let prepared = match PreparedScene::new(&scene, Rect::new(0, 0, group.w(), group.h())) {
                 Ok(p) => p,
                 Err(e) => {
@@ -692,6 +764,7 @@ mod native {
                     gl.renderer = Some(renderer);
                     gl.pending_scene = false;
                     win.set_context_valid(true);
+                    owner.borrow_mut().stats.gpu_scene_uploads += 1;
                 }
                 Err(error) => {
                     owner.borrow_mut().error = Some(error);

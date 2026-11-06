@@ -5,6 +5,8 @@ use fltk::{enums::Align, prelude::*};
 use fltk_omarchy::{paint, scene::{self, Rect, Scene}, theme, AppWindow};
 use std::path::Path;
 
+mod nodes;
+
 type Check<'a> = &'a dyn Fn(&Path) -> Result<(), String>;
 
 fn content(x: i32, y: i32) {
@@ -37,6 +39,7 @@ fn content(x: i32, y: i32) {
 }
 
 pub fn checks(run: &mut dyn FnMut(&str, Check)) {
+    nodes::checks(run);
     run("scene surface CPU: retained painter, coordinates, invalidation, snapshots and keyboard", &|shots| {
         use fltk_omarchy::{gfx::Backend, focus, State};
         let color=State::new(theme::with(|t|t.palette.accent));
@@ -77,8 +80,27 @@ pub fn checks(run: &mut dyn FnMut(&str, Check)) {
         anim::set_enabled(true);
         let mut win=AppWindow::new("Scene clock",220,160);let mut body=win.body();body.set_margin(0);
         let shader=sl::Shader::new(|_,u|sl::mix(u.background(),u.accent(),sl::clamp(u.time(),0.0,1.0)));
-        let view=scene::Surface::new(150,90).paint(move|r,t|{scene::shader(r,&shader,&fltk_omarchy::gfx::Uniforms::from_theme(t,(r.w as f32,r.h as f32)));}).animate(Some(anim::Pace::Saver));
-        body.add(&*view);win.end();win.show();pump_for(30);let before=view.stats();
+        let view=scene::Surface::new(150,90).paint(move|r,t|{
+            // A tiled compositor may expand the window: this clock test
+            // needs a small shader, not an accidental fullscreen CPU bench.
+            let area=Rect::new(0,0,r.w.min(150),r.h.min(90));
+            scene::shader(area,&shader,&fltk_omarchy::gfx::Uniforms::from_theme(t,(area.w as f32,area.h as f32)));
+        }).animate(Some(anim::Pace::Saver));
+        body.add(&*view);win.end();win.show();
+        // Wayland configures the final tiled size asynchronously. Do not
+        // count that valid layout/focus invalidation as shader rebuilding.
+        let deadline=Instant::now()+Duration::from_secs(5);
+        let mut stable_since=Instant::now();
+        let mut signature=(view.w(),view.h(),view.stats().scene_builds);
+        let mut settled=false;
+        while Instant::now()<deadline {
+            pump_for(10);
+            let next=(view.w(),view.h(),view.stats().scene_builds);
+            if signature!=next {signature=next;stable_since=Instant::now();}
+            if view.stats().cpu_frames>=3 && stable_since.elapsed()>=Duration::from_millis(120) {settled=true;break;}
+        }
+        check(settled,"initial layout and focus settle before pacing sample")?;
+        let before=view.stats();
         pump_for(280);check(view.stats().cpu_frames>before.cpu_frames,"shared clock drives visible shader surface")?;
         check(view.stats().scene_builds==before.scene_builds,"paced frames retain scene painter")?;
         anim::set_enabled(false);view.set_time(None);pump_for(180);let frames=view.stats().cpu_frames;
