@@ -83,6 +83,11 @@ pub struct SurfaceStats {
     pub surface_draws: u64,
     pub cpu_frames: u64,
     pub gpu_frames: u64,
+    /// Cumulative submitted primitives and actual GL draw commands.
+    pub gpu_primitives: u64,
+    pub gpu_draw_calls: u64,
+    pub gpu_instance_upload_bytes: u64,
+    pub instance_bytes: usize,
     pub texture_bytes: usize,
     pub gpu_preparations: u64,
     pub gpu_scene_uploads: u64,
@@ -806,6 +811,7 @@ mod native {
         fn drop(&mut self) {
             if let Some(owner) = self.owner.upgrade() {
                 owner.borrow_mut().stats.texture_bytes = 0;
+                owner.borrow_mut().stats.instance_bytes = 0;
                 owner.borrow_mut().stats.overlay_texture_bytes = 0;
             }
             if let Some(renderer) = self.renderer.take() {
@@ -952,6 +958,7 @@ mod native {
                     let mut s = st.borrow_mut();
                     s.dirty = true;
                     s.stats.texture_bytes = 0;
+                    s.stats.instance_bytes = 0;
                     s.stats.overlay_texture_bytes = 0;
                     s.revision = s.revision.wrapping_add(1);
                 }
@@ -1250,6 +1257,11 @@ mod native {
             }
             let mut s = owner.borrow_mut();
             s.stats.gpu_frames += 1;
+            let frame = renderer.frame_stats();
+            s.stats.gpu_primitives += frame.primitives;
+            s.stats.gpu_draw_calls += frame.draw_calls;
+            s.stats.gpu_instance_upload_bytes += frame.instance_upload_bytes;
+            s.stats.instance_bytes = renderer.instance_bytes();
             s.stats.texture_bytes = renderer.texture_bytes();
             s.stats.overlay_texture_bytes = renderer.overlay_bytes();
         }

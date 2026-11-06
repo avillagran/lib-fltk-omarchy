@@ -8,7 +8,28 @@
 use super::{Command, Image, Layer, Rect, Scene, NodeId, NodeError, MAX_IMAGE_BYTES};
 use crate::gfx::{Color, Uniforms};
 use glow::HasContext;
-use std::{collections::{HashMap, HashSet}, rc::Rc, sync::Arc};
+use std::{cell::{Cell, RefCell}, collections::{HashMap, HashSet}, rc::Rc, sync::Arc};
+
+// Rectangles and colors are retained instance attributes, avoiding
+// dynamically indexed uniform arrays in driver shader compilation.
+const INSTANCE_FLOATS: usize = 8;
+const INSTANCE_STRIDE: usize = INSTANCE_FLOATS * std::mem::size_of::<f32>();
+const BASIC_VERTEX: &str = r#"#version 330 core
+uniform vec2 u_view;
+layout(location = 0) in vec4 instance_rect;
+layout(location = 1) in vec4 instance_color;
+uniform vec4 u_rect, u_color;
+uniform int u_instanced;
+out vec2 uv;
+out vec4 tint;
+void main() {
+    vec2 p[6] = vec2[6](vec2(0,0),vec2(1,0),vec2(0,1),vec2(0,1),vec2(1,0),vec2(1,1));
+    uv = p[gl_VertexID];
+    vec4 rect = u_instanced == 1 ? instance_rect : u_rect;
+    tint = u_instanced == 1 ? instance_color : u_color;
+    vec2 v = (rect.xy + uv * rect.zw) / u_view;
+    gl_Position = vec4(v.x * 2.0 - 1.0, 1.0 - v.y * 2.0, 0, 1);
+}"#;
 
 const VERTEX: &str = r#"#version 330 core
 uniform vec2 u_view;
@@ -23,14 +44,14 @@ void main() {
 const FRAGMENT: &str = r#"#version 330 core
 in vec2 uv;
 uniform sampler2D u_tex;
-uniform vec4 u_color;
+in vec4 tint;
 uniform int u_image;
 out vec4 output_color;
 void main() {
     if (u_image == 1) {
         vec4 c = texture(u_tex, uv);
-        output_color = vec4(c.rgb * u_color.rgb * u_color.a, c.a * u_color.a);
-    } else { output_color = vec4(u_color.rgb * u_color.a, u_color.a); }
+        output_color = vec4(c.rgb * tint.rgb * tint.a, c.a * tint.a);
+    } else { output_color = vec4(tint.rgb * tint.a, tint.a); }
 }"#;
 const SHADER_PRELUDE: &str = r#"#version 330 core
 in vec2 uv;
@@ -159,8 +180,9 @@ struct Locations {
     view: Option<glow::UniformLocation>,
     rect: Option<glow::UniformLocation>,
     image: Option<glow::UniformLocation>,
-    tex: Option<glow::UniformLocation>,
     color: Option<glow::UniformLocation>,
+    instanced: Option<glow::UniformLocation>,
+    tex: Option<glow::UniformLocation>,
     time: Option<glow::UniformLocation>,
     size: Option<glow::UniformLocation>,
     pointer: Option<glow::UniformLocation>,
@@ -171,7 +193,7 @@ impl Locations {
         let loc = |name| gl.get_uniform_location(program, name);
         Rc::new(Self {
             view: loc("u_view"), rect: loc("u_rect"), image: loc("u_image"),
-            tex: loc("u_tex"), color: loc("u_color"), time: loc("u_time"),
+            tex: loc("u_tex"), color: loc("u_color"), instanced: loc("u_instanced"), time: loc("u_time"),
             size: loc("u_size"), pointer: loc("u_pointer"),
             theme: ["u_background", "u_foreground", "u_accent", "u_urgent", "u_params"].map(loc),
         })
@@ -179,6 +201,15 @@ impl Locations {
 }
 struct Draw { rect: Rect, clip: Rect, texture: Option<glow::Texture>, program: glow::Program, locations: Rc<Locations>, color: Color, uniforms: Option<Uniforms>, order: super::node::Order }
 struct Overlay { rect: Rect, texture: glow::Texture, bytes: usize }
+
+/// Actual GL commands from the most recent draw, including the overlay.
+/// These are submissions; they do not measure physical presentation.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct FrameStats {
+    pub primitives: u64,
+    pub draw_calls: u64,
+    pub instance_upload_bytes: u64,
+}
 
 /// GL resources for one retained scene. Textures/programs upload only in
 /// `new`; draws update uniforms and submit quads, without CPU rasterizing.
@@ -195,6 +226,12 @@ pub struct Renderer {
     context_alive: bool,
     nodes: HashMap<NodeId, usize>,
     overlay: Option<Overlay>,
+    frame: Cell<FrameStats>,
+    instance_buffer: glow::Buffer,
+    instances: RefCell<Vec<f32>>,
+    instances_dirty: Cell<bool>,
+    instances_uploaded: Cell<bool>,
+    instanced_mode: Cell<bool>,
 }
 
 impl Renderer {
@@ -203,10 +240,11 @@ impl Renderer {
     /// draw and destruction of this renderer. Never move it across threads.
     /// Preparation must run before this call; it uses FLTK CPU surfaces.
     pub unsafe fn new(gl: Rc<glow::Context>, scene: PreparedScene) -> Result<Self, String> {
-        let basic = link(&gl, FRAGMENT)?;
+        let basic = link(&gl, BASIC_VERTEX, FRAGMENT)?;
         let vao = match gl.create_vertex_array() { Ok(v) => v, Err(e) => { gl.delete_program(basic); return Err(e); } };
+        let instance_buffer = match gl.create_buffer() { Ok(b) => b, Err(e) => { gl.delete_vertex_array(vao); gl.delete_program(basic); return Err(e); } };
         let basic_locations = Locations::new(&gl, basic);
-        let mut renderer = Self { gl, basic, basic_locations, vao, textures: Vec::new(), programs: Vec::new(), draws: Vec::new(), texture_bytes: 0, context_alive: true, nodes: scene.nodes, overlay: None };
+        let mut renderer = Self { gl, basic, basic_locations, vao, textures: Vec::new(), programs: Vec::new(), draws: Vec::new(), texture_bytes: 0, context_alive: true, nodes: scene.nodes, overlay: None, frame: Cell::default(), instance_buffer, instances: RefCell::default(), instances_dirty: Cell::new(true), instances_uploaded: Cell::new(false), instanced_mode: Cell::new(false) };
         let mut textures = HashMap::new();
         let mut programs: HashMap<String, (glow::Program, Rc<Locations>)> = HashMap::new();
         for item in scene.items {
@@ -251,7 +289,7 @@ impl Renderer {
                 }
                 Paint::Shader(source, uniforms) => {
                     let (program, locations) = if let Some(p) = programs.get(&source) { p.clone() } else {
-                        let p = link(&renderer.gl, &format!("{SHADER_PRELUDE}{source}"))?;
+                        let p = link(&renderer.gl, VERTEX, &format!("{SHADER_PRELUDE}{source}"))?;
                         renderer.programs.push(p);
                         let locations = Locations::new(&renderer.gl, p);
                         programs.insert(source, (p, locations.clone()));
@@ -263,6 +301,20 @@ impl Renderer {
             debug_assert!(item.id.map_or(true, |id| renderer.nodes.get(&id) == Some(&renderer.draws.len())));
             renderer.draws.push(Draw { rect: item.rect, clip: item.clip, texture, program, locations, color, uniforms, order: item.order });
         }
+        let count = renderer.draws.len().checked_add(1).ok_or("scene instance count overflow")?;
+        let bytes = count.checked_mul(INSTANCE_STRIDE).ok_or("scene instance bytes overflow")?;
+        if renderer.texture_bytes.checked_add(bytes).map_or(true, |n| n > MAX_IMAGE_BYTES) {
+            return Err("scene texture and instance budget exceeded (64 MiB)".into());
+        }
+        renderer.instances = RefCell::new(vec![0.0; count * INSTANCE_FLOATS]);
+        renderer.gl.bind_vertex_array(Some(renderer.vao));
+        renderer.gl.bind_buffer(glow::ARRAY_BUFFER, Some(renderer.instance_buffer));
+        for attribute in 0..2 {
+            renderer.gl.vertex_attrib_divisor(attribute, 1);
+            renderer.gl.vertex_attrib_pointer_f32(attribute, 4, glow::FLOAT, false, INSTANCE_STRIDE as i32, attribute as i32 * 16);
+        }
+        renderer.gl.bind_vertex_array(None);
+        renderer.gl.bind_buffer(glow::ARRAY_BUFFER, None);
         Ok(renderer)
     }
 
@@ -272,17 +324,21 @@ impl Renderer {
     pub(crate) fn abandon_context(mut self) { self.context_alive = false; }
 
     pub fn texture_bytes(&self) -> usize { self.texture_bytes + self.overlay_bytes() }
+    pub fn frame_stats(&self) -> FrameStats { self.frame.get() }
+    pub fn instance_bytes(&self) -> usize { if self.instances_uploaded.get() { self.instance_capacity_bytes() } else { 0 } }
+    fn instance_capacity_bytes(&self) -> usize { (self.draws.len() + 1) * INSTANCE_STRIDE }
     pub(crate) fn overlay_bytes(&self) -> usize { self.overlay.as_ref().map_or(0, |o|o.bytes) }
 
     /// Uses the existing basic program/VAO, independently of scene resources.
     /// Same-size captures update one texture; removing the last layer frees it.
     pub(super) unsafe fn update_overlay(&mut self, capture: Option<&super::bridge::Capture>) -> Result<(), String> {
+        self.instances_dirty.set(true);
         let Some(capture) = capture else {
             if let Some(overlay) = self.overlay.take() { self.gl.delete_texture(overlay.texture); }
             return Ok(());
         };
-        if self.texture_bytes.checked_add(capture.pixels.len()).map_or(true, |n|n>MAX_IMAGE_BYTES) {
-            return Err("scene and overlay texture budget exceeded (64 MiB)".into());
+        if self.texture_bytes.checked_add(self.instance_capacity_bytes()).and_then(|n| n.checked_add(capture.pixels.len())).map_or(true, |n|n>MAX_IMAGE_BYTES) {
+            return Err("scene instance and overlay texture budget exceeded (64 MiB)".into());
         }
         let max = self.gl.get_parameter_i32(glow::MAX_TEXTURE_SIZE);
         if capture.rect.w>max || capture.rect.h>max { return Err("overlay exceeds GL texture size".into()); }
@@ -311,8 +367,11 @@ impl Renderer {
     /// The viewport/ancestor clip stays fixed. This does not reflow text.
     pub fn move_to(&mut self, index: usize, x: i32, y: i32) -> bool {
         let Some(draw) = self.draws.get_mut(index) else { return false };
-        draw.rect.x = x;
-        draw.rect.y = y;
+        if draw.rect.x != x || draw.rect.y != y {
+            draw.rect.x = x;
+            draw.rect.y = y;
+            self.instances_dirty.set(true);
+        }
         true
     }
 
@@ -322,7 +381,11 @@ impl Renderer {
     pub fn set_opacity(&mut self, index: usize, opacity: f32) -> bool {
         let Some(draw) = self.draws.get_mut(index) else { return false };
         if draw.uniforms.is_some() || !opacity.is_finite() { return false; }
-        draw.color.a = opacity.clamp(0.0, 1.0);
+        let alpha = opacity.clamp(0.0, 1.0);
+        if draw.color.a != alpha {
+            draw.color.a = alpha;
+            self.instances_dirty.set(true);
+        }
         true
     }
 
@@ -344,7 +407,9 @@ impl Renderer {
     /// Raises within the node's original parent clip scope. O(draws +
     /// nodes), no GL calls/uploads; stable IDs are reindexed after motion.
     pub fn raise_node(&mut self, id: NodeId) -> Result<(), NodeError> {
-        super::node::raise(&mut self.draws, &mut self.nodes, id, |draw| &draw.order)
+        super::node::raise(&mut self.draws, &mut self.nodes, id, |draw| &draw.order)?;
+        self.instances_dirty.set(true);
+        Ok(())
     }
 
     /// Render to the current framebuffer; caller clears/retains it.
@@ -352,8 +417,9 @@ impl Renderer {
     /// `time` overrides shader time without rebuilding/rasterizing text.
     /// # Safety
     /// This renderer's context must be current, with its framebuffer bound.
-    /// The function owns GL blend/scissor/program/VAO/texture-unit-0 state.
+    /// The function owns GL blend/scissor/program/VAO/array-buffer/texture-unit-0 state.
     pub unsafe fn draw(&self, logical: (i32, i32), pixels: (i32, i32), time: Option<f32>) {
+        self.frame.set(FrameStats::default());
         if logical.0 <= 0 || logical.1 <= 0 || pixels.0 <= 0 || pixels.1 <= 0 { return; }
         let gl = &self.gl;
         gl.viewport(0, 0, pixels.0, pixels.1);
@@ -367,18 +433,26 @@ impl Renderer {
         gl.enable(glow::SCISSOR_TEST);
         gl.bind_vertex_array(Some(self.vao));
         gl.active_texture(glow::TEXTURE0);
-        for d in &self.draws {
-            let r = intersection(d.clip, Rect::new(0, 0, logical.0, logical.1));
-            if r.w <= 0 || r.h <= 0 || !d.rect.intersects(r) || (d.uniforms.is_none() && d.color.a<=0.0) { continue; }
-            let sx = pixels.0 as f64 / logical.0 as f64;
-            let sy = pixels.1 as f64 / logical.1 as f64;
+        let mut frame = FrameStats::default();
+        let mut instance_data_bound = false;
+        let viewport = Rect::new(0, 0, logical.0, logical.1);
+        let sx = pixels.0 as f64 / logical.0 as f64;
+        let sy = pixels.1 as f64 / logical.1 as f64;
+        let mut index = 0;
+        while index < self.draws.len() {
+            let d = &self.draws[index];
+            let r = intersection(d.clip, viewport);
+            if r.w <= 0 || r.h <= 0 || !d.rect.intersects(r) || (d.uniforms.is_none() && d.color.a <= 0.0) {
+                index += 1;
+                continue;
+            }
             let (x, y, right, bottom) = ((r.x as f64 * sx).round() as i32, (r.y as f64 * sy).round() as i32, ((r.x as f64 + r.w as f64) * sx).round() as i32, ((r.y as f64 + r.h as f64) * sy).round() as i32);
             gl.scissor(x, pixels.1 - bottom, right - x, bottom - y);
-            gl.use_program(Some(d.program));
-            let loc = &d.locations;
-            gl.uniform_2_f32(loc.view.as_ref(), logical.0 as f32, logical.1 as f32);
-            gl.uniform_4_f32(loc.rect.as_ref(), d.rect.x as f32, d.rect.y as f32, d.rect.w as f32, d.rect.h as f32);
             if let Some(u) = d.uniforms {
+                gl.use_program(Some(d.program));
+                let loc = &d.locations;
+                gl.uniform_2_f32(loc.view.as_ref(), logical.0 as f32, logical.1 as f32);
+                gl.uniform_4_f32(loc.rect.as_ref(), d.rect.x as f32, d.rect.y as f32, d.rect.w as f32, d.rect.h as f32);
                 gl.uniform_1_f32(loc.time.as_ref(), time.unwrap_or(u.time));
                 gl.uniform_2_f32(loc.size.as_ref(), d.rect.w as f32, d.rect.h as f32);
                 let p = u.pointer.unwrap_or((-1.0, -1.0));
@@ -387,30 +461,93 @@ impl Renderer {
                     gl.uniform_4_f32(location.as_ref(), c.r, c.g, c.b, c.a);
                 }
                 gl.uniform_4_f32(loc.theme[4].as_ref(), u.params[0], u.params[1], u.params[2], u.params[3]);
+                gl.draw_arrays(glow::TRIANGLES, 0, 6);
+                index += 1;
+                frame.primitives += 1;
             } else {
-                gl.uniform_1_i32(loc.image.as_ref(), i32::from(d.texture.is_some()));
-                gl.uniform_1_i32(loc.tex.as_ref(), 0);
-                gl.uniform_4_f32(loc.color.as_ref(), d.color.r, d.color.g, d.color.b, d.color.a);
-                gl.bind_texture(glow::TEXTURE_2D, d.texture);
+                let start = index;
+                // Only consecutive compatible primitives may share a
+                // submission. Never sort across shaders, clips or textures.
+                while index < self.draws.len() {
+                    let next = &self.draws[index];
+                    if next.uniforms.is_some() || next.texture != d.texture
+                        || intersection(next.clip, viewport) != r
+                        || !next.rect.intersects(r) || next.color.a <= 0.0 { break; }
+                    index += 1;
+                }
+                let count = index - start;
+                if count > 1 && !instance_data_bound {
+                    frame.instance_upload_bytes += self.upload_instances() as u64;
+                    instance_data_bound = true;
+                }
+                self.draw_batch(logical, d.texture, start, count, d.rect, d.color);
+                frame.primitives += count as u64;
             }
-            gl.draw_arrays(glow::TRIANGLES, 0, 6);
+            frame.draw_calls += 1;
         }
         if let Some(o) = &self.overlay {
-            gl.scissor(0,0,pixels.0,pixels.1);
-            gl.use_program(Some(self.basic));
-            let loc = &self.basic_locations;
-            gl.uniform_2_f32(loc.view.as_ref(),logical.0 as f32,logical.1 as f32);
-            gl.uniform_4_f32(loc.rect.as_ref(),o.rect.x as f32,o.rect.y as f32,o.rect.w as f32,o.rect.h as f32);
-            gl.uniform_1_i32(loc.image.as_ref(),1);
-            gl.uniform_1_i32(loc.tex.as_ref(),0);
-            gl.uniform_4_f32(loc.color.as_ref(),1.0,1.0,1.0,1.0);
-            gl.bind_texture(glow::TEXTURE_2D,Some(o.texture));
-            gl.draw_arrays(glow::TRIANGLES,0,6);
+            gl.scissor(0, 0, pixels.0, pixels.1);
+            self.draw_batch(logical, Some(o.texture), self.draws.len(), 1, o.rect, Color::rgba(1.0, 1.0, 1.0, 1.0));
+            frame.primitives += 1;
+            frame.draw_calls += 1;
         }
+        self.frame.set(frame);
         gl.disable(glow::SCISSOR_TEST);
         gl.bind_vertex_array(None);
+        gl.bind_buffer(glow::ARRAY_BUFFER, None);
         gl.use_program(None);
     }
+    unsafe fn upload_instances(&self) -> usize {
+        let gl = &self.gl;
+        gl.bind_buffer(glow::ARRAY_BUFFER, Some(self.instance_buffer));
+        if !self.instances_dirty.replace(false) { return 0; }
+        let mut data = self.instances.borrow_mut();
+        for (draw, instance) in self.draws.iter().zip(data.chunks_exact_mut(INSTANCE_FLOATS)) {
+            instance.copy_from_slice(&[draw.rect.x as f32, draw.rect.y as f32, draw.rect.w as f32, draw.rect.h as f32,
+                draw.color.r, draw.color.g, draw.color.b, draw.color.a]);
+        }
+        if let Some(overlay) = &self.overlay {
+            let rect = overlay.rect;
+            data[self.draws.len() * INSTANCE_FLOATS..].copy_from_slice(&[rect.x as f32, rect.y as f32, rect.w as f32, rect.h as f32, 1.0, 1.0, 1.0, 1.0]);
+        }
+        // SAFETY: f32 storage is initialized, contiguous and has no padding;
+        // new checked the byte count and draw count before allocation.
+        let bytes = std::slice::from_raw_parts(data.as_ptr().cast::<u8>(), self.instance_capacity_bytes());
+        if self.instances_uploaded.replace(true) {
+            gl.buffer_sub_data_u8_slice(glow::ARRAY_BUFFER, 0, bytes);
+        } else {
+            gl.buffer_data_u8_slice(glow::ARRAY_BUFFER, bytes, glow::DYNAMIC_DRAW);
+        }
+        bytes.len()
+    }
+    unsafe fn draw_batch(&self, logical: (i32, i32), texture: Option<glow::Texture>, start: usize, count: usize, rect: Rect, color: Color) {
+        let gl = &self.gl;
+        let loc = &self.basic_locations;
+        gl.use_program(Some(self.basic));
+        gl.uniform_2_f32(loc.view.as_ref(), logical.0 as f32, logical.1 as f32);
+        let instanced = count > 1;
+        if self.instanced_mode.replace(instanced) != instanced {
+            gl.uniform_1_i32(loc.instanced.as_ref(), i32::from(instanced));
+            for attribute in 0..2 {
+                if instanced { gl.enable_vertex_attrib_array(attribute); }
+                else { gl.disable_vertex_attrib_array(attribute); }
+            }
+        }
+        if instanced {
+            let offset = (start * INSTANCE_STRIDE) as i32;
+            gl.vertex_attrib_pointer_f32(0, 4, glow::FLOAT, false, INSTANCE_STRIDE as i32, offset);
+            gl.vertex_attrib_pointer_f32(1, 4, glow::FLOAT, false, INSTANCE_STRIDE as i32, offset + 16);
+        } else {
+            gl.uniform_4_f32(loc.rect.as_ref(), rect.x as f32, rect.y as f32, rect.w as f32, rect.h as f32);
+            gl.uniform_4_f32(loc.color.as_ref(), color.r, color.g, color.b, color.a);
+        }
+        gl.uniform_1_i32(loc.image.as_ref(), i32::from(texture.is_some()));
+        gl.uniform_1_i32(loc.tex.as_ref(), 0);
+        gl.bind_texture(glow::TEXTURE_2D, texture);
+        if instanced { gl.draw_arrays_instanced(glow::TRIANGLES, 0, 6, count as i32); }
+        else { gl.draw_arrays(glow::TRIANGLES, 0, 6); }
+    }
+
 }
 
 impl Drop for Renderer {
@@ -423,14 +560,15 @@ impl Drop for Renderer {
             for p in &self.programs { self.gl.delete_program(*p); }
             self.gl.delete_program(self.basic);
             self.gl.delete_vertex_array(self.vao);
+            self.gl.delete_buffer(self.instance_buffer);
         }
     }
 }
 
-unsafe fn link(gl: &glow::Context, fragment: &str) -> Result<glow::Program, String> {
+unsafe fn link(gl: &glow::Context, vertex: &str, fragment: &str) -> Result<glow::Program, String> {
     let program = gl.create_program()?;
     let mut shaders = Vec::new();
-    for (kind, source) in [(glow::VERTEX_SHADER, VERTEX), (glow::FRAGMENT_SHADER, fragment)] {
+    for (kind, source) in [(glow::VERTEX_SHADER, vertex), (glow::FRAGMENT_SHADER, fragment)] {
         let shader = match gl.create_shader(kind) { Ok(s) => s, Err(e) => { for s in shaders { gl.delete_shader(s); } gl.delete_program(program); return Err(e); } };
         gl.shader_source(shader, source);
         gl.compile_shader(shader);

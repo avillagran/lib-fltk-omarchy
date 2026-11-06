@@ -45,7 +45,10 @@ accessibility and CPU rendering while changing submission and caching.
    and 119 MiB with shader disk caching disabled. The cold ≤100 MiB gate
    remains open. A shader-compiler release hint did not improve it.
 3. Cache pipeline state and uniform locations, add ordered batching and
-   instancing, and measure actual submissions/binds/uploads. Preserve
+   instancing, and measure actual submissions/binds/uploads. Uniform
+   locations and bounded consecutive solid/image instancing are now
+   implemented; the latter preserves shaders, clips, texture boundaries
+   and keyed raising, with actual primitive/draw-call counters. Preserve
    updates across native re-entrant message dispatch instead of nesting
    mutable draw state; GPUI's window frame callback explicitly defers such
    draws and keeps presentation demand.

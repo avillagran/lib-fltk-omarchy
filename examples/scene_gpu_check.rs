@@ -24,7 +24,8 @@ fn main() {
     });
     let card = scene::Layer::new(Rect::new(0, 0, 110, 65), card).unwrap();
     let (scene, ()) = Scene::record(|| {
-        paint::fill(0, 0, W, H, 0, t.palette.background);
+        // Start with a shader, before any instanced draw initializes its
+        // per-batch offsets. The opaque shader supplies the background.
         assert!(scene::shader(Rect::new(0, 0, W, H), &shader, &uniforms));
         assert!(card.draw_keyed(NodeId(7),14,12,0.7).unwrap());
         assert!(card.draw_keyed(NodeId(91),-200,-200,0.0).unwrap());

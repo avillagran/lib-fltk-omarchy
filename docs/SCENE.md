@@ -214,8 +214,8 @@ creation or texture uploads. `overlay_captures`, `overlay_uploads` and
 `overlay_texture_bytes` expose that work in `SurfaceStats`; total
 `texture_bytes` includes the overlay. Closing the last overlay releases it.
 
-The capture and combined scene/overlay texture budgets are each bounded
-by 64 MiB. Capture needs temporary native RGB surfaces and CPU buffers as
+The CPU capture budget is 64 MiB. Scene/overlay textures and the instance
+buffer together share a separate 64 MiB GPU resource budget. Capture needs temporary native RGB surfaces and CPU buffers as
 well. Modal scrims can make the crop cover the entire viewport; this stage
 does not make large full-window bitmap fallbacks cheap. Native overlay
 primitives/layers and atlases remain part of the full-window renderer work.
@@ -439,9 +439,11 @@ AppWindow controls keep their CPU renderer.
    entering a GL callback. It resolves CPU fallbacks and folds clip scopes.
 2. In the current GL context, construct `Renderer` once. It uploads textures
    and compiles shader programs. It deduplicates shared image resources and
-   shader sources and caps retained textures at 64 MiB.
+   shader sources. Textures and the retained instance buffer together are
+   capped at 64 MiB.
 3. `Renderer::move_to` and `set_opacity` update a prepared card/sprite
-   without reflow, rasterization or uploads. Indexes use visible prepared
+   without reflow, rasterization or texture uploads. Changed instance
+   records are uploaded on the next draw. Indexes use visible prepared
    paint order, which can change after raising a node; prefer the keyed
    methods above for application identities.
    Top-level shader opacity changes are not yet supported.
@@ -460,6 +462,21 @@ uniform-name queries; context recovery rebuilds the locations together
 with their programs. A zero-width/height surface unmaps its native child
 and releases its textures outside drawing; restoring positive dimensions
 recovers the GPU without an application invalidation or backend error.
+Consecutive solid/image quads with the same texture and clip use instanced
+batches. Per-instance rectangles and colors use a retained 32-byte record
+per prepared primitive, plus one reserved overlay record. CPU storage is
+allocated once per renderer; the matching GPU store is allocated lazily
+when a batch first needs it and updated only after instance properties/order
+change. Isolated quads use the simple uniform path, without instance-store
+allocation/uploads or attribute-offset updates. Textures and reserved
+instance data share the aggregate 64 MiB GPU resource budget. Batches stop
+at shaders, texture changes, clips and culled entries; paint order and
+keyed raising remain unchanged. `Renderer::frame_stats` exposes submitted
+primitives and actual GL draw calls. `SurfaceStats::gpu_primitives` and
+`gpu_draw_calls` accumulate those counts across frames, including overlays.
+These counters measure submissions, not physical presentation.
+`instance_bytes` reports the retained GPU buffer; `gpu_instance_upload_bytes`
+counts its cumulative uploads. Shader time alone does not update this buffer.
 `scene::shader(rect, &program, &uniforms)` records a shared
 `gfx::sl` program and local uniforms; CPU replay evaluates the same program
 into bounded RGBA. Logical size follows the target rectangle. On the GPU,
@@ -480,7 +497,7 @@ that round trip otherwise loses color precision at overlapping edges.
 Public `Image` and isolated-layer resources remain straight RGBA. GL
 textures use premultiplied colors before filtering, which avoids halos from
 transparent texels. This is not a glyph/image
-atlas, geometry batching or native GPU layer rendering. A shader inside an
+atlas or native GPU layer rendering. A shader inside an
 isolated CPU layer is flattened at preparation time; draw-time animation
 currently affects only top-level shader commands. Rebuild preparation when
 layout/theme/language/fonts/scale change. CPU fallbacks are at logical 1×.
@@ -647,3 +664,44 @@ language invalidation, keyboard input, one local pointer delivery through a
 mapped GL child, mapped snapshots, hide/show context recovery, backend
 switches, motion-off/hidden clock stopping and motion-on resume. A GPU clock
 check asserts frames advance without parent draws or scene rebuilds.
+
+## Ordered batch validation (2026-11-06)
+
+The ordered solid/image workload submits 310 visible quads in 8 GL draw
+calls, with a 9,952-byte instance store, on NVIDIA RTX 3070 Ti and Mesa
+llvmpipe. Whole-frame read-back stays within 2 RGB levels of CPU replay
+before/after keyed movement, opacity and raising. Clip/shader barriers and
+overlapping colors are covered. Changing shader time uploads no instances;
+zero width/height releases textures and the instance buffer, then positive
+size recovers GL. The low-level FBO check starts with a shader before any
+instanced draw: initial/keyed/deferred maximum differences are 1/2/2 and
+GL error is zero on both drivers.
+
+The real lava controller is a different workload: its card textures are
+distinct, so it currently gains no batching. It takes the singleton uniform
+path with zero instance-store allocation/uploads. A matched release control
+from `81ca273` uses the same controller and overlay at 720×639 on Wayland,
+RTX 3080 Ti, hidden workspace, no focus. Each case below is one run:
+
+| Cache condition | Control CPU/core | Adaptive CPU/core | Control active PSS | Adaptive active PSS |
+|---|---:|---:|---:|---:|
+| Repeated normal run | 2.05% | 1.60% | 93.7 MiB | 94.3 MiB |
+| Disk caching disabled | 1.31% | 2.48% | 137.5 MiB | 139.8 MiB |
+| First normal run | 1.63% | 1.92% | 150.8 MiB | 150.8 MiB |
+
+CPU variation does not establish a precise improvement or regression.
+Anonymous PSS is approximately 30.1/67.1/79.1 MiB for repeated/disabled/first
+runs in both renderers. Earlier measurements at different times are not a
+matched memory comparison. The cold ≤100 MiB gate remains unmet. Uniform
+arrays and always-instanced quads were explored and discarded; these
+controls do not prove a shader-layout cause for the compilation memory.
+No heap tuning or compiler-release hint is retained.
+
+All runs finish the 5→4 removal with no flight left, zero focus changes,
+zero idle frames and no idle instance uploads. Submission rates around
+64/s include input-driven frames and are not presentation rates. A dense
+workload CPU comparison, image/glyph atlases, cold-memory work, native
+isolated layers, full-window integration and the real o3/high-refresh/power
+gates remain. [Raw controls and submission counts](scene-batching-2026-11-06.json)
+include the exploratory variants without claiming their results for the
+retained renderer.

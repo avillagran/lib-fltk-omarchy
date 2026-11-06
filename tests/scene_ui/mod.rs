@@ -11,6 +11,8 @@ mod motion;
 mod overlays;
 #[cfg(feature="gpu")]
 mod lifecycle;
+#[cfg(feature="gpu")]
+mod batching;
 
 type Check<'a> = &'a dyn Fn(&Path) -> Result<(), String>;
 
@@ -50,6 +52,8 @@ pub fn checks(run: &mut dyn FnMut(&str, Check)) {
     overlays::checks(run);
     #[cfg(feature="gpu")]
     lifecycle::checks(run);
+    #[cfg(feature="gpu")]
+    batching::checks(run);
     run("scene surface bounded shader: final phase, restart, explicit time and reduced motion", &|shots| {
         use fltk_omarchy::{anim::{self, clock, Pace}, gfx::{sl, Uniforms}};
         use std::time::Duration;

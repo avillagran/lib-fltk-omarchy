@@ -88,7 +88,11 @@ def main():
             if phase in ("idle", "animation", "idle_again") and phase not in phases:
                 try:
                     lines = Path(f"/proc/{pid}/smaps_rollup").read_text().splitlines()
-                    samples.append({"phase": phase, "pss_kib": sum(int(s.split()[1]) for s in lines if s.startswith(("Pss:", "SwapPss:")))})
+                    rollup = {line.split(":", 1)[0]: int(line.split()[1]) for line in lines if ":" in line and line.split()[1:2] and line.split()[1].isdigit()}
+                    samples.append({"phase": phase, "pss_kib": rollup.get("Pss", 0) + rollup.get("SwapPss", 0),
+                                    "pss_anon_kib": rollup.get("Pss_Anon"), "pss_file_kib": rollup.get("Pss_File"),
+                                    "pss_shmem_kib": rollup.get("Pss_Shmem"),
+                                    "private_kib": rollup.get("Private_Clean", 0) + rollup.get("Private_Dirty", 0)})
                     phases.add(phase)
                 except OSError:
                     pass

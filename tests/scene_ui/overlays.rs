@@ -16,7 +16,7 @@ use std::{
     time::{Duration, Instant},
 };
 type Check<'a> = &'a dyn Fn(&Path) -> Result<(), String>;
-fn wait(mut condition: impl FnMut() -> bool) -> bool {
+pub(super) fn wait(mut condition: impl FnMut() -> bool) -> bool {
     let end = Instant::now() + Duration::from_secs(6);
     while Instant::now() < end {
         App::pump();
@@ -44,7 +44,7 @@ fn pixel(surface: &Surface, x: i32, y: i32) -> Result<[u8; 4], String> {
     check(wait(|| value.get().is_some()), "live pixel completes")?;
     Ok(value.get().unwrap())
 }
-fn parity(win: &mut AppWindow, surface: &Surface, shots: &Path, name: &str) -> Result<(), String> {
+pub(super) fn parity(win: &mut AppWindow, surface: &Surface, shots: &Path, name: &str) -> Result<(), String> {
     let image = Rc::new(RefCell::new(None));
     let reply = image.clone();
     check(
@@ -272,8 +272,9 @@ pub fn checks(run: &mut dyn FnMut(&str, Check)) {
         check(picked.get()==1 && clicks.get()==0,"native-child click reaches the popup control once, never the scene")?;
         anim::set_enabled(true);surface.clone().animate(Some(anim::Pace::Display));
         pump(150);let before=surface.stats();pump(240);let after=surface.stats();
-        check(after.gpu_frames>before.gpu_frames && after.overlay_captures==before.overlay_captures && after.overlay_uploads==before.overlay_uploads && after.gpu_preparations==before.gpu_preparations && after.gpu_scene_uploads==before.gpu_scene_uploads && after.surface_draws==before.surface_draws,"live shader reuses the static CPU overlay without capture, upload or parent draws")?;
+        check(after.gpu_frames>before.gpu_frames && after.overlay_captures==before.overlay_captures && after.overlay_uploads==before.overlay_uploads && after.gpu_instance_upload_bytes==before.gpu_instance_upload_bytes && after.gpu_preparations==before.gpu_preparations && after.gpu_scene_uploads==before.gpu_scene_uploads && after.surface_draws==before.surface_draws,"live shader reuses the static CPU overlay without capture, upload or parent draws")?;
         check(after.overlay_texture_bytes>0 && surface.active_backend()==Backend::Gpu,"widget popup is composed in the active GPU framebuffer")?;
+        check(after.instance_bytes==0 && after.gpu_instance_upload_bytes==0,"singleton shader/overlay scene never allocates or uploads an instance store")?;
         surface.set_time(Some(0.0));let a=pixel(&surface,10,300)?;
         surface.set_time(Some(1.0));let b=pixel(&surface,10,300)?;
         check(a!=b,"shader pixels change behind the retained popup")?;

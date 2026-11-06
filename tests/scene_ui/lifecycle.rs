@@ -54,6 +54,7 @@ pub fn checks(run: &mut dyn FnMut(&str, Check)) {
             view.resize(x, y, width, height);
             win.redraw();
             check(wait(|| view.stats().texture_bytes == 0 && view.child(0).is_some_and(|c| !c.visible())), "zero area hides native child and releases textures")?;
+            check(view.stats().instance_bytes == 0, "zero area releases the instance buffer")?;
             pump_for(150);
             let before = view.stats();
             pump_for(180);

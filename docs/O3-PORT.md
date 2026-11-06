@@ -288,11 +288,13 @@ on the GPU backend than on the CPU backend; idle stays 0 %; total PSS
 | P0 8 NavTree o3 rows: cards, trailing actions, tree guides, hover preview, `ShelfResizer` | merged |
 | P1 9 native diff viewer (`diff`: parser, `DiffView`, `DiffFiles`; docs/DIFF.md) | merged |
 | P1 12 splitter (`split::Split`) | merged |
+| P1 12 lazy modal sheet with delayed content release | pending; generic `PopupCard` does not provide this lifecycle |
 | P1 13 reorder in plain lists (`List::reorderable`) | merged |
 | P1 14 nested scroll hand-off (`Scroll::passes`) | merged for List, Table, Tree, RichText, NavTree and TextArea |
 | P1 17 keys: command tables, record, repeat, suspend | merged |
 | P1 18 font weights, letter spacing, named and terminal colors, project colors | merged |
 | P1 19 charts (`chart`), QR codes (`qr`, feature), masked input (`TextField::mask`) | merged |
+| P1 19 persistent notice cards with actions | pending; existing critical notifications persist but only dismiss |
 | P1 15 paced animation clock (`anim::Pace`, `PaceMode`) | merged |
 | P1 16 layer rendering (`layer::Layer`, `capture`, `cross_fade`) | merged |
 | P1 10 `FrameView`: shared-memory frames (memfd/shm/file mapping, triple buffer, pipe/FIFO/event wake-ups), input events with Qt mapping, resize/zoom/copy, PNG/BMP file mode for gradual migration (`frame`, docs/FRAMES.md) | merged |
@@ -359,7 +361,7 @@ Continue section 4 without changing the CPU default:
    rectangles, portable shader commands and CPU texture fallbacks into a
    single framebuffer (read-back check added). Managed `scene::Surface` now owns CPU/GL lifecycle, snapshots, input,
    invalidation and paced shader frames. Stable keyed position/opacity updates
-   now preserve initially culled/zero-alpha cards without preparation/uploads.
+   now preserve initially culled/zero-alpha cards without preparation/texture uploads.
    Scoped keyed raising and rectangular clipped hit testing are now included.
    Managed node position/opacity transitions now use the shared clock,
    preserve retargeted poses and stop when settled/hidden/reduced motion.
@@ -368,7 +370,10 @@ Continue section 4 without changing the CPU default:
    Its tests include full actual GPU read-back versus CPU replay.
    The CPU-widget overlay bridge now retains textures independently of the
    scene and routes native-child events through the top-level window.
-   Next: full-window widget rendering, batched quads, glyph/image atlases and
+   Consecutive compatible quads now use retained instanced attributes and
+   ordered batches; shader-only frames reuse the instance buffer. Zero-area
+   regions suspend GL and release resources, recovering on positive size.
+   Next: full-window widget rendering, glyph/image atlases and
    native isolated shader layers.
 4. A live version of the interaction now runs in `examples/lava.rs`.
    [Measurements](SCENE.md#interactive-lava-example) cover the actual
