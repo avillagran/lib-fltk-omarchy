@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- **Managed scene surface** (`scene::Surface`): retained local-coordinate
+  painter, explicit CPU/GL policy with CPU default/fallback, automatic
+  theme/language/size/focus invalidation, local input and one keyboard stop,
+  CPU snapshots even while mapped on GL, tracked context lifecycle and
+  backend switching. Shader animation uses the shared paced clock; GL
+  frames redraw the child only, CPU requests are capped at Low before the
+  global pace policy, and hidden/reduced-motion/frozen views stop queuing.
+  `scene_surface` demonstrates shared translucent layers and has release
+  idle/animation/idle diagnostics. Widget/overlay bridge and atlases remain
+  pending. docs/SCENE.md.
+
 - **Single-surface GL scene compositor spike** (feature `gpu`):
   `scene::gpu::PreparedScene` / `Renderer`, native rectangles and portable
   `scene::shader` commands, premultiplied alpha/scissor composition, retained
@@ -9,7 +20,7 @@
   One framebuffer, shared resource/program uploads, 64 MiB texture budget,
   no timers. `scene_gpu_check` compares full CPU/GPU read-back and shader
   time changes in private Xvfb; CI runs it. Explicit unsafe GL context
-  lifetime API; managed surface, atlases and batching remain pending.
+  lifetime API; atlases and batching remain pending.
   CPU AppWindow rendering stays the default. docs/SCENE.md.
 
 - **Isolated scene layers** (`scene::Layer`): retain a bounded child scene,
@@ -17,7 +28,8 @@
   Rounded transparent corners, nested layers, outer clips, shared handles
   and recursive cache release. CPU fallback reconstructs RGBA with native
   black/white passes at logical 1×, then retains it; bounded temporary
-  storage and fading buffer are explicit. GPU composition remains pending.
+  storage and fading buffer are explicit. GL currently composes their retained
+  CPU texture; native isolated GPU layers remain pending.
   docs/SCENE.md.
 
 - **Scene images and exact CPU damage replay**: immutable validated RGBA

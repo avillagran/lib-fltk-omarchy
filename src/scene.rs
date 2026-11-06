@@ -10,6 +10,8 @@
 mod image;
 mod layer;
 mod shader;
+pub(crate) mod surface;
+pub use surface::{Surface, SurfaceStats};
 pub use shader::shader;
 #[cfg(feature = "gpu")]
 pub mod gpu;
@@ -129,6 +131,37 @@ impl Scene {
 
     /// Replays on the current FLTK drawing surface, respecting its clip.
     pub fn draw(&self) { self.replay(None); }
+
+    /// Draws a local-coordinate scene translated into its parent's surface.
+    /// Shader time can be overridden without rebuilding scene content.
+    /// Returns false before painting if translated coordinates overflow.
+    pub fn draw_at(&self, x: i32, y: i32, time: Option<f32>) -> bool {
+        let Some(local) = self.translated(x, y, time) else { return false };
+        local.draw();
+        true
+    }
+
+    fn translated(&self, dx: i32, dy: i32, time: Option<f32>) -> Option<Scene> {
+        let mut scene = Scene { commands: self.commands.clone(), raster: RefCell::new(None) };
+        for command in &mut scene.commands {
+            let rect = match command {
+                Command::Fill { rect, .. } | Command::Stroke { rect, .. }
+                | Command::Text { rect, .. } | Command::SpacedText { rect, .. }
+                | Command::AlphaFill { rect, .. } | Command::Image { rect, .. }
+                | Command::Layer { rect, .. } | Command::PushClip(rect) => Some(rect),
+                Command::Shader { rect, uniforms, .. } => {
+                    if let Some(time) = time { uniforms.time = time; }
+                    Some(rect)
+                }
+                Command::PopClip => None,
+            };
+            if let Some(rect) = rect {
+                rect.x = rect.x.checked_add(dx)?;
+                rect.y = rect.y.checked_add(dy)?;
+            }
+        }
+        Some(scene)
+    }
 
     /// Replays only within `damage`, leaving all other pixels untouched.
     /// A lazily cached opaque raster makes clipping deterministic across

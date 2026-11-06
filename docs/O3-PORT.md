@@ -291,7 +291,7 @@ on the GPU backend than on the CPU backend; idle stays 0 %; total PSS
 | P1 10 `FrameView`: shared-memory frames (memfd/shm/file mapping, triple buffer, pipe/FIFO/event wake-ups), input events with Qt mapping, resize/zoom/copy, PNG/BMP file mode for gradual migration (`frame`, docs/FRAMES.md) | merged |
 | P1 11 video and audio (`media::Video` / `media::Audio`, feature `playback`, system ffmpeg) | merged; Linux verified, macOS/Windows type-checked |
 | P1 20 math (`text::math`, `MarkdownOptions::with_math`: Unicode text like o3, no math layout engine) | merged |
-| Section 4 shared painter / GPU scene | CPU command list plus immutable RGBA resources and bounded raster-backed damage replay implemented (`scene`, [SCENE.md](SCENE.md)); low-level single-framebuffer GL compositor/read-back spike implemented; integrated surface, atlases, native layers and policy pending |
+| Section 4 shared painter / GPU scene | CPU command list plus immutable RGBA resources and bounded raster-backed damage replay implemented (`scene`, [SCENE.md](SCENE.md)); low-level single-framebuffer GL compositor/read-back spike implemented; managed `scene::Surface` added; atlases, native layers, widget/overlay bridge and policy pending |
 
 Verified locally on the merged branch: unit, doc and UI tests on X11
 (default, `a11y`, `images`, `qr`), CI clippy, platform rustfmt,
@@ -346,9 +346,10 @@ Continue section 4 without changing the CPU default:
    shader layers) and an invalidation lifecycle for widget caches.
 3. One GL scene surface: low-level `scene::gpu::Renderer` now composes
    rectangles, portable shader commands and CPU texture fallbacks into a
-   single framebuffer (read-back check added). Next: managed surface,
-   batched quads, glyph/image atlases, CPU widget texture bridge and native
-   isolated shader layers.
+   single framebuffer (read-back check added). Managed `scene::Surface` now owns CPU/GL lifecycle, snapshots, input,
+   invalidation and paced shader frames. Next: batched quads, glyph/image
+   atlases, keyed scene updates, CPU widget/overlay texture bridge and
+   native isolated shader layers.
 4. Exercise a live version of the video interaction; measure CPU, GPU and
    total PSS at normal and high-refresh resolutions. Keep effects bounded,
    respect reduced motion and stop when hidden. The recorded video is a

@@ -106,11 +106,127 @@ without an opaque background, but root `draw_damage` still requires one.
 `draw_at` returns false on surface/coordinate failures; recorded calls
 defer rasterization until replay. Check the return when drawing directly.
 
+## Managed surface
+
+`scene::Surface` hosts the same local-coordinate scene on CPU or GL without
+application GL context calls. CPU is the default even with feature `gpu`;
+`Backend::Auto` also stays on CPU until the measured window policy is ready.
+Opt in with `backend(Backend::Gpu)` for an effect that needs the compositor.
+
+```rust,no_run
+use fltk::prelude::*;
+use fltk_omarchy::{App, AppWindow, paint, scene::Surface};
+let app = App::new("dev.example.scene");
+let mut win = AppWindow::new("Scene", 420, 300);
+let mut body = win.body();
+let surface = Surface::new(380, 240).paint(|r, t| {
+    paint::fill(0, 0, r.w, r.h, 0, t.palette.background);
+    // scene::shader and isolated layers can be recorded here as well.
+});
+body.add(&*surface);
+win.end();
+win.show();
+app.run();
+```
+
+The painter is retained and re-recorded on size, theme, language, focus-ring
+or explicit `invalidate()` changes. It receives a local rectangle and the
+current theme. `set_scene` accepts an already recorded immutable scene;
+its colors/layout are the caller's responsibility. This is an opaque
+surface: it clears its background with the theme background before replay.
+Translucent cards blend with earlier commands in that same scene.
+
+`on_event` receives local pointer coordinates and normal FLTK events.
+The surface is one keyboard stop; its GL child never owns logical focus.
+Native input is delivered once even when an unhandled event traverses both
+the group and GL child. Return true for handled actions, false to let app
+shortcuts continue. Use `KeyboardPanel` + `focus::host` for virtual region
+controls, stable selection and accessible rows. The canvas does not turn
+painted labels into interactive widgets or a semantic accessibility tree.
+Name it with `AccessibleExt` and bind all drawn text through `tr!`/i18n.
+
+`animate(Some(Pace::Display))` advances top-level shader time through the
+shared toolkit clock. GPU frames redraw only the GL child, not the CPU
+parent/window background. CPU frames request at most `Pace::Low` (30 fps)
+before the global pace policy is applied. Hidden views, reduced motion,
+explicitly frozen time and scenes without top-level shaders stop requesting
+frames. An event-loop check notices motion-setting changes and resumes a
+stopped visible view without a polling timer. `set_time(Some(t))` freezes
+phase; `set_time(None)` resumes automatic time when a pace is selected.
+`animate(None)` stops automatic pacing and returns to recorded shader time.
+
+GL activation waits three short ticks after the parent maps (Wayland's
+first-frame restriction). Static views install no repeating timer after
+activation. Resize, hide/show and CPU/GPU policy switches prepare/recover
+resources as needed. Preparation/renderer errors return to CPU and are
+available from `backend_error`; `invalidate` permits a retry. Applications
+do not own context creation/destruction. Native draw callbacks own the GL
+resources; tracked weak handles let the host update them without extending
+their lifetime beyond the native window. Known lost contexts abandon old
+names rather than deleting them in a different context.
+
+`AppWindow::snapshot` and `layer::capture` force scene surfaces through CPU
+replay, even after GL activation. Use `read_gpu_pixel` for actual GL output.
+Other custom offscreen harnesses should render the local `Scene` directly;
+a generic native widget capture is not automatically detectable everywhere.
+The widget retains scene content across shader time changes. `SurfaceStats`
+separates scene builds, parent surface draws, CPU frames, GPU submissions and
+retained texture bytes; frame counts are not presentation callbacks.
+
+Try `examples/scene_surface.rs`: same painter and two shared translucent
+cards over a portable gradient, live theme/language and snapshot support.
+It animates only after GL activates; CPU-only/error fallback is static.
+
+```sh
+cargo run --example scene_surface -- --snapshot target/surface.png
+cargo run --features gpu --example scene_surface
+# Release process-CPU/frame diagnostic, inside a private display:
+env -u WAYLAND_DISPLAY xvfb-run -a cargo run --release --features gpu \
+  --example scene_surface -- --bench target/surface-bench.json
+# Real Wayland diagnostic on Hyprland (no-focus spawn, focus event check):
+cargo build --release --features gpu --example scene_surface
+script/scene-bench
+script/scene-bench --cpu
+# --size WIDTHxHEIGHT changes window size. Reports go to build/scene-bench/.
+```
+
+The bench waits for activation, then samples idle, paced animation and idle
+again, forcing motion on only in that process. It reports actual frame
+rates, scene builds and parent redraws alongside process CPU. The two-card
+workload does not close the lava/5,000-message/4K120 efficiency gates.
+
+A sequential release run on 2026-11-06 used Wayland, a 1920×1080 scale-1
+output and a 420×299 surface (420×340 window):
+
+| Backend | Animated fps | Process CPU (% of one core) | Active PSS | Idle frames |
+| --- | ---: | ---: | ---: | ---: |
+| GPU, NVIDIA RTX 3080 Ti | 60.0 | 0.96% | 46.9 MiB | 0 |
+| CPU shader interpreter | 29.9 | 74.6% | 28.0 MiB | 0 |
+
+Both idle intervals used at most 0.014% CPU; neither backend rebuilt the
+scene during animation. GPU frames also left the CPU parent untouched.
+The monitor recorded zero focus-change events for both runs. These are
+process CPU/PSS observations, not GPU utilization or power measurements;
+the CPU row measures an animated shader, not ordinary static controls.
+[Raw report](scene-surface-2026-11-06.json) includes device and phase data.
+The earlier private-Xvfb parity check used an RTX 3070 Ti; those results
+must not be treated as the same-device performance comparison. An initial
+memory drop could not be attributed to heap trimming: a control without
+that change reproduced it, so no allocator optimization was retained.
+
+The managed surface still uses one native GL subwindow for the region. It
+is not full-window integration of normal FLTK controls: a widget texture
+bridge, CPU popup/native-child stacking integration and semantic virtual
+controls remain work. Atlases, batched geometry and native isolated shader
+layers are also pending. Prefer one surface for a whole composed region,
+not a GL surface per row, and retain the CPU policy for ordinary app UI.
+
 ## Single-surface GL compositor spike
 
 With feature `gpu`, `scene::gpu::{PreparedScene, Renderer}` composes a
-retained scene into one current OpenGL 3.3 framebuffer. This is a low-level
-backend spike, not automatic AppWindow rendering or a safe scene widget.
+retained scene into one current OpenGL 3.3 framebuffer. This remains the low-level
+backend; `Surface` above owns its lifecycle for application code. Ordinary
+AppWindow controls keep their CPU renderer.
 
 1. Prepare the scene on the UI thread with `PreparedScene::new`, before
    entering a GL callback. It resolves CPU fallbacks and folds clip scopes.
@@ -119,7 +235,7 @@ backend spike, not automatic AppWindow rendering or a safe scene widget.
    shader sources and caps retained textures at 64 MiB.
 3. `Renderer::move_to` and `set_opacity` update a prepared card/sprite
    without reflow, rasterization or uploads. Indexes use visible prepared
-   paint order; stable app keys and managed input routing are still pending.
+   paint order; stable app keys and keyed hit testing are still pending.
    Top-level shader opacity changes are not yet supported.
 4. `Renderer::draw(logical_size, framebuffer_size, time_override)` submits
    quads in scene order to the bound framebuffer, using scissor clips and
@@ -174,15 +290,15 @@ software GL renderer can prove correctness but not power consumption.
 - Scene clips are rectangular. Paths, shadows, rounded alpha
   surfaces and affine transforms still need common representations and
   CPU/GPU parity checks; GPU isolated-layer shaders remain pending.
-- There is no automatic per-widget scene cache, damage tracker, integrated
-  window renderer, plain-FLTK widget texture bridge or renderer-selection
-  policy yet.
+- There is no automatic per-widget scene cache, damage tracker, full-window
+  widget renderer, plain-FLTK texture bridge or renderer-selection policy
+  yet. The managed Surface hosts explicitly recorded scenes only.
   Existing GPU shaders remain `gfx::View`/`GpuView`, with their documented
   subwindow/composition limits.
 
-Next: integrate the GL compositor with a managed scene surface, add quad
-batching and text/image atlases, then native isolated shader layers and
-widget texture fallbacks. Extend the remaining common primitives. Measure real hardware at 4K/120 Hz before changing the
+Next: add quad batching and text/image atlases, then native isolated
+shader layers, stable keyed scene updates and widget/overlay texture
+fallbacks. Extend the remaining common primitives. Measure real hardware at 4K/120 Hz before changing the
 default. Compare total process/driver memory and CPU, not submission time
 alone; software GL is useful for correctness, not efficiency claims.
 
@@ -219,3 +335,10 @@ opacity at overlaps, changing striped backgrounds, rounded transparent
 corners, negative child origins, nesting and translated damage replay.
 Unit checks cover
 nested/unwinding recorders and overflowing rectangle intersections.
+
+
+Managed-surface checks additionally cover cached CPU painting, explicit and
+language invalidation, keyboard input, one local pointer delivery through a
+mapped GL child, mapped snapshots, hide/show context recovery, backend
+switches, motion-off/hidden clock stopping and motion-on resume. A GPU clock
+check asserts frames advance without parent draws or scene rebuilds.

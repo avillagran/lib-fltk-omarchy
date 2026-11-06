@@ -65,7 +65,7 @@ fn picture(ww: i32, hh: i32, bg: Rgb, f: impl FnOnce(&fltk::surface::ImageSurfac
     let surf = ImageSurface::new(ww, hh, false);
     ImageSurface::push_current(&surf);
     paint::fill(0, 0, ww, hh, 0, bg);
-    f(&surf);
+    crate::scene::surface::cpu_scope(|| f(&surf));
     let img = surf.image();
     ImageSurface::pop_current();
     let img = img?;

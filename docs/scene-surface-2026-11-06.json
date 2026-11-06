@@ -1,0 +1,104 @@
+{
+  "date": "2026-11-06",
+  "protocol": "Wayland",
+  "window_size": [
+    420,
+    340
+  ],
+  "surface_size": [
+    420,
+    299
+  ],
+  "monitor": {
+    "size": [
+      1920,
+      1080
+    ],
+    "scale": 1
+  },
+  "scope": "Two-card managed surface with animated gradient, not the lava, o3, or 4K120 acceptance gate. Process CPU percent measures one core; PSS includes SwapPss. Single sequential run per backend. No GPU power measurement.",
+  "runs": {
+    "gpu": {
+      "report": {
+        "animation_cpu_percent": 0.9604461041775163,
+        "animation_fps": 60.002534607066025,
+        "animation_parent_draws": 0,
+        "animation_scene_builds": 0,
+        "backend": "Gpu",
+        "idle_again_cpu_percent": 0.006657365321017585,
+        "idle_again_frames": 0,
+        "idle_cpu_percent": 0.013250395636192461,
+        "idle_frames": 0,
+        "renderer": "NVIDIA GeForce RTX 3080 Ti/PCIe/SSE2",
+        "scope": "two-card managed surface; not the 5000-message or lava efficiency gate",
+        "size": [
+          420,
+          299
+        ],
+        "texture_bytes": 124992
+      },
+      "monitoring": {
+        "focus_change_events": 0,
+        "focus_unchanged_at_end": true,
+        "spawn_no_focus": true,
+        "memory": [
+          {
+            "phase": "idle",
+            "pss_kib": 47488
+          },
+          {
+            "phase": "animation",
+            "pss_kib": 48004
+          },
+          {
+            "phase": "idle_again",
+            "pss_kib": 48388
+          }
+        ],
+        "protocol": "Wayland",
+        "report_exists": true
+      }
+    },
+    "cpu": {
+      "report": {
+        "animation_cpu_percent": 74.58579517627464,
+        "animation_fps": 29.94675923395394,
+        "animation_parent_draws": 90,
+        "animation_scene_builds": 0,
+        "backend": "Cpu",
+        "idle_again_cpu_percent": 0.011953657894831542,
+        "idle_again_frames": 0,
+        "idle_cpu_percent": 0.010631554044614395,
+        "idle_frames": 0,
+        "renderer": null,
+        "scope": "two-card managed surface; not the 5000-message or lava efficiency gate",
+        "size": [
+          420,
+          299
+        ],
+        "texture_bytes": 0
+      },
+      "monitoring": {
+        "focus_change_events": 0,
+        "focus_unchanged_at_end": true,
+        "spawn_no_focus": true,
+        "memory": [
+          {
+            "phase": "idle",
+            "pss_kib": 28651
+          },
+          {
+            "phase": "animation",
+            "pss_kib": 28661
+          },
+          {
+            "phase": "idle_again",
+            "pss_kib": 28661
+          }
+        ],
+        "protocol": "Wayland",
+        "report_exists": true
+      }
+    }
+  }
+}

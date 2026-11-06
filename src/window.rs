@@ -515,13 +515,13 @@ pub(crate) fn render(win: &mut DoubleWindow) -> std::io::Result<fltk::image::Rgb
     let surf = ImageSurface::new(w, h, false);
     ImageSurface::push_current(&surf);
     theme::with(|t| paint::fill(0, 0, w, h, 0, t.palette.background));
-    for i in 0..win.children() {
-        if let Some(c) = win.child(i) {
-            if c.visible() {
-                surf.draw(&c, c.x(), c.y());
+    crate::scene::surface::cpu_scope(|| {
+        for i in 0..win.children() {
+            if let Some(c) = win.child(i) {
+                if c.visible() { surf.draw(&c, c.x(), c.y()); }
             }
         }
-    }
+    });
     let img = surf.image();
     ImageSurface::pop_current();
     img.ok_or_else(|| std::io::Error::other("offscreen render failed"))

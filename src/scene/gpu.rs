@@ -120,6 +120,7 @@ pub struct Renderer {
     programs: Vec<glow::Program>,
     draws: Vec<Draw>,
     texture_bytes: usize,
+    context_alive: bool,
 }
 
 impl Renderer {
@@ -130,7 +131,7 @@ impl Renderer {
     pub unsafe fn new(gl: Rc<glow::Context>, scene: PreparedScene) -> Result<Self, String> {
         let basic = link(&gl, FRAGMENT)?;
         let vao = match gl.create_vertex_array() { Ok(v) => v, Err(e) => { gl.delete_program(basic); return Err(e); } };
-        let mut renderer = Self { gl, basic, vao, textures: Vec::new(), programs: Vec::new(), draws: Vec::new(), texture_bytes: 0 };
+        let mut renderer = Self { gl, basic, vao, textures: Vec::new(), programs: Vec::new(), draws: Vec::new(), texture_bytes: 0, context_alive: true };
         let mut textures = HashMap::new();
         let mut programs = HashMap::new();
         for item in scene.items {
@@ -180,6 +181,11 @@ impl Renderer {
         }
         Ok(renderer)
     }
+
+    // The managed surface calls this only after FLTK reports context loss
+    // or native widget destruction. The driver owns resource reclamation;
+    // deleting old names in a different/new context would be unsafe.
+    pub(crate) fn abandon_context(mut self) { self.context_alive = false; }
 
     pub fn texture_bytes(&self) -> usize { self.texture_bytes }
 
@@ -259,6 +265,7 @@ impl Renderer {
 
 impl Drop for Renderer {
     fn drop(&mut self) {
+        if !self.context_alive { return; }
         // SAFETY: new's contract requires our context current at destruction.
         unsafe {
             for t in &self.textures { self.gl.delete_texture(*t); }

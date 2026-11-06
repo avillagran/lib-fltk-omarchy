@@ -37,6 +37,119 @@ fn content(x: i32, y: i32) {
 }
 
 pub fn checks(run: &mut dyn FnMut(&str, Check)) {
+    run("scene surface CPU: retained painter, coordinates, invalidation, snapshots and keyboard", &|shots| {
+        use fltk_omarchy::{gfx::Backend, focus, State};
+        let color=State::new(theme::with(|t|t.palette.accent));
+        let c=color.clone();
+        let events=std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let e=events.clone();
+        let mut win=AppWindow::new("Scene surface",320,220);
+        let mut body=win.body();body.set_margin(0);
+        let view=scene::Surface::new(200,120).paint(move |r,_|paint::fill(0,0,r.w,r.h,0,c.get()))
+            .on_event(move |ev,x,y|{e.borrow_mut().push((ev,x,y));false});
+        body.add(&*view);win.end();
+        let first=shots.join("scene-surface-cpu.png");win.snapshot(&first).map_err(|e|e.to_string())?;
+        let p=png_rgb(&first)?;
+        check(close(p.at(view.x()+30,view.y()+30),color.get()),"scene uses local coordinates inside window body")?;
+        let builds=view.stats().scene_builds;
+        win.snapshot(shots.join("scene-surface-repeat.png")).map_err(|e|e.to_string())?;
+        check(view.stats().scene_builds==builds,"static snapshots retain painter")?;
+        color.set(theme::with(|t|t.palette.foreground));view.invalidate();
+        win.snapshot(&first).map_err(|e|e.to_string())?;
+        check(close(png_rgb(&first)?.at(view.x()+30,view.y()+30),color.get()),"explicit state invalidation reaches pixels")?;
+        check(view.active_backend()==Backend::Cpu && view.stats().gpu_frames==0,"CPU is default and snapshots create no GL surface")?;
+        let locale=fltk_omarchy::i18n::locale().get();let before=view.stats().scene_builds;
+        fltk_omarchy::i18n::set_locale("de");let result=win.snapshot(&first);
+        fltk_omarchy::i18n::set_locale(&locale);result.map_err(|e|e.to_string())?;
+        check(view.stats().scene_builds>before,"live language change invalidates the retained painter")?;
+        view.clone().take_focus().map_err(|e|e.to_string())?;focus::press("Enter");
+        check(events.borrow().iter().any(|(ev,_,_)|*ev==fltk::enums::Event::KeyDown),"focused surface gets real router keys")?;
+        fltk::window::DoubleWindow::delete((*win).clone());
+        Ok(())
+    });
+    run("scene surface clock: paced frames stop when hidden or motion is disabled", &|shots| {
+        use fltk_omarchy::{anim, gfx::sl};
+        use std::time::{Duration,Instant};
+        struct Restore;
+        impl Drop for Restore{fn drop(&mut self){anim::set_enabled(false);}}
+        let _restore=Restore;
+        let pump_for=|ms:u64|{let end=Instant::now()+Duration::from_millis(ms);while Instant::now()<end{fltk_omarchy::App::pump();std::thread::sleep(Duration::from_millis(5));}};
+        anim::set_enabled(true);
+        let mut win=AppWindow::new("Scene clock",220,160);let mut body=win.body();body.set_margin(0);
+        let shader=sl::Shader::new(|_,u|sl::mix(u.background(),u.accent(),sl::clamp(u.time(),0.0,1.0)));
+        let view=scene::Surface::new(150,90).paint(move|r,t|{scene::shader(r,&shader,&fltk_omarchy::gfx::Uniforms::from_theme(t,(r.w as f32,r.h as f32)));}).animate(Some(anim::Pace::Saver));
+        body.add(&*view);win.end();win.show();pump_for(30);let before=view.stats();
+        pump_for(280);check(view.stats().cpu_frames>before.cpu_frames,"shared clock drives visible shader surface")?;
+        check(view.stats().scene_builds==before.scene_builds,"paced frames retain scene painter")?;
+        anim::set_enabled(false);view.set_time(None);pump_for(180);let frames=view.stats().cpu_frames;
+        pump_for(180);check(view.stats().cpu_frames==frames,"reduced motion stops requeueing frames")?;
+        anim::set_enabled(true);pump_for(180);
+        check(view.stats().cpu_frames>frames,"motion-setting wake resumes a stopped visible surface")?;
+        win.hide();pump_for(180);let frames=view.stats().cpu_frames;
+        pump_for(180);check(view.stats().cpu_frames==frames,"hidden surface has no drawing loop")?;
+        win.snapshot(shots.join("scene-surface-clock-hidden.png")).map_err(|e|e.to_string())?;
+        fltk::window::DoubleWindow::delete((*win).clone());Ok(())
+    });
+    #[cfg(feature="gpu")]
+    run("scene surface GPU: managed lifecycle, snapshots and retained shader time", &|shots| {
+        use fltk_omarchy::gfx::Backend;
+        use std::time::{Duration,Instant};
+        let wait=|test:&mut dyn FnMut()->bool|->bool {let deadline=Instant::now()+Duration::from_secs(5);while Instant::now()<deadline{fltk_omarchy::App::pump();if test(){return true;}std::thread::sleep(Duration::from_millis(5));}false};
+        let mut win=AppWindow::new("Managed scene GL",340,240);
+        let mut body=win.body();body.set_margin(0);
+        let shader=fltk_omarchy::gfx::sl::Shader::new(|p,u| fltk_omarchy::gfx::sl::mix(u.background(),u.accent(),fltk_omarchy::gfx::sl::clamp(p.x()/u.size().x()+u.time()*0.1,0.0,1.0)));
+        let pointer=std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));let p=pointer.clone();
+        let keys=std::rc::Rc::new(std::cell::Cell::new(false));let k=keys.clone();
+        let view=scene::Surface::new(300,180).backend(Backend::Gpu).on_event(move|ev,x,y|{
+            if ev==fltk::enums::Event::Push{p.borrow_mut().push((x,y));return false;}
+            if ev==fltk::enums::Event::KeyDown{k.set(true);}false
+        }).paint(move |r,t|{
+            paint::fill(0,0,r.w,r.h,0,t.palette.background);
+            scene::shader(r,&shader,&fltk_omarchy::gfx::Uniforms::from_theme(t,(r.w as f32,r.h as f32)));
+            paint::text("Scene",8,8,90,24,14,true,t.palette.foreground,Align::Left);
+        });body.add(&*view);win.end();view.set_time(Some(0.2));
+        win.snapshot(shots.join("scene-surface-before-map.png")).map_err(|e|e.to_string())?;
+        check(view.stats().gpu_frames==0,"snapshot before map creates no GL context")?;
+        win.show();
+        check(wait(&mut ||view.stats().gpu_frames>0),&format!("GL activates: {:?}",view.backend_error()))?;
+        check(view.active_backend()==Backend::Gpu,"active backend reports GL")?;
+        let result=std::rc::Rc::new(std::cell::Cell::new(None));let r=result.clone();
+        check(view.read_gpu_pixel(200,80,move |p|r.set(Some(p))),"queue GL read")?;
+        check(wait(&mut ||result.get().is_some()),"GL read completes")?;
+        let first=result.get().unwrap();let builds=view.stats().scene_builds;
+        view.set_time(Some(2.0));let result2=result.clone();result.set(None);
+        check(view.read_gpu_pixel(200,80,move |p|result2.set(Some(p))),"queue changed GL read")?;
+        check(wait(&mut ||result.get().is_some()),"changed read completes")?;
+        check(first!=result.get().unwrap() && builds==view.stats().scene_builds,"shader time changes without rebuilding scene")?;
+        let shot=shots.join("scene-surface-mapped.png");win.snapshot(&shot).map_err(|e|e.to_string())?;
+        let cpu=png_rgb(&shot)?.at(view.x()+200,view.y()+80);let gpu=result.get().unwrap();
+        check((0..3).all(|i|cpu[i].abs_diff(gpu[i])<=2),&format!("mapped snapshot uses CPU with same time: {cpu:?} / {gpu:?}"))?;
+        fltk_omarchy::focus::click_at(&*win,view.x()+150,view.y()+120);
+        check(pointer.borrow().as_slice()==[(150,120)],&format!("GL surface pointer is local and dispatched once: {:?}",pointer.borrow()))?;
+        view.clone().take_focus().map_err(|e|e.to_string())?;fltk_omarchy::focus::press("Enter");
+        check(keys.get(),"mapped GL surface receives keyboard router input")?;
+        win.hide();fltk_omarchy::App::pump();
+        let frames=view.stats().gpu_frames;win.show();
+        check(wait(&mut ||view.stats().gpu_frames>frames),&format!("context recovers on show: {:?}",view.backend_error()))?;
+        let view=view.backend(Backend::Cpu);
+        let cpu_frames=view.stats().cpu_frames;
+        check(wait(&mut ||view.stats().cpu_frames>cpu_frames),"switch to CPU draws fallback")?;
+        check(view.active_backend()==Backend::Cpu,"CPU policy hides GL child")?;
+        let view=view.backend(Backend::Gpu);let frames=view.stats().gpu_frames;
+        check(wait(&mut ||view.stats().gpu_frames>frames),"GPU resumes after explicit CPU policy")?;
+        struct MotionRestore;impl Drop for MotionRestore{fn drop(&mut self){fltk_omarchy::anim::set_enabled(false);}}
+        let _motion=MotionRestore;fltk_omarchy::anim::set_enabled(true);
+        let frames=view.stats().gpu_frames;view.set_time(None);view.clone().animate(Some(fltk_omarchy::anim::Pace::Low));
+        check(wait(&mut ||view.stats().gpu_frames>=frames+2),"managed GL clock produces frames")?;
+        let before=view.stats();
+        check(wait(&mut ||view.stats().gpu_frames>=before.gpu_frames+3),"GL clock keeps producing frames")?;
+        check(view.stats().surface_draws==before.surface_draws,"GL shader frames do not redraw the CPU parent surface")?;
+        check(view.stats().scene_builds==before.scene_builds,"GL clock retains CPU painter/resources")?;
+        view.clone().animate(None);
+        fltk::window::DoubleWindow::delete((*win).clone());
+        drop(view);fltk_omarchy::App::pump();
+        Ok(())
+    });
     run("scene: isolated group opacity, translation, nested layers and live backdrop", &|shots| {
         let t = theme::current();
         let (a, b, bg, other) = (t.palette.accent, t.palette.foreground, t.palette.background, t.palette.muted);

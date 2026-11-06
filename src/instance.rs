@@ -811,7 +811,11 @@ mod tests {
     /// Runs posted jobs on this thread (the test's "UI thread") until
     /// `done` is true or 10 s pass.
     fn pump(rx: &mpsc::Receiver<Job>, done: impl Fn() -> bool) {
-        let end = Instant::now() + Duration::from_secs(10);
+        pump_for(rx, Duration::from_secs(10), done);
+    }
+
+    fn pump_for(rx: &mpsc::Receiver<Job>, budget: Duration, done: impl Fn() -> bool) {
+        let end = Instant::now() + budget;
         while !done() && Instant::now() < end {
             if let Ok(job) = rx.recv_timeout(Duration::from_millis(5)) {
                 job();
@@ -828,8 +832,12 @@ mod tests {
 
     /// Calls on a thread while this thread pumps; returns the result.
     fn call_pumped(rx: &mpsc::Receiver<Job>, client: Client, req: Request) -> Result<String, Error> {
+        // Keep the UI pump alive for the client's entire timeout plus
+        // scheduling margin. A fixed 10 s pump can strand a handler while
+        // the 15 s client is still waiting for that handler's reply.
+        let budget = client.timeout.saturating_mul(2).saturating_add(Duration::from_secs(1));
         let t = std::thread::spawn(move || client.request(&req));
-        pump(rx, || t.is_finished());
+        pump_for(rx, budget, || t.is_finished());
         t.join().unwrap()
     }
 

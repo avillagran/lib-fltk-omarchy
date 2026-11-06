@@ -1,0 +1,114 @@
+#!/usr/bin/env python3
+"""Linux/Hyprland diagnostic: mapped scene benchmark, never take focus.
+
+Build: cargo build --release --features gpu --example scene_surface
+Run:   script/scene-bench [--cpu] [--size 420x340]
+SCENE_BENCH_BIN can select another binary inside this checkout's target/.
+No persistent compositor configuration or synthetic input is used.
+"""
+import argparse
+import json
+import os
+from pathlib import Path
+import shlex
+import signal
+import socket
+import subprocess
+import time
+
+
+def query(name):
+    return json.loads(subprocess.check_output(["hyprctl", name, "-j"]))
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--cpu", action="store_true")
+    parser.add_argument("--size", default="420x340")
+    args = parser.parse_args()
+    root = Path(__file__).resolve().parent.parent
+    binary = Path(os.environ.get("SCENE_BENCH_BIN", root / "target/release/examples/scene_surface")).resolve()
+    if not binary.is_file() or not binary.is_relative_to(root / "target"):
+        parser.error("build the example first; the binary must be inside this checkout's target/")
+    if not os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"):
+        parser.error("this diagnostic needs a running Hyprland session")
+    out = root / "build/scene-bench" / (time.strftime("%Y%m%d-%H%M%S") + "-" + str(os.getpid()))
+    out.mkdir(parents=True, exist_ok=False)
+    report = out / "report.json"
+    log = out / "benchmark.log"
+    event_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    event_socket.connect(str(Path(os.environ["XDG_RUNTIME_DIR"]) / "hypr" / os.environ["HYPRLAND_INSTANCE_SIGNATURE"] / ".socket2.sock"))
+    event_socket.setblocking(False)
+    before = query("activewindow").get("address", "").removeprefix("0x")
+    workspace = query("activeworkspace")["name"]
+    command = [str(binary), "--size", args.size, "--bench", str(report)]
+    if args.cpu:
+        command.append("--cpu")
+    # JSON quotes the Lua string; shlex quotes the separate shell arguments.
+    shell_command = shlex.join(command) + " > " + shlex.quote(str(log)) + " 2>&1"
+    expression = "hl.dsp.exec_cmd(" + json.dumps(shell_command, ensure_ascii=False) + ", { workspace = " + json.dumps(workspace + " silent", ensure_ascii=False) + ", float = true, no_focus = true })"
+    subprocess.run(["hyprctl", "dispatch", expression], check=True, stdout=subprocess.DEVNULL)
+    start, pid = time.monotonic(), None
+    buffered, focus_changes = b"", 0
+    samples, phases = [], set()
+    phase_file = Path(str(report) + ".phase")
+    while time.monotonic() - start < 45:
+        try:
+            while True:
+                chunk = event_socket.recv(65536)
+                if not chunk:
+                    break
+                buffered += chunk
+        except BlockingIOError:
+            pass
+        while b"\n" in buffered:
+            line, buffered = buffered.split(b"\n", 1)
+            if line.startswith(b"activewindowv2>>") and line.split(b">>", 1)[1].decode() != before:
+                focus_changes += 1
+        if report.exists():
+            break
+        if pid is None:
+            for client in query("clients"):
+                candidate = client.get("pid")
+                try:
+                    arguments = Path(f"/proc/{candidate}/cmdline").read_bytes().split(b"\0")
+                    if str(report).encode() in arguments and str(binary).encode() in arguments:
+                        pid = candidate
+                        break
+                except OSError:
+                    pass
+        if pid and phase_file.exists():
+            phase = phase_file.read_text()
+            if phase in ("idle", "animation", "idle_again") and phase not in phases:
+                try:
+                    lines = Path(f"/proc/{pid}/smaps_rollup").read_text().splitlines()
+                    samples.append({"phase": phase, "pss_kib": sum(int(s.split()[1]) for s in lines if s.startswith(("Pss:", "SwapPss:")))})
+                    phases.add(phase)
+                except OSError:
+                    pass
+        time.sleep(0.05)
+    event_socket.close()
+    metadata = {"focus_change_events": focus_changes, "focus_unchanged_at_end": query("activewindow").get("address", "").removeprefix("0x") == before, "spawn_no_focus": True, "memory": samples, "protocol": "Wayland", "report_exists": report.exists()}
+    if not report.exists() and pid:
+        # Cancel only our verified time-limited diagnostic if it hangs; a
+        # monitoring timeout must never silently launch another process.
+        try:
+            argv = Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0")
+            if str(report).encode() in argv and str(binary).encode() in argv:
+                os.kill(pid, signal.SIGTERM)
+                metadata["cancelled_after_timeout"] = True
+        except OSError:
+            pass
+    (out / "metadata.json").write_text(json.dumps(metadata, indent=2) + "\n")
+    print(out)
+    print(json.dumps(metadata))
+    if report.exists():
+        print(report.read_text())
+    else:
+        raise SystemExit("diagnostic did not complete; inspect benchmark.log")
+    if focus_changes or not metadata["focus_unchanged_at_end"]:
+        raise SystemExit("focus changed during the diagnostic; result is not accepted as an unattended run")
+
+
+if __name__ == "__main__":
+    main()

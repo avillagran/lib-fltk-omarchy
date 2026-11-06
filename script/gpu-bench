@@ -12,7 +12,7 @@ WS="$(hyprctl activeworkspace -j | python3 -c 'import json,sys; print(json.load(
 mkdir -p "$ROOT/build"; : >"$OUT_ALL"
 run() { # report-path cmd...
   local out="$1"; shift; rm -f "$out"
-  hyprctl dispatch "hl.dsp.exec_cmd(\"$*\", { workspace = \"$WS silent\", float = true })" >/dev/null
+  hyprctl dispatch "hl.dsp.exec_cmd(\"$*\", { workspace = \"$WS silent\", float = true, no_focus = true })" >/dev/null
   for _ in $(seq 1 $(( (SECS + 10) * 10 ))); do [[ -s "$out" ]] && break; sleep 0.1; done
   cat "$out" | tee -a "$OUT_ALL"
 }

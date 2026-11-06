@@ -25,6 +25,8 @@ use crate::panel::KeyboardPanel;
 type ScopeFn = Box<dyn FnMut(Key) -> bool>;
 
 thread_local! {
+    static CURRENT_DISPATCH: Cell<u64> = const { Cell::new(0) };
+    static NEXT_DISPATCH: Cell<u64> = const { Cell::new(1) };
     static INSTALLED: Cell<bool> = const { Cell::new(false) };
     static SCOPES: RefCell<Vec<(Widget, Option<ScopeFn>)>> = RefCell::new(Vec::new());
     static RETURNS: RefCell<Vec<(usize, Widget)>> = const { RefCell::new(Vec::new()) };
@@ -54,7 +56,17 @@ pub fn install() {
     });
 }
 
+// One native event may visit a scene group and its GL child. Keep its
+// identity across that routing (and restore it after nested dispatch).
+pub(crate) fn dispatch_serial() -> u64 { CURRENT_DISPATCH.with(Cell::get) }
+struct DispatchScope(u64);
+impl Drop for DispatchScope {
+    fn drop(&mut self) {CURRENT_DISPATCH.with(|s|s.set(self.0));}
+}
+
 fn dispatch(ev: Event, win: app::WindowPtr) -> bool {
+    let serial=NEXT_DISPATCH.with(|s|{let n=s.get();s.set(n.wrapping_add(1).max(1));n});
+    let _scope=DispatchScope(CURRENT_DISPATCH.with(|s|s.replace(serial)));
     match ev {
         Event::KeyDown => set_keyboard_mode(true),
         Event::Push => set_keyboard_mode(false),
