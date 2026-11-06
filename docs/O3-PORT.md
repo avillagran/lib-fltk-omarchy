@@ -342,8 +342,8 @@ Continue section 4 without changing the CPU default:
 
 1. Shared painter: the first CPU slice now records fills, borders, text,
    alpha fills and balanced clips. Prove immediate/replay and damage parity.
-2. Complete scene primitives (RGBA images now implemented; paths, transforms, shadows, isolated
-   opacity, shader layers) and an invalidation lifecycle for widget caches.
+2. Complete scene primitives (RGBA images and isolated translated opacity layers now implemented; paths, affine transforms, shadows,
+   shader layers) and an invalidation lifecycle for widget caches.
 3. One GL scene surface: batched quads, glyph/image atlases, CPU widget
    texture bridge and shader composition. Verify read-back parity.
 4. Exercise a live version of the video interaction; measure CPU, GPU and

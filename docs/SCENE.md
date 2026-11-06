@@ -33,8 +33,8 @@ the previous state when unwinding.
 
 Ordinary `paint` calls remain immediate CPU drawing. They check a
 thread-local recorder but allocate no display list or copied strings when
-recording is off. A scene creates no animation timer or GL context. Full replay creates no
-pixel backing store. Recording allocates commands and copies text; retain
+recording is off. A scene creates no animation timer or GL context. Primitive-only full replay creates no
+pixel backing store; explicit isolated layers retain their own rasters. Recording allocates commands and copies text; retain
 and replay the list when unchanged rather than rebuilding it every frame.
 Damage replay lazily retains an opaque RGB image (up to a 64 MiB RGBA-sized
 budget); `clear_raster` releases it and `append` invalidates it. Native
@@ -65,6 +65,47 @@ into the command list. Zero dimensions, incorrect byte counts, overflow
 and resources over 64 MiB are rejected. Decode/downsample through `media`
 when needed. Alpha, scaling and clipping participate in parity checks.
 
+## Isolated layers
+
+`scene::Layer` retains a child scene with explicit bounds and composites
+its finished result over the actual destination. Group opacity applies
+once, so overlapping opaque children do not show through each other.
+
+```rust,no_run
+use fltk_omarchy::{paint, scene::{Layer, Rect, Scene}, theme};
+let (card, ()) = Scene::record(|| {
+    let t = theme::current();
+    paint::fill(0, 0, 240, 64, t.radius, t.palette.lighter_background);
+    // Record the card's text, borders and images here as well.
+});
+let card = Layer::new(Rect::new(0, 0, 240, 64), card)?;
+// Inside a draw callback, or another Scene::record:
+assert!(card.draw_at(40, 80, 0.5));
+# Ok::<(), fltk_omarchy::scene::ImageError>(())
+```
+
+Drawing at `(x, y)` translates the child's bounds to that position. Layers
+can be nested, clipped by the outer scene, and retained by layer commands;
+cloning a handle shares its child and caches. Bounds are also the explicit
+local crop. This is integer translation, not arbitrary affine transforms.
+
+The CPU fallback renders two opaque native surfaces (black and white) to
+recover RGBA, caches the result, and changes only the alpha bytes while
+fading. It does not bake a theme background into the card, unlike the
+existing `layer::Layer` widget fallback. Rasterization is at logical 1×;
+native subpixel text coverage collapses to a single alpha channel. This
+is a bounded CPU fallback, not a GPU layer or an efficiency claim.
+
+A resource is limited to 64 MiB of RGBA; cold rendering needs temporary
+black/white surfaces and buffers in addition. Keep layers to the affected
+row/card, not the full window. Opacity changes reuse an upload buffer;
+steady full opacity uses the cached image directly. `clear_raster` on a
+layer or scene recursively releases child caches. Recreate the layer when
+its theme, language or geometry changes. Transparent layers can be rendered
+without an opaque background, but root `draw_damage` still requires one.
+`draw_at` returns false on surface/coordinate failures; recorded calls
+defer rasterization until replay. Check the return when drawing directly.
+
 ## Current limits and next stages
 
 - Only shared `paint` helpers are recorded. Raw `fltk::draw` operations,
@@ -74,7 +115,7 @@ when needed. Alpha, scaling and clipping participate in parity checks.
   runs or a GPU atlas. Recording text needs the UI thread and a surface
   for measurement. This API does not make FLTK objects thread-safe.
 - Scene clips are rectangular. Paths, shadows, rounded alpha
-  surfaces, transforms, isolated opacity layers and shader commands still
+  surfaces, affine transforms and shader commands still
   need common representations and CPU/GPU parity checks.
 - There is no automatic per-widget scene cache, damage tracker, GL scene
   renderer, plain-FLTK texture bridge or renderer-selection policy yet.
@@ -115,5 +156,8 @@ composition. Do not count it as completion of the GPU plan.
 `scene_ui` compares entire deterministic PNGs for immediate drawing,
 retained replay and a reconstruction through disjoint damage tiles. The
 fixture includes nested clips, rounded borders, Unicode and literal `@`,
-weights, spacing and alpha over different backgrounds. Unit checks cover
+weights, spacing and alpha over different backgrounds. Isolated-layer checks cover group
+opacity at overlaps, changing striped backgrounds, rounded transparent
+corners, negative child origins, nesting and translated damage replay.
+Unit checks cover
 nested/unwinding recorders and overflowing rectangle intersections.

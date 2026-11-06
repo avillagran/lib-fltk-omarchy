@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **Isolated scene layers** (`scene::Layer`): retain a bounded child scene,
+  translate it and apply group opacity once over the actual backdrop.
+  Rounded transparent corners, nested layers, outer clips, shared handles
+  and recursive cache release. CPU fallback reconstructs RGBA with native
+  black/white passes at logical 1×, then retains it; bounded temporary
+  storage and fading buffer are explicit. GPU composition remains pending.
+  docs/SCENE.md.
+
 - **Scene images and exact CPU damage replay**: immutable validated RGBA
   resources (`scene::Image`, up to 64 MiB) retained by image commands;
   alpha/scaling/clipping checks. Damage replay caches an opaque raster

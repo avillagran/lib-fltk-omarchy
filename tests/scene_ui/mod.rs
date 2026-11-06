@@ -27,11 +27,64 @@ fn content(x: i32, y: i32) {
     scene::clip(Rect::new(x + 170, y + 70, 55, 50), || {
         image.draw(Rect::new(x + 160, y + 60, 80, 70));
     });
+    let (child, ()) = Scene::record(|| paint::fill(-10, -5, 20, 20, 4, t.palette.accent));
+    let child = scene::Layer::new(Rect::new(-10, -5, 20, 20), child).unwrap();
+    assert!(child.draw_at(x + 235, y + 20, 0.5));
     // Outside the previous clips: catches unbalanced replay stacks.
     paint::fill(x + 262, y + 130, 12, 12, 3, t.palette.foreground);
 }
 
 pub fn checks(run: &mut dyn FnMut(&str, Check)) {
+    run("scene: isolated group opacity, translation, nested layers and live backdrop", &|shots| {
+        let t = theme::current();
+        let (a, b, bg, other) = (t.palette.accent, t.palette.foreground, t.palette.background, t.palette.muted);
+        let (child, ()) = Scene::record(|| {
+            paint::fill(30, 40, 70, 60, 8, a);
+            paint::fill(60, 50, 60, 60, 0, b);
+        });
+        let layer = scene::Layer::new(Rect::new(30, 40, 100, 80), child).map_err(|e| e.to_string())?;
+        let (nested, ()) = Scene::record(|| { assert!(layer.draw_at(-20, -10, 0.5)); });
+        let nested = scene::Layer::new(Rect::new(-20, -10, 100, 80), nested).map_err(|e| e.to_string())?;
+        let mode = std::rc::Rc::new(std::cell::Cell::new(0));
+        let mut win = AppWindow::new("Isolated scene layers", 260, 240);
+        let mut body = win.body();
+        body.set_margin(0);
+        let mut frame = fltk::frame::Frame::default();
+        body.add(&frame);
+        let (m, l, n) = (mode.clone(), layer.clone(), nested.clone());
+        frame.draw(move |w| {
+            let (x, y) = (w.x(), w.y());
+            let base = if m.get() == 1 { other } else { bg };
+            paint::fill(x, y, w.w(), w.h(), 0, base);
+            // Lower half has a different backdrop, including under the
+            // overlap: proves group alpha is not a flat-parent-color veil.
+            paint::fill(x, y + 60, w.w(), w.h() - 60, 0, a);
+            let (s, ()) = Scene::record(|| {
+                if m.get() == 2 { assert!(n.draw_at(x + 20, y + 20, 0.5)); }
+                else { assert!(l.draw_at(x + 20, y + 20, 0.5)); }
+            });
+            s.draw();
+        });
+        win.end();
+        for i in 0..3 {
+            mode.set(i);
+            let p = shots.join(format!("scene-layer-{i}.png"));
+            win.snapshot(&p).map_err(|e| e.to_string())?;
+            let image = png_rgb(&p)?;
+            let (x, y) = (frame.x(), frame.y());
+            let base = if i == 1 { other } else { bg };
+            let opacity = if i == 2 { (128.0 / 255.0) * (128.0 / 255.0) } else { 128.0 / 255.0 };
+            check(close(image.at(x + 20, y + 20), base), "rounded transparent corner preserves current background")?;
+            check(close(image.at(x + 30, y + 30), a.over(base, opacity)), "translated child over current background")?;
+            check(close(image.at(x + 65, y + 45), b.over(base, opacity)), "overlap uses only top child, group alpha applied once")?;
+            check(close(image.at(x + 65, y + 75), b.over(a, opacity)), "same layer over second background stripe")?;
+            check(close(image.at(x + 110, y + 95), a), "transparent padding leaves background untouched")?;
+        }
+        nested.clear_raster();
+        layer.clear_raster();
+        fltk::window::DoubleWindow::delete((*win).clone());
+        Ok(())
+    });
     run("scene: immediate/replay pixel parity and clipped damage", &|shots| {
         let mode = std::rc::Rc::new(std::cell::Cell::new(0));
         let mut win = AppWindow::new("Scene parity", 320, 240);
@@ -89,4 +142,8 @@ pub fn checks(run: &mut dyn FnMut(&str, Check)) {
         fltk::window::DoubleWindow::delete((*win).clone());
         Ok(())
     });
+}
+
+fn close(actual: [u8; 3], expected: theme::Rgb) -> bool {
+    actual[0].abs_diff(expected.r()) <= 2 && actual[1].abs_diff(expected.g()) <= 2 && actual[2].abs_diff(expected.b()) <= 2
 }

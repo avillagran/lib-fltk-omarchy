@@ -3,10 +3,13 @@
 //! This is the first step toward a window-wide CPU/GPU scene. Recording
 //! intercepts `paint` helpers only, not arbitrary FLTK drawing or widgets.
 //! Replay currently uses the existing CPU painter; it creates no timers
-//! or GL contexts. Damage replay lazily retains a bounded pixel buffer. Record again after theme, font, language,
+//! or GL contexts. Damage replay and isolated layers lazily retain bounded
+//! pixel buffers. Record again after theme, font, language,
 //! scale or layout changes. Coordinates are FLTK logical window units.
 
 mod image;
+mod layer;
+pub use layer::Layer;
 pub use image::{Image, ImageError, MAX_IMAGE_BYTES};
 
 use crate::{paint, theme::Rgb};
@@ -46,6 +49,7 @@ pub enum Command {
     SpacedText { rect: Rect, text: String, size: i32, weight: paint::Weight, spacing: f64, color: Rgb, align: Align },
     AlphaFill { rect: Rect, color: Rgb, alpha: f64 },
     Image { rect: Rect, image: Image },
+    Layer { rect: Rect, layer: Layer, opacity: u8 },
     PushClip(Rect),
     PopClip,
 }
@@ -54,7 +58,7 @@ impl Command {
     fn bounds(&self) -> Option<Rect> {
         match self {
             Self::Fill { rect, .. } | Self::Stroke { rect, .. } | Self::Text { rect, .. }
-                | Self::AlphaFill { rect, .. } | Self::SpacedText { rect, .. } | Self::Image { rect, .. } => Some(*rect),
+                | Self::AlphaFill { rect, .. } | Self::SpacedText { rect, .. } | Self::Image { rect, .. } | Self::Layer { rect, .. } => Some(*rect),
             _ => None,
         }
     }
@@ -147,7 +151,12 @@ impl Scene {
     /// Releases the optional CPU damage raster. Use after changing the
     /// surface scale/font rendering environment; theme/layout changes
     /// still require recording a new scene.
-    pub fn clear_raster(&self) { *self.raster.borrow_mut() = None; }
+    pub fn clear_raster(&self) {
+        *self.raster.borrow_mut() = None;
+        for command in &self.commands {
+            if let Command::Layer { layer, .. } = command { layer.clear_raster(); }
+        }
+    }
 
     fn rasterize(&self) -> Option<Raster> {
         let mut bounds: Option<(i64, i64, i64, i64)> = None;
@@ -159,25 +168,41 @@ impl Scene {
         let (w, h) = (right - x, bottom - y);
         if w > i32::MAX as i64 || h > i32::MAX as i64 || w.checked_mul(h)?.checked_mul(4)? > MAX_IMAGE_BYTES as i64 { return None; }
         let r = Rect::new(x as i32, y as i32, w as i32, h as i32);
-        let surface = fltk::surface::ImageSurface::new(r.w, r.h, false);
-        fltk::surface::ImageSurface::push_current(&surface);
+        Some(Raster { bounds: r, image: self.render(r, None)? })
+    }
+
+    // One private surface path for opaque damage caches and transparent
+    // layer reconstruction. Localize integer coordinates explicitly:
+    // ImageSurface::set_origin only offsets widget drawing, not all raw
+    // drawing helpers on every platform.
+    fn render(&self, r: Rect, background: Option<Rgb>) -> Option<fltk::image::RgbImage> {
         let mut local = Scene { commands: self.commands.clone(), raster: RefCell::new(None) };
         for command in &mut local.commands {
             let rect = match command {
                 Command::Fill { rect, .. } | Command::Stroke { rect, .. }
                 | Command::Text { rect, .. } | Command::SpacedText { rect, .. }
                 | Command::AlphaFill { rect, .. } | Command::Image { rect, .. }
-                | Command::PushClip(rect) => Some(rect),
+                | Command::Layer { rect, .. } | Command::PushClip(rect) => Some(rect),
                 Command::PopClip => None,
             };
-            if let Some(rect) = rect { rect.x -= r.x; rect.y -= r.y; }
+            if let Some(rect) = rect {
+                rect.x = rect.x.checked_sub(r.x)?;
+                rect.y = rect.y.checked_sub(r.y)?;
+            }
         }
+        let surface = fltk::surface::ImageSurface::new(r.w, r.h, false);
+        fltk::surface::ImageSurface::push_current(&surface);
         draw::push_no_clip();
+        if let Some(bg) = background {
+            // Do not let an outer recording intercept the clear.
+            draw::set_draw_color(bg.fl());
+            draw::draw_rectf(0, 0, r.w, r.h);
+        }
         local.replay(None);
         draw::pop_clip();
         let image = surface.image();
         fltk::surface::ImageSurface::pop_current();
-        Some(Raster { bounds: r, image: image? })
+        image
     }
 
     fn replay(&self, damage: Option<Rect>) {
@@ -197,6 +222,7 @@ impl Scene {
                 }
                 Command::AlphaFill { rect: r, color, alpha } => paint::alpha_fill(r.x, r.y, r.w, r.h, *color, *alpha),
                 Command::Image { rect, image } => image.draw(*rect),
+                Command::Layer { rect, layer, opacity } => { layer.draw_quantized(*rect, *opacity); }
                 Command::PushClip(r) => draw::push_clip(r.x, r.y, r.w.max(0), r.h.max(0)),
                 Command::PopClip => draw::pop_clip(),
             }
