@@ -38,9 +38,11 @@ pub mod label;
 pub mod layout;
 pub mod markdown;
 pub(crate) mod store;
+pub mod transcript;
 pub mod view;
 
 pub use doc::*;
 pub use label::RichLabel;
 pub use markdown::{MarkdownOptions, MarkdownStream, StreamUpdate};
+pub use transcript::{BlockAction, BlockActionEvent, EmbedPaint, ImageData, Message, ScrollAnchor};
 pub use view::{RichText, TextPos, TextSender};

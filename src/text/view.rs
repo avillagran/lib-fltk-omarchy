@@ -3,8 +3,9 @@
 
 use super::doc::*;
 use super::layout::{self, estimate_of, layout_block, FltkMetrics, Layout, Metrics, Typo};
-use super::store::Store;
-use super::markdown::{MarkdownOptions, MarkdownStream, StreamUpdate};
+use super::markdown::{MarkdownOptions, MarkdownStream};
+use super::store::{ShapeKind, Store};
+use super::transcript::*;
 use crate::paint;
 use crate::state::State;
 use crate::theme::{self, Rgb, Theme};
@@ -22,6 +23,9 @@ use unicode_segmentation::UnicodeSegmentation;
 #[path = "access.rs"]
 mod access;
 
+#[path = "view_api.rs"]
+mod api;
+
 const BAR: i32 = 4;
 
 /// A place in the document: block index and byte offset in its text.
@@ -35,13 +39,31 @@ pub struct TextPos {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Target {
     Link { block: usize, run: usize },
+    /// The copy button of a code block.
     Copy { block: usize },
+    /// A code block header action or a table footer action.
+    Action { block: usize, slot: usize },
+    /// An embed (when the app activates embeds).
+    Embed { block: usize },
 }
 
 impl Target {
     fn block(self) -> usize {
         match self {
-            Target::Link { block, .. } | Target::Copy { block } => block,
+            Target::Link { block, .. }
+            | Target::Copy { block }
+            | Target::Action { block, .. }
+            | Target::Embed { block } => block,
+        }
+    }
+
+    fn moved(self, delta: i64) -> Target {
+        let m = |b: usize| (b as i64 + delta).max(0) as usize;
+        match self {
+            Target::Link { block, run } => Target::Link { block: m(block), run },
+            Target::Copy { block } => Target::Copy { block: m(block) },
+            Target::Action { block, slot } => Target::Action { block: m(block), slot },
+            Target::Embed { block } => Target::Embed { block: m(block) },
         }
     }
 }
@@ -84,6 +106,16 @@ impl Heights {
     }
     fn truncate(&mut self, n: usize) {
         self.t.truncate(n);
+    }
+    /// Replaces values `at..at + remove` with `vals`: O((n - at) log n).
+    fn splice(&mut self, at: usize, remove: usize, vals: &[i64]) {
+        let n = self.t.len();
+        let end = (at + remove).min(n);
+        let tail: Vec<i64> = (end..n).map(|i| self.get(i)).collect();
+        self.t.truncate(at.min(n));
+        for v in vals.iter().chain(&tail) {
+            self.push(*v);
+        }
     }
     /// The value at `i`.
     fn get(&self, i: usize) -> i64 {
@@ -145,6 +177,9 @@ struct Hot {
     layout: Option<Layout>,
     /// An earlier version of this block and its layout (incremental relayout).
     prev: Option<(Block, Layout)>,
+    /// Header actions of a code block / footer actions of a table, laid
+    /// out with the block.
+    actions: Vec<ActionSlot>,
 }
 
 impl Hot {
@@ -153,9 +188,21 @@ impl Hot {
             block,
             layout: None,
             prev: None,
+            actions: Vec::new(),
         })
     }
 }
+
+/// An action button in a code block header or a table footer (block
+/// coordinates: x and width, on the header / footer row).
+#[derive(Debug, Clone)]
+pub(super) struct ActionSlot {
+    pub id: String,
+    pub label: String,
+    pub x: i32,
+    pub w: i32,
+}
+
 /// Blocks far from the view drop their layout (their height stays) when
 /// more than this many are hot.
 const LIVE_MAX: usize = 600;
@@ -167,6 +214,51 @@ struct Press {
     moved: bool,
 }
 
+/// One message (a row of a transcript): a run of consecutive blocks.
+pub(super) struct Msg {
+    pub key: Arc<str>,
+    /// Open Markdown stream: pushes re-parse only its tail.
+    pub stream: Option<MarkdownStream>,
+    /// Length and hash of the Markdown it was set from: a later value that
+    /// extends it streams only the new text.
+    pub src: Option<(usize, u64)>,
+}
+
+/// What the view tells the app after a paint or an event (delivered with
+/// the view's state released, so callbacks may change the view).
+pub(super) enum Note {
+    Shown(Arc<str>),
+    Hidden(Arc<str>),
+    Image(Arc<str>),
+    Follow(bool),
+    Selection,
+    Action(BlockActionEvent),
+    Embed(String, Option<(i32, i32)>),
+}
+
+/// State of an image source.
+pub(super) enum ImageState {
+    /// Asked for (`on_image`), no answer yet.
+    Requested,
+    Size(i32, i32),
+    Pixels(i32, i32, fltk::image::RgbImage),
+    /// Drawn by the embed painter, this tall.
+    Painted(i32),
+    Failed,
+}
+
+/// Find state: every match (block, byte range) in document order.
+#[derive(Default)]
+pub(super) struct Find {
+    pub query: String,
+    pub matches: Vec<(usize, Range<usize>)>,
+    pub current: Option<usize>,
+}
+
+pub(super) type Painter = Rc<RefCell<dyn FnMut(&mut EmbedPaint)>>;
+pub(super) type ActionsFn = Rc<dyn Fn(&str, &str) -> Vec<BlockAction>>;
+pub(super) type TableActionsFn = Rc<dyn Fn(&Block) -> Vec<BlockAction>>;
+
 pub(super) struct Inner {
     /// Every block, packed. A block laid out once keeps its height in
     /// `heights` (flagged `measured`) after its layout is dropped.
@@ -176,24 +268,37 @@ pub(super) struct Inner {
     hot: HashMap<usize, Box<Hot>, BuildIndexHasher>,
     /// Gap above + height of each block.
     heights: Heights,
+    /// Messages in order and their block counts (prefix sums).
+    msgs: Vec<Msg>,
+    counts: Heights,
+    keys: HashMap<Arc<str>, usize>,
+    keys_dirty: bool,
+    auto_key: u64,
+    /// The section `push_markdown` streams into.
+    open: Option<Arc<str>>,
     width: i32,
     typo: Typo,
     avg_char: f32,
     measured_avg: bool,
     top: i64,
+    /// What the top of the view shows: block and offset from its slot.
+    /// Height changes (layout, embeds, images, inserts above) keep it in
+    /// place unless the view follows the end.
+    anchor: (usize, i64),
     motion: crate::scroll::Scroll,
     stick: bool,
     stuck: bool,
-    stream: Option<(usize, MarkdownStream)>,
     opts: MarkdownOptions,
     sel: Option<(TextPos, TextPos)>,
     selecting: bool,
     press: Option<Press>,
     pub hover: Option<Target>,
     pub focus: Option<Target>,
-    copied: Option<(usize, Instant)>,
+    copied: Option<(Target, Instant)>,
     thumb: Option<(i32, i64)>,
     pad: i32,
+    /// Space under the content (a composer overlaid on the view).
+    inset: i32,
     surface: Option<ColorRole>,
     laid_out: usize,
     bound: Option<(usize, u64)>,
@@ -202,6 +307,25 @@ pub(super) struct Inner {
     paint_time: std::time::Duration,
     /// A new message fading in: its first block and the motion.
     reveal: Option<(usize, crate::anim::Tween)>,
+    /// Embed ids and image sources → their blocks (rebuilt when stale).
+    embeds: Option<HashMap<Arc<str>, Vec<usize>>>,
+    /// Embeds and images in view at the last paint.
+    shown: Vec<Arc<str>>,
+    track: bool,
+    images: HashMap<Arc<str>, ImageState>,
+    image_max_h: i32,
+    painter: Option<Painter>,
+    code_actions: Option<ActionsFn>,
+    table_actions: bool,
+    extra_table_actions: Option<TableActionsFn>,
+    /// Embeds are Tab stops (an activate callback is set).
+    embed_focus: bool,
+    hosted: Vec<(Arc<str>, Widget)>,
+    host: Option<fltk::group::Group>,
+    pub(super) find: Option<Find>,
+    notes: Vec<Note>,
+    seen_follow: bool,
+    seen_sel: Option<(TextPos, TextPos)>,
 }
 
 impl Inner {
@@ -210,15 +334,21 @@ impl Inner {
             store: Store::default(),
             hot: HashMap::default(),
             heights: Heights::default(),
+            msgs: Vec::new(),
+            counts: Heights::default(),
+            keys: HashMap::new(),
+            keys_dirty: false,
+            auto_key: 0,
+            open: None,
             width: 0,
             typo: theme::with(Typo::from_theme),
             avg_char: 0.0,
             measured_avg: false,
             top: 0,
+            anchor: (0, 0),
             motion: crate::scroll::Scroll::new(),
             stick: false,
             stuck: false,
-            stream: None,
             opts: MarkdownOptions::default(),
             sel: None,
             selecting: false,
@@ -228,6 +358,7 @@ impl Inner {
             copied: None,
             thumb: None,
             pad: theme::with(|t| t.spacing.xl),
+            inset: 0,
             surface: None,
             laid_out: 0,
             bound: None,
@@ -235,6 +366,22 @@ impl Inner {
             frames: 0,
             paint_time: std::time::Duration::ZERO,
             reveal: None,
+            embeds: None,
+            shown: Vec::new(),
+            track: false,
+            images: HashMap::new(),
+            image_max_h: 320,
+            painter: None,
+            code_actions: None,
+            table_actions: false,
+            extra_table_actions: None,
+            embed_focus: false,
+            hosted: Vec::new(),
+            host: None,
+            find: None,
+            notes: Vec::new(),
+            seen_follow: false,
+            seen_sel: None,
         }
     }
 
@@ -261,6 +408,44 @@ impl Inner {
         Some((&h.block, h.layout.as_ref()?))
     }
 
+    fn actions_of(&self, i: usize) -> &[ActionSlot] {
+        self.hot.get(&i).map_or(&[], |h| &h.actions)
+    }
+
+    /// Height of a table's action footer.
+    fn foot_h(&self) -> i32 {
+        if self.table_actions {
+            self.typo.code_header
+        } else {
+            0
+        }
+    }
+
+    /// Display size of image `src` in a column `avail` wide, when known.
+    fn image_size(&self, src: &str, avail: i32) -> Option<(i32, i32)> {
+        let (w, h) = match self.images.get(src)? {
+            ImageState::Size(w, h) | ImageState::Pixels(w, h, _) => (*w, *h),
+            ImageState::Painted(h) => return Some((avail, (*h).max(0))),
+            _ => return None,
+        };
+        if w <= 0 || h <= 0 {
+            return None;
+        }
+        let s = (avail as f64 / w as f64)
+            .min(self.image_max_h as f64 / h as f64)
+            .min(1.0);
+        Some((((w as f64 * s).round() as i32).max(1), ((h as f64 * s).round() as i32).max(1)))
+    }
+
+    fn image_h(&self, i: usize) -> Option<i32> {
+        if !self.store.is_image(i) {
+            return None;
+        }
+        let src = self.store.embed_id(i)?;
+        let left = self.typo.left_of(self.store.shape(i)) - self.typo.list_w;
+        self.image_size(src, self.width.max(40) - left).map(|s| s.1)
+    }
+
     fn body_h(&self, i: usize) -> i32 {
         if let Some((_, l)) = self.laid(i) {
             return l.height;
@@ -268,13 +453,16 @@ impl Inner {
         if self.store.measured(i) && i < self.heights.len() {
             return (self.heights.get(i) - self.gap(i) as i64) as i32;
         }
-        estimate_of(
-            self.store.shape(i),
-            self.store.text(i),
-            self.width.max(40),
-            &self.typo,
-            self.avg(),
-        )
+        if let Some(h) = self.image_h(i) {
+            return h;
+        }
+        let shape = self.store.shape(i);
+        let foot = if matches!(shape.kind, ShapeKind::Table(_)) {
+            self.foot_h()
+        } else {
+            0
+        };
+        estimate_of(shape, self.store.text(i), self.width.max(40), &self.typo, self.avg()) + foot
     }
 
     fn refresh_h(&mut self, i: usize) -> bool {
@@ -287,7 +475,7 @@ impl Inner {
     }
 
     fn content_h(&self) -> i64 {
-        self.heights.prefix(self.heights.len()) + 2 * self.pad as i64
+        self.heights.prefix(self.heights.len()) + 2 * self.pad as i64 + self.inset as i64
     }
 
     fn max_top(&self) -> i64 {
@@ -298,26 +486,75 @@ impl Inner {
         self.top >= self.max_top() - 1
     }
 
-    fn push_slot(&mut self, block: Block) {
-        self.store.push(&block);
-        let i = self.store.len() - 1;
-        let h = self.gap(i) + self.body_h(i);
-        self.heights.push(h as i64);
+    /// Height of the view that is not under the bottom inset.
+    fn usable_h(&self) -> i32 {
+        (self.view_h - self.inset).max(self.typo.line_h(self.typo.body))
     }
 
-    /// Replaces blocks from `from` on; unchanged ones keep their layout.
-    fn replace_from(&mut self, from: usize, blocks: Vec<Block>) {
+    // ------------------------------------------------------------ anchor
+
+    /// Block and offset (from its slot) at content y `top`.
+    fn locate(&self, top: i64) -> (usize, i64) {
+        let y = top - self.pad as i64;
+        if self.store.len() == 0 {
+            return (0, y);
+        }
+        let k = self.heights.find(y.max(0));
+        (k, y - self.heights.prefix(k))
+    }
+
+    /// A scroll by the user or the app: the anchor follows.
+    fn set_top(&mut self, t: i64) {
+        let max = self.max_top();
+        self.top = t.clamp(0, max);
+        self.motion.jump(self.top);
+        self.anchor = self.locate(self.top);
+    }
+
+    /// Heights changed: put the anchor back where it was on screen (or the
+    /// end, when following).
+    fn reanchor(&mut self) {
+        let n = self.store.len();
+        if n == 0 {
+            self.top = 0;
+            self.anchor = (0, 0);
+            return;
+        }
+        let max = self.max_top();
+        if self.stuck && !self.motion.running() {
+            self.top = max;
+            return;
+        }
+        let (k, off) = self.anchor;
+        let k = k.min(n - 1);
+        let new = (self.heights.prefix(k) + off + self.pad as i64).clamp(0, max);
+        let d = new - self.top;
+        if d != 0 {
+            self.top = new;
+            self.motion.shift(d);
+        }
+    }
+
+    // ------------------------------------------------------------ splice
+
+    /// Replaces blocks `at..at + remove` with `blocks`; unchanged ones
+    /// keep their layout, a block that grew keeps its old layout for
+    /// reuse. Costs O(blocks after the edit).
+    fn splice(&mut self, at: usize, remove: usize, blocks: Vec<Block>) {
         let old_n = self.store.len();
-        let from = from.min(old_n);
-        let new_n = from + blocks.len();
+        let at = at.min(old_n);
+        let remove = remove.min(old_n - at);
+        let end = at + remove;
+        let add = blocks.len();
+        let delta = add as i64 - remove as i64;
         // Compare with the old blocks before their bytes are dropped:
         // `Some(measured height)` for an unchanged block.
         let same: Vec<Option<Option<i32>>> = blocks
             .iter()
             .enumerate()
             .map(|(j, b)| {
-                let k = from + j;
-                let eq = k < old_n
+                let k = at + j;
+                let eq = j < remove
                     && match self.hot.get(&k) {
                         Some(h) => h.block == *b,
                         None => self.store.same(k, b),
@@ -328,27 +565,52 @@ impl Inner {
                 })
             })
             .collect();
-        for k in new_n..old_n {
-            self.hot.remove(&k);
+        // The first block after the edit keeps its body; its gap may change.
+        let next_body = (end < old_n).then(|| self.heights.get(end) - self.gap(end) as i64);
+        let mut old_hot: HashMap<usize, Box<Hot>> = HashMap::new();
+        for k in at..end {
+            if let Some(h) = self.hot.remove(&k) {
+                old_hot.insert(k - at, h);
+            }
         }
-        self.store.truncate(from);
-        self.heights.truncate(from);
+        if delta != 0 && end < old_n {
+            let moved: Vec<usize> = self.hot.keys().copied().filter(|k| *k >= end).collect();
+            let mut boxes: Vec<(usize, Box<Hot>)> =
+                moved.into_iter().filter_map(|k| self.hot.remove(&k).map(|h| (k, h))).collect();
+            for (k, h) in boxes.drain(..) {
+                self.hot.insert((k as i64 + delta) as usize, h);
+            }
+        }
+        let tail: Vec<i64> = (end..old_n).map(|k| self.heights.get(k)).collect();
+        if let Some(f) = self.find.as_mut() {
+            f.matches.retain(|(k, _)| *k < at || *k >= end);
+            if delta != 0 {
+                for m in f.matches.iter_mut().filter(|m| m.0 >= end) {
+                    m.0 = (m.0 as i64 + delta) as usize;
+                }
+            }
+        }
+        self.update_embed_index(at, end, delta, &blocks);
+        self.store.splice(at, remove, &blocks);
+        self.heights.truncate(at);
         for (j, b) in blocks.into_iter().enumerate() {
-            let k = from + j;
-            self.store.push(&b);
+            let k = at + j;
             let mut body = None;
             match same[j] {
                 Some(m) => {
-                    if self.hot.get(&k).is_some_and(|h| h.layout.is_some()) {
+                    let h = old_hot.remove(&j);
+                    if h.as_ref().is_some_and(|h| h.layout.is_some()) {
                         self.store.set_measured(k, true);
                     } else if let Some(m) = m {
                         self.store.set_measured(k, true);
                         body = Some(m);
                     }
+                    if let Some(h) = h {
+                        self.hot.insert(k, h);
+                    }
                 }
                 None => {
-                    // A block that grew keeps its old layout for reuse.
-                    if let Some(h) = self.hot.remove(&k) {
+                    if let Some(h) = old_hot.remove(&j) {
                         let prev = match h.layout {
                             Some(l) => Some((h.block, l)),
                             None => h.prev,
@@ -360,6 +622,7 @@ impl Inner {
                                     block: b,
                                     layout: None,
                                     prev,
+                                    actions: Vec::new(),
                                 }),
                             );
                         }
@@ -369,9 +632,45 @@ impl Inner {
             let h = self.gap(k) + body.unwrap_or_else(|| self.body_h(k));
             self.heights.push(h as i64);
         }
+        for v in tail {
+            self.heights.push(v);
+        }
+        if let Some(b) = next_body {
+            let k = at + add;
+            let d = self.gap(k) as i64 + b - self.heights.get(k);
+            if d != 0 {
+                self.heights.add(k, d);
+            }
+        }
+        // New matches of the find query.
+        if let Some(f) = self.find.as_mut() {
+            let mut found = Vec::new();
+            for k in at..at + add {
+                for r in find_in(self.store.text(k), &f.query) {
+                    found.push((k, r));
+                }
+            }
+            if !found.is_empty() {
+                let p = f.matches.partition_point(|(k, _)| *k < at);
+                f.matches.splice(p..p, found);
+            }
+            if f.current.is_some_and(|c| c >= f.matches.len()) {
+                f.current = f.matches.len().checked_sub(1);
+            }
+        }
+        // Positions after the edit move with it; inside it they stay, clamped.
         let n = self.store.len();
+        let map = |k: usize| -> usize {
+            if k < at {
+                k
+            } else if k >= end {
+                (k as i64 + delta) as usize
+            } else {
+                k.min((at + add).max(1) - 1)
+            }
+        };
         let clamp = |p: TextPos| TextPos {
-            block: p.block.min(n.saturating_sub(1)),
+            block: map(p.block).min(n.saturating_sub(1)),
             offset: p.offset,
         };
         if let Some((a, b)) = self.sel {
@@ -381,14 +680,245 @@ impl Inner {
                 Some((clamp(a), clamp(b)))
             };
         }
-        if self.focus.is_some_and(|t| t.block() >= from) {
-            self.focus = None;
+        if self.focus.is_some_and(|t| t.block() >= at) {
+            self.focus = match self.focus {
+                Some(t) if t.block() >= end => Some(t.moved(delta)),
+                _ => None,
+            };
         }
+        if let Some((t, _)) = self.copied.as_mut() {
+            if t.block() >= end {
+                *t = t.moved(delta);
+            }
+        }
+        if let Some((s, _)) = self.reveal.as_mut() {
+            if *s >= end {
+                *s = (*s as i64 + delta) as usize;
+            }
+        }
+        let (k, off) = self.anchor;
+        self.anchor = if k >= at && k < end && add == 0 {
+            (at.min(n.saturating_sub(1)), 0)
+        } else {
+            (map(k), off)
+        };
         self.hover = None;
     }
 
-    fn apply(&mut self, start: usize, u: StreamUpdate) {
-        self.replace_from(start + u.keep, u.blocks);
+    /// Keeps the embed index valid across a splice (dropped when absent).
+    fn update_embed_index(&mut self, at: usize, end: usize, delta: i64, blocks: &[Block]) {
+        let Some(map) = self.embeds.as_mut() else { return };
+        for v in map.values_mut() {
+            v.retain(|k| *k < at || *k >= end);
+            for k in v.iter_mut().filter(|k| **k >= end) {
+                *k = (*k as i64 + delta) as usize;
+            }
+        }
+        map.retain(|_, v| !v.is_empty());
+        for (j, b) in blocks.iter().enumerate() {
+            let id = match &b.kind {
+                BlockKind::Embed(e) => e.id.as_str(),
+                BlockKind::Image { src } => src.as_str(),
+                _ => continue,
+            };
+            let v = map.entry(Arc::from(id)).or_default();
+            v.push(at + j);
+            v.sort_unstable();
+        }
+    }
+
+    /// Blocks of embed `id` (or of image source `id`).
+    fn embed_blocks(&mut self, id: &str) -> Vec<usize> {
+        if self.embeds.is_none() {
+            let mut map: HashMap<Arc<str>, Vec<usize>> = HashMap::new();
+            for k in 0..self.store.len() {
+                if let Some(id) = self.store.embed_id(k) {
+                    map.entry(Arc::from(id)).or_default().push(k);
+                }
+            }
+            self.embeds = Some(map);
+        }
+        self.embeds
+            .as_ref()
+            .and_then(|m| m.get(id).cloned())
+            .unwrap_or_default()
+    }
+
+    /// Block `k`'s layout is stale (embed height, image state): measure
+    /// it again, keeping the view still.
+    fn invalidate(&mut self, k: usize) {
+        if k >= self.store.len() {
+            return;
+        }
+        if let Some(h) = self.hot.get_mut(&k) {
+            h.layout = None;
+            h.prev = None;
+            h.block = self.store.block(k);
+        }
+        self.store.set_measured(k, false);
+        self.refresh_h(k);
+    }
+
+    // ---------------------------------------------------------- messages
+
+    fn key_index(&mut self, key: &str) -> Option<usize> {
+        if self.keys_dirty {
+            self.keys = self
+                .msgs
+                .iter()
+                .enumerate()
+                .map(|(j, m)| (m.key.clone(), j))
+                .collect();
+            self.keys_dirty = false;
+        }
+        self.keys.get(key).copied()
+    }
+
+    fn msg_start(&self, j: usize) -> usize {
+        self.counts.prefix(j) as usize
+    }
+
+    fn msg_len(&self, j: usize) -> usize {
+        self.counts.get(j) as usize
+    }
+
+    /// The message that holds block `k`.
+    fn msg_of(&self, k: usize) -> Option<usize> {
+        if self.msgs.is_empty() || k >= self.store.len() {
+            return None;
+        }
+        Some(self.counts.find(k as i64))
+    }
+
+    fn new_key(&mut self) -> Arc<str> {
+        self.auto_key += 1;
+        Arc::from(format!("\u{1}{}", self.auto_key))
+    }
+
+    /// Inserts message `key` at message index `j` with these blocks.
+    fn insert_msg(&mut self, j: usize, key: Arc<str>, blocks: Vec<Block>, stream: Option<MarkdownStream>) {
+        let j = j.min(self.msgs.len());
+        let start = self.msg_start(j);
+        let n = blocks.len();
+        self.splice(start, 0, blocks);
+        self.msgs.insert(
+            j,
+            Msg {
+                key: key.clone(),
+                stream,
+                src: None,
+            },
+        );
+        if j == self.counts.len() {
+            self.counts.push(n as i64);
+        } else {
+            self.counts.splice(j, 0, &[n as i64]);
+        }
+        if j + 1 == self.msgs.len() && !self.keys_dirty {
+            self.keys.insert(key, j);
+        } else {
+            self.keys_dirty = true;
+        }
+    }
+
+    /// Replaces blocks `keep..` of message `j`.
+    fn set_msg_blocks(&mut self, j: usize, keep: usize, blocks: Vec<Block>) {
+        let start = self.msg_start(j);
+        let len = self.msg_len(j);
+        let keep = keep.min(len);
+        let n = keep + blocks.len();
+        self.splice(start + keep, len - keep, blocks);
+        let d = n as i64 - len as i64;
+        if d != 0 {
+            self.counts.add(j, d);
+        }
+    }
+
+    fn remove_msg(&mut self, j: usize) {
+        if j >= self.msgs.len() {
+            return;
+        }
+        let start = self.msg_start(j);
+        let len = self.msg_len(j);
+        self.splice(start, len, Vec::new());
+        let m = self.msgs.remove(j);
+        self.counts.splice(j, 1, &[]);
+        self.keys_dirty = true;
+        if self.open.as_deref() == Some(&*m.key) {
+            self.open = None;
+        }
+    }
+
+    /// Streams `more` into message `j` (opening its stream if needed).
+    fn push_msg(&mut self, j: usize, more: &str) {
+        if more.is_empty() {
+            return;
+        }
+        let opts = self.opts.clone();
+        let s = self.msgs[j]
+            .stream
+            .get_or_insert_with(|| MarkdownStream::with_options(opts));
+        let u = s.push(more);
+        self.set_msg_blocks(j, u.keep, u.blocks);
+    }
+
+    /// Replaces message `j` with Markdown; streams when it extends the
+    /// Markdown it was set from.
+    fn set_msg_markdown(&mut self, j: usize, md: &str) {
+        let extends = self.msgs[j].stream.is_some()
+            && self.msgs[j].src.is_some_and(|(len, h)| {
+                md.len() >= len && md.is_char_boundary(len) && fnv(FNV0, &md.as_bytes()[..len]) == h
+            });
+        if extends {
+            let (len, h) = self.msgs[j].src.unwrap_or((0, FNV0));
+            self.push_msg(j, &md[len..]);
+            self.msgs[j].src = Some((md.len(), fnv(h, &md.as_bytes()[len..])));
+            return;
+        }
+        let mut s = MarkdownStream::with_options(self.opts.clone());
+        let u = s.push(md);
+        self.set_msg_blocks(j, 0, u.blocks);
+        self.msgs[j].stream = Some(s);
+        self.msgs[j].src = Some((md.len(), fnv(FNV0, md.as_bytes())));
+    }
+
+    /// The legacy open section: streams into it, or a new message.
+    fn push_markdown(&mut self, more: &str) {
+        if more.is_empty() {
+            return;
+        }
+        let j = match self.open.clone().and_then(|k| self.key_index(&k)) {
+            Some(j) => j,
+            None => {
+                let key = self.new_key();
+                let j = self.msgs.len();
+                self.insert_msg(j, key.clone(), Vec::new(), None);
+                self.open = Some(key);
+                j
+            }
+        };
+        self.push_msg(j, more);
+    }
+
+    /// Opens a new section at the end (its stream starts empty).
+    fn open_section(&mut self) -> usize {
+        self.close_open();
+        let key = self.new_key();
+        let j = self.msgs.len();
+        let s = MarkdownStream::with_options(self.opts.clone());
+        self.insert_msg(j, key.clone(), Vec::new(), Some(s));
+        self.open = Some(key);
+        j
+    }
+
+    /// Closes the open section (frees its parser state).
+    fn close_open(&mut self) {
+        if let Some(k) = self.open.take() {
+            if let Some(j) = self.key_index(&k) {
+                self.msgs[j].stream = None;
+                self.msgs[j].src = None;
+            }
+        }
     }
 
     fn clear(&mut self) {
@@ -396,40 +926,31 @@ impl Inner {
         self.store.clear();
         self.hot.clear();
         self.heights = Heights::default();
-        self.stream = None;
+        self.msgs.clear();
+        self.counts = Heights::default();
+        self.keys.clear();
+        self.keys_dirty = false;
+        self.open = None;
         self.sel = None;
         self.focus = None;
         self.hover = None;
         self.top = 0;
+        self.anchor = (0, 0);
         self.motion.jump(0);
         self.stuck = self.stick;
         self.bound = None;
-    }
-
-    fn push_markdown(&mut self, more: &str) {
-        if more.is_empty() {
-            return;
+        self.embeds = None;
+        if let Some(f) = self.find.as_mut() {
+            f.matches.clear();
+            f.current = None;
         }
-        if self.stream.is_none() {
-            let start = self.store.len();
-            self.stream = Some((start, MarkdownStream::with_options(self.opts.clone())));
-        }
-        let Some((start, s)) = self.stream.as_mut() else {
-            return;
-        };
-        let start = *start;
-        let u = s.push(more);
-        self.apply(start, u);
     }
 
     /// Re-estimates every block (width, font or theme change).
     fn relayout_all(&mut self) {
         let n = self.store.len();
-        let anchor = (n > 0).then(|| {
-            let y = (self.top - self.pad as i64).max(0);
-            let k = self.heights.find(y);
-            (k, y - self.heights.prefix(k))
-        });
+        let (k, off) = self.anchor;
+        let keep = (n > 0).then(|| (k.min(n - 1), off.min(self.heights.get(k.min(n - 1)))));
         self.hot.clear();
         let mut h = Heights::default();
         for i in 0..n {
@@ -439,8 +960,9 @@ impl Inner {
             h.push((self.gap(i) + self.body_h(i)) as i64);
         }
         self.heights = h;
-        if let Some((k, off)) = anchor {
-            self.top = self.heights.prefix(k) + off.min(self.heights.get(k)) + self.pad as i64;
+        if let Some(a) = keep {
+            self.anchor = a;
+            self.reanchor();
             self.motion.jump(self.top);
         }
     }
@@ -449,20 +971,77 @@ impl Inner {
         if self.laid(i).is_some() {
             return false;
         }
-        let store = &self.store;
-        let hot = self
-            .hot
-            .entry(i)
-            .or_insert_with(|| Hot::new(store.block(i)));
-        let prev = hot.prev.take();
-        let l = layout_block(
-            &hot.block,
+        if !self.hot.contains_key(&i) {
+            let b = self.store.block(i);
+            self.hot.insert(i, Hot::new(b));
+        }
+        let prev = self.hot.get_mut(&i).and_then(|h| h.prev.take());
+        let Some(hot) = self.hot.get(&i) else { return false };
+        let block = &hot.block;
+        let mut l = layout_block(
+            block,
             self.width,
             &self.typo,
             m,
             prev.as_ref().map(|p| (&p.0, &p.1)),
         );
-        hot.layout = Some(l);
+        let small = layout::FontKey {
+            size: self.typo.small,
+            ..Default::default()
+        };
+        let pad = self.typo.code_pad / 2;
+        // Right-aligned, in order, ending at `right`.
+        let mut measure = |acts: Vec<BlockAction>, right: i32| -> Vec<ActionSlot> {
+            let ws: Vec<i32> = acts.iter().map(|a| m.width(small, &a.label).ceil() as i32 + 2 * pad).collect();
+            let mut x = right - ws.iter().sum::<i32>();
+            acts.into_iter()
+                .zip(ws)
+                .map(|(a, w)| {
+                    let s = ActionSlot {
+                        id: a.id,
+                        label: a.label,
+                        x,
+                        w,
+                    };
+                    x += w;
+                    s
+                })
+                .collect()
+        };
+        let mut actions = Vec::new();
+        match &block.kind {
+            BlockKind::Code { lang } => {
+                if let Some(f) = &self.code_actions {
+                    let right = l.left + l.box_w - self.typo.code_header - 2;
+                    actions = measure(f(lang, block.text()), right);
+                }
+            }
+            BlockKind::Table(_) if self.table_actions => {
+                let mut acts = vec![
+                    BlockAction::new(BlockAction::COPY_MARKDOWN, &crate::i18n::tr("Copy as Markdown")),
+                    BlockAction::new(BlockAction::COPY_CSV, &crate::i18n::tr("Copy as CSV")),
+                ];
+                if let Some(f) = &self.extra_table_actions {
+                    acts.extend(f(block));
+                }
+                let right = l.left + l.box_w;
+                actions = measure(acts, right);
+                l.height += self.typo.code_header;
+            }
+            BlockKind::Image { src } => {
+                let avail = l.box_w + self.typo.list_w;
+                if let Some((_, h)) = self.image_size(src, avail) {
+                    l.lines.clear();
+                    l.frags.clear();
+                    l.height = h;
+                }
+            }
+            _ => {}
+        }
+        if let Some(h) = self.hot.get_mut(&i) {
+            h.actions = actions;
+            h.layout = Some(l);
+        }
         self.store.set_measured(i, true);
         self.laid_out += 1;
         self.refresh_h(i)
@@ -481,7 +1060,7 @@ impl Inner {
     }
 
     /// Lays out what is visible (and half a view around), keeping the
-    /// first already measured visible block where it was on screen.
+    /// anchor where it was on screen.
     fn ensure_visible(&mut self, m: &mut dyn Metrics) {
         let n = self.store.len();
         if n == 0 {
@@ -489,17 +1068,11 @@ impl Inner {
             return;
         }
         for _ in 0..8 {
-            if self.stuck && !self.motion.running() {
-                self.top = self.max_top();
-            }
+            self.reanchor();
             let y0 = self.top - self.pad as i64;
             let over = self.view_h as i64 / 2;
             let first = self.heights.find((y0 - over).max(0));
             let last = self.heights.find((y0 + self.view_h as i64 + over).max(0));
-            let vis = self.heights.find(y0.max(0));
-            let anchor = (vis..=last)
-                .find(|&k| self.laid(k).is_some())
-                .map(|k| (k, self.heights.prefix(k) - y0));
             let mut changed = false;
             for k in first..=last {
                 changed |= self.ensure_layout(k, m);
@@ -507,22 +1080,8 @@ impl Inner {
             if !changed {
                 break;
             }
-            if !(self.stuck && !self.motion.running()) {
-                if let Some((k, off)) = anchor {
-                    let new_top = self.heights.prefix(k) - off + self.pad as i64;
-                    let d = new_top - self.top;
-                    if d != 0 {
-                        self.top = new_top;
-                        self.motion.shift(d);
-                    }
-                }
-            }
-            let max = self.max_top();
-            self.top = self.top.clamp(0, max);
         }
-        if self.stuck && !self.motion.running() {
-            self.top = self.max_top();
-        }
+        self.reanchor();
         self.evict();
     }
 
@@ -577,6 +1136,11 @@ impl Inner {
                 offset: b.text().len(),
             });
         }
+        // Embeds and resolved images are one unit.
+        if l.lines.is_empty() && !b.text().is_empty() {
+            let end = if rel_y >= l.height / 2 { b.text().len() } else { 0 };
+            return Some(TextPos { block: i, offset: end });
+        }
         let off = l.hit(b.text(), ex - (wx + self.pad), rel_y, m);
         Some(TextPos {
             block: i,
@@ -594,12 +1158,41 @@ impl Inner {
     ) -> Option<Target> {
         let (i, by) = self.block_at(wy, ey)?;
         self.ensure_layout(i, m);
-        let (b, l) = self.laid(i)?;
         let bx = wx + self.pad;
+        let hit = |x: i32, y: i32, w: i32, h: i32| ex >= x && ex < x + w && ey >= y && ey < y + h;
+        let (b, l) = self.laid(i)?;
         if b.is_code() {
             let (x, y, w, h) = copy_rect(l, &self.typo, bx, by);
-            return (ex >= x && ex < x + w && ey >= y && ey < y + h)
-                .then_some(Target::Copy { block: i });
+            if hit(x, y, w, h) {
+                return Some(Target::Copy { block: i });
+            }
+            let hh = self.typo.code_header;
+            return self
+                .actions_of(i)
+                .iter()
+                .position(|a| hit(bx + a.x, by + 1, a.w, hh - 2))
+                .map(|slot| Target::Action { block: i, slot });
+        }
+        if matches!(b.kind, BlockKind::Table(_)) && self.table_actions {
+            let hh = self.typo.code_header;
+            let fy = by + l.height - hh;
+            if ey >= fy {
+                return self
+                    .actions_of(i)
+                    .iter()
+                    .position(|a| hit(bx + a.x, fy + 1, a.w, hh - 2))
+                    .map(|slot| Target::Action { block: i, slot });
+            }
+        }
+        if let BlockKind::Embed(_) = b.kind {
+            return (self.embed_focus && hit(bx + l.left, by, l.box_w, l.height)).then_some(Target::Embed { block: i });
+        }
+        if let BlockKind::Image { src } = &b.kind {
+            if l.lines.is_empty() {
+                return hit(bx + l.left - self.typo.list_w, by, l.box_w + self.typo.list_w, l.height)
+                    .then_some(Target::Link { block: i, run: 0 })
+                    .filter(|_| !src.is_empty());
+            }
         }
         let (rx, ry) = (ex - bx, ey - by);
         for ln in &l.lines {
@@ -628,17 +1221,31 @@ impl Inner {
                 Some(h) => h.block.content.runs().get(run)?.style.link.clone(),
                 None => self.store.link(block, run).map(Arc::from),
             },
-            Target::Copy { .. } => None,
+            _ => None,
         }
     }
 
-    /// Links and copy buttons of the blocks in view, in reading order.
+    /// Links, block actions and copy buttons of the blocks in view, in
+    /// reading order.
     fn targets(&self) -> Vec<Target> {
         let mut out = Vec::new();
         for i in self.visible() {
             let Some((b, l)) = self.laid(i) else { continue };
             if b.is_code() {
+                for slot in 0..self.actions_of(i).len() {
+                    out.push(Target::Action { block: i, slot });
+                }
                 out.push(Target::Copy { block: i });
+                continue;
+            }
+            if matches!(b.kind, BlockKind::Embed(_)) {
+                if self.embed_focus {
+                    out.push(Target::Embed { block: i });
+                }
+                continue;
+            }
+            if matches!(b.kind, BlockKind::Image { .. }) && l.lines.is_empty() {
+                out.push(Target::Link { block: i, run: 0 });
                 continue;
             }
             for ln in &l.lines {
@@ -654,6 +1261,11 @@ impl Inner {
                             out.push(t);
                         }
                     }
+                }
+            }
+            if matches!(b.kind, BlockKind::Table(_)) {
+                for slot in 0..self.actions_of(i).len() {
+                    out.push(Target::Action { block: i, slot });
                 }
             }
         }
@@ -708,11 +1320,133 @@ impl Inner {
     fn scroll_by(&mut self, d: i64) -> bool {
         let max = self.max_top();
         let old = self.top;
-        self.top = (self.top + d).clamp(0, max);
-        self.motion.jump(self.top);
+        self.set_top(self.top + d);
         self.stuck = self.stick && self.top >= max;
         self.top != old
     }
+
+    /// The event for action `slot` of block `k` (code or table).
+    fn action_event(&self, k: usize, action: &str) -> BlockActionEvent {
+        let b = match self.hot.get(&k) {
+            Some(h) => h.block.clone(),
+            None => self.store.block(k),
+        };
+        let (message, index) = match self.msg_of(k) {
+            Some(j) => (self.msgs[j].key.to_string(), k - self.msg_start(j)),
+            None => (String::new(), k),
+        };
+        let (lang, text) = match &b.kind {
+            BlockKind::Code { lang } => (Some(lang.clone()), b.text().to_string()),
+            BlockKind::Table(_) if action == BlockAction::COPY_CSV => (None, table_csv(&b).unwrap_or_default()),
+            BlockKind::Table(_) => (None, table_markdown(&b).unwrap_or_default()),
+            _ => (None, b.text().to_string()),
+        };
+        BlockActionEvent {
+            action: action.to_string(),
+            block: k,
+            message,
+            index,
+            lang,
+            text,
+        }
+    }
+
+    /// Runs target `t` (Enter, Space, click): copies built-in actions and
+    /// queues the app's callbacks. Returns the URL of a link to open.
+    fn activate(&mut self, t: Target, at: Option<(i32, i32)>) -> Option<Arc<str>> {
+        match t {
+            Target::Link { .. } => return self.link_of(t),
+            Target::Copy { block } => {
+                let ev = self.action_event(block, BlockAction::COPY);
+                app::copy(&ev.text);
+                self.copied = Some((t, Instant::now()));
+                self.notes.push(Note::Action(ev));
+            }
+            Target::Action { block, slot } => {
+                let Some(id) = self.actions_of(block).get(slot).map(|a| a.id.clone()) else {
+                    return None;
+                };
+                let ev = self.action_event(block, &id);
+                let builtin = matches!(self.store.shape(block).kind, ShapeKind::Table(_))
+                    && (id == BlockAction::COPY_MARKDOWN || id == BlockAction::COPY_CSV);
+                if builtin {
+                    app::copy(&ev.text);
+                    self.copied = Some((t, Instant::now()));
+                }
+                self.notes.push(Note::Action(ev));
+            }
+            Target::Embed { block } => {
+                if let Some(id) = self.store.embed_id(block) {
+                    self.notes.push(Note::Embed(id.to_string(), at));
+                }
+            }
+        }
+        None
+    }
+}
+
+/// Case-insensitive matches of `q` in `t` (byte ranges, not overlapping).
+pub(super) fn find_in(t: &str, q: &str) -> Vec<Range<usize>> {
+    let mut out = Vec::new();
+    if q.is_empty() {
+        return out;
+    }
+    if q.is_ascii() {
+        let (tb, qb) = (t.as_bytes(), q.as_bytes());
+        let mut i = 0;
+        while i + qb.len() <= tb.len() {
+            if tb[i..i + qb.len()].eq_ignore_ascii_case(qb) && t.is_char_boundary(i) {
+                out.push(i..i + qb.len());
+                i += qb.len();
+            } else {
+                i += 1;
+            }
+        }
+        return out;
+    }
+    let ql: Vec<char> = q.chars().flat_map(char::to_lowercase).collect();
+    let mut starts = t.char_indices().peekable();
+    while let Some((i, _)) = starts.next() {
+        let mut want = ql.iter();
+        let mut end = i;
+        let mut ok = true;
+        let mut chars = t[i..].char_indices();
+        let mut pending: Vec<char> = Vec::new();
+        loop {
+            if pending.is_empty() {
+                if want.len() == 0 {
+                    break;
+                }
+                match chars.next() {
+                    Some((j, c)) => {
+                        pending = c.to_lowercase().collect();
+                        pending.reverse();
+                        end = i + j + c.len_utf8();
+                    }
+                    None => {
+                        ok = false;
+                        break;
+                    }
+                }
+            }
+            let Some(w) = want.next() else {
+                // The query ended inside a folded char.
+                ok = pending.is_empty();
+                break;
+            };
+            if pending.pop() != Some(*w) {
+                ok = false;
+                break;
+            }
+        }
+        if ok && pending.is_empty() {
+            out.push(i..end);
+            while starts.peek().is_some_and(|(j, _)| *j < end) {
+                starts.next();
+            }
+        }
+    }
+    out
 }
 
 fn floor_char(s: &str, mut i: usize) -> usize {
@@ -730,7 +1464,63 @@ fn copy_rect(l: &Layout, ty: &Typo, bx: i32, by: i32) -> (i32, i32, i32, i32) {
 
 // ----------------------------------------------------------------- widget
 
-type LinkFn = Rc<RefCell<Option<Box<dyn FnMut(&str)>>>>;
+type Hook<F> = RefCell<Option<Box<F>>>;
+
+/// App callbacks. They run with the view's state released (after a paint
+/// or an event), so they may change the view.
+#[derive(Default)]
+pub(super) struct Hooks {
+    pub link: Hook<dyn FnMut(&str)>,
+    pub visibility: Hook<dyn FnMut(&str, bool)>,
+    pub image: Hook<dyn FnMut(&str)>,
+    pub action: Hook<dyn FnMut(&BlockActionEvent)>,
+    pub embed: Hook<dyn FnMut(&str, Option<(i32, i32)>)>,
+    pub follow: Hook<dyn FnMut(bool)>,
+    pub selection: Hook<dyn FnMut()>,
+}
+
+/// Delivers what the view queued for the app.
+pub(super) fn dispatch(inn: &Rc<RefCell<Inner>>, hooks: &Hooks) {
+    for _ in 0..4 {
+        let notes = {
+            let Ok(mut i) = inn.try_borrow_mut() else { return };
+            let f = i.stuck;
+            if f != i.seen_follow {
+                i.seen_follow = f;
+                i.notes.push(Note::Follow(f));
+            }
+            let s = i.sel_range();
+            if s != i.seen_sel {
+                i.seen_sel = s;
+                i.notes.push(Note::Selection);
+            }
+            std::mem::take(&mut i.notes)
+        };
+        if notes.is_empty() {
+            return;
+        }
+        for n in notes {
+            match n {
+                Note::Shown(id) => call(&hooks.visibility, |f| f(&id, true)),
+                Note::Hidden(id) => call(&hooks.visibility, |f| f(&id, false)),
+                Note::Image(src) => call(&hooks.image, |f| f(&src)),
+                Note::Follow(on) => call(&hooks.follow, |f| f(on)),
+                Note::Selection => call(&hooks.selection, |f| f()),
+                Note::Action(ev) => call(&hooks.action, |f| f(&ev)),
+                Note::Embed(id, at) => call(&hooks.embed, |f| f(&id, at)),
+            }
+        }
+    }
+}
+
+fn call<F: ?Sized>(h: &Hook<F>, run: impl FnOnce(&mut F)) {
+    // A callback that replaces itself while running is skipped, not a panic.
+    if let Ok(mut g) = h.try_borrow_mut() {
+        if let Some(f) = g.as_mut() {
+            run(f);
+        }
+    }
+}
 
 /// Rich text view: Markdown or [`Block`]s, word-wrapped, virtualized
 /// (only the blocks in view are laid out and drawn), selectable, with
@@ -747,16 +1537,26 @@ type LinkFn = Rc<RefCell<Option<Box<dyn FnMut(&str)>>>>;
 /// chat.push_markdown("a *monoid* in the category of endofunctors.");
 /// ```
 ///
+/// As a transcript host (o3): messages addressed by key
+/// ([`set_message`](Self::set_message), [`insert_message`](Self::insert_message),
+/// [`remove_message`](Self::remove_message), [`bind_model`](Self::bind_model)),
+/// app-drawn cards ([`Block::embed`], [`embed_painter`](Self::embed_painter),
+/// [`host_widget`](Self::host_widget)), scroll anchors by message key, a
+/// bottom inset for an overlaid composer, code and table actions, images
+/// resolved by the app, find and a selection rectangle.
+///
 /// Keys (focused): Up / Down, PageUp / PageDown, Home / End scroll; Tab and
-/// Shift+Tab go through the links and code copy buttons in view, then on
-/// to the next control; Enter or Space opens the focused link (or copies the
-/// code); Ctrl+A selects everything, Ctrl+C copies the selection (Cmd on
-/// macOS); Esc clears the selection.
+/// Shift+Tab go through the links, block actions, code copy buttons and
+/// activatable embeds in view, then on to the next control; Enter or Space
+/// opens the focused link (or runs the action); Ctrl+A selects everything,
+/// Ctrl+C copies the selection (Cmd on macOS); F3 / Shift+F3 (and Mod+G /
+/// Shift+Mod+G) go to the next / previous find match; Esc clears the
+/// selection.
 #[derive(Clone)]
 pub struct RichText {
     widget: Widget,
     inner: Rc<RefCell<Inner>>,
-    link: LinkFn,
+    hooks: Rc<Hooks>,
 }
 fltk::widget_extends!(RichText, Widget, widget);
 
@@ -774,24 +1574,45 @@ impl RichText {
         let rt = RichText {
             widget,
             inner: Rc::new(RefCell::new(Inner::new())),
-            link: Rc::default(),
+            hooks: Rc::default(),
         };
         rt.install();
         rt
     }
 
     fn install(&self) {
-        let inn = self.inner.clone();
+        let (inn, hooks) = (self.inner.clone(), self.hooks.clone());
         let mut w = self.widget.clone();
         w.draw(move |w| {
             let t0 = Instant::now();
-            let mut i = inn.borrow_mut();
-            theme::with(|t| draw_view(w, &mut i, t));
-            i.frames += 1;
-            i.paint_time += t0.elapsed();
+            {
+                let mut i = inn.borrow_mut();
+                theme::with(|t| draw_view(w, &mut i, t));
+                i.frames += 1;
+                i.paint_time += t0.elapsed();
+            }
+            dispatch(&inn, &hooks);
         });
-        let (inn, link) = (self.inner.clone(), self.link.clone());
-        w.handle(move |w, ev| handle(w, &inn, &link, ev));
+        let (inn, hooks) = (self.inner.clone(), self.hooks.clone());
+        w.handle(move |w, ev| {
+            let r = handle(w, &inn, &hooks, ev);
+            dispatch(&inn, &hooks);
+            r
+        });
+        // Action labels are translated: lay out again in a new language.
+        let (inn, mut ww) = (Rc::downgrade(&self.inner), self.widget.clone());
+        let mut first = true;
+        crate::i18n::bind(&self.widget, move || {
+            if std::mem::take(&mut first) {
+                return;
+            }
+            if let Some(inn) = inn.upgrade() {
+                if let Ok(mut i) = inn.try_borrow_mut() {
+                    i.relayout_all();
+                }
+                ww.redraw();
+            }
+        });
         #[cfg(feature = "a11y")]
         access::install(self);
     }
@@ -810,12 +1631,14 @@ impl RichText {
     }
 
     /// Called with the URL of a clicked link (or Enter on a focused one).
+    /// Any scheme arrives as written (`t3-thread://…`, `file://…`).
     pub fn on_link(self, f: impl FnMut(&str) + 'static) -> Self {
-        *self.link.borrow_mut() = Some(Box::new(f));
+        *self.hooks.link.borrow_mut() = Some(Box::new(f));
         self
     }
 
-    /// Markdown conversion options (syntax highlighting).
+    /// Markdown conversion options (syntax highlighting, images, inline
+    /// code path links).
     pub fn markdown_options(self, opts: MarkdownOptions) -> Self {
         self.inner.borrow_mut().opts = opts;
         self
@@ -851,17 +1674,13 @@ impl RichText {
                     v.len() >= len && v.is_char_boundary(len) && fnv(FNV0, &v.as_bytes()[..len]) == h
                 }),
             };
-            if extends && i.stream.is_some() {
+            if extends && i.open.is_some() {
                 i.push_markdown(&v[old_len..]);
                 i.bound = Some((v.len(), fnv(old_h, &v.as_bytes()[old_len..])));
             } else {
                 i.clear();
+                i.open_section();
                 i.push_markdown(v);
-                if i.stream.is_none() {
-                    let n = i.store.len();
-                    let o = i.opts.clone();
-                    i.stream = Some((n, MarkdownStream::with_options(o)));
-                }
                 i.bound = Some((v.len(), fnv(FNV0, v.as_bytes())));
             }
             drop(i);
@@ -883,9 +1702,8 @@ impl RichText {
     pub fn append_markdown(&self, md: &str) {
         {
             let mut i = self.inner.borrow_mut();
-            let start = i.store.len();
-            let o = i.opts.clone();
-            i.stream = Some((start, MarkdownStream::with_options(o)));
+            let j = i.open_section();
+            let start = i.msg_start(j);
             i.push_markdown(md);
             i.reveal_from(start);
         }
@@ -905,18 +1723,18 @@ impl RichText {
 
     /// Closes the open section (frees its parser state).
     pub fn finish(&self) {
-        self.inner.borrow_mut().stream = None;
+        self.inner.borrow_mut().close_open();
     }
 
     /// Appends blocks built in code (closes the open section).
     pub fn append_blocks(&self, blocks: impl IntoIterator<Item = Block>) {
         {
             let mut i = self.inner.borrow_mut();
-            i.stream = None;
+            i.close_open();
             let start = i.store.len();
-            for b in blocks {
-                i.push_slot(b);
-            }
+            let key = i.new_key();
+            let j = i.msgs.len();
+            i.insert_msg(j, key, blocks.into_iter().collect(), None);
             i.reveal_from(start);
         }
         self.changed();
@@ -1043,9 +1861,7 @@ impl RichText {
         {
             let mut i = self.inner.borrow_mut();
             let max = i.max_top();
-            let top = top.clamp(0, max.max(0));
-            i.top = top;
-            i.motion.jump(top);
+            i.set_top(top);
             i.stuck = i.stick && i.top >= max;
         }
         self.changed();
@@ -1056,8 +1872,7 @@ impl RichText {
             let mut i = self.inner.borrow_mut();
             i.stuck = i.stick;
             let top = i.max_top();
-            i.top = top;
-            i.motion.jump(top);
+            i.set_top(top);
         }
         self.changed();
     }
@@ -1210,7 +2025,7 @@ fn deliver(id: u64, buf: &Arc<Mutex<Pending>>) {
         let mut i = inn.borrow_mut();
         i.push_markdown(&text);
         if finish {
-            i.stream = None;
+            i.close_open();
         }
     }
     w.redraw();
@@ -1361,6 +2176,36 @@ pub(super) struct BlockCtx<'a> {
     pub clip: (i32, i32),
     /// Text color for runs without a color role (labels).
     pub color: Option<Rgb>,
+    /// Code header / table footer actions of the block.
+    pub actions: &'a [ActionSlot],
+    /// The action that just copied (a check mark for a moment).
+    pub copied_slot: Option<usize>,
+    /// Height of the table action footer (inside `l.height`).
+    pub foot: i32,
+    /// Find matches in the block (byte ranges; true for the current one).
+    pub marks: &'a [(Range<usize>, bool)],
+}
+
+/// Draws a row of small action buttons (code header, table footer).
+fn draw_actions(c: &BlockCtx, bx: i32, y: i32, h: i32, surface: Rgb) {
+    let t = c.t;
+    let p = &t.palette;
+    for (slot, a) in c.actions.iter().enumerate() {
+        let me = |o: Option<Target>| matches!(o, Some(Target::Action { slot: s, .. }) if s == slot);
+        let (x, w) = (bx + a.x, a.w);
+        if me(c.hover) || me(c.focus) {
+            paint::fill(x, y + 1, w, h - 2, t.radius.min(4), t.fill(&t.controls.hover, surface));
+        }
+        let (label, color) = if c.copied_slot == Some(slot) {
+            (glyph::CHECKMARK, p.green)
+        } else {
+            (a.label.as_str(), if me(c.hover) { p.accent } else { p.foreground.darker(1.4) })
+        };
+        paint::text(label, x, y, w, h, c.ty.small, false, color, Align::Center);
+        if me(c.focus) {
+            paint::stroke(x, y + 1, w, h - 2, t.radius.min(4), 1, p.accent);
+        }
+    }
 }
 
 pub(super) fn draw_block(
@@ -1407,8 +2252,10 @@ pub(super) fn draw_block(
                     Align::Left,
                 );
             }
+            draw_actions(c, bx, by, ty.code_header, surface);
             let (cx, cy, cw, ch) = copy_rect(l, ty, bx, by);
-            if c.hover.is_some() || c.focus.is_some() {
+            let on_copy = |o: Option<Target>| matches!(o, Some(Target::Copy { .. }));
+            if on_copy(c.hover) || on_copy(c.focus) {
                 paint::fill(
                     cx,
                     cy,
@@ -1428,7 +2275,7 @@ pub(super) fn draw_block(
                 ty.small + 2,
                 if c.copied { p.green } else { fg.darker(1.4) },
             );
-            if c.focus.is_some() {
+            if on_copy(c.focus) {
                 paint::stroke(cx, cy, cw, ch, t.radius.min(4), 1, p.accent);
             }
         }
@@ -1443,6 +2290,10 @@ pub(super) fn draw_block(
             );
         }
         BlockKind::Table(_) => {
+            if c.foot > 0 {
+                draw_actions(c, bx, by + l.height - c.foot, c.foot, c.under);
+            }
+            let th = l.height - c.foot;
             if let Some(g) = &l.table {
                 let x0 = bx + l.left;
                 if g.header_rows > 0 {
@@ -1456,9 +2307,9 @@ pub(super) fn draw_block(
                 // Every column edge but the table's left one (columns run
                 // right to left in a right-to-left table).
                 for (cx, _) in g.cols.iter().filter(|(cx, _)| *cx > l.left) {
-                    paint::fill(bx + cx, by, 1, l.height - 1, 0, hair);
+                    paint::fill(bx + cx, by, 1, th - 1, 0, hair);
                 }
-                paint::stroke(x0, by, l.box_w, l.height, 0, 1, hair);
+                paint::stroke(x0, by, l.box_w, th, 0, 1, hair);
             }
         }
         BlockKind::Heading(lv) if *lv <= 2 => {
@@ -1519,6 +2370,20 @@ pub(super) fn draw_block(
                     paint::stroke(cx, cy, d, d, 3, 1, dim);
                 }
             }
+        }
+    }
+    // An image not resolved yet: its glyph before the alt text.
+    if let (BlockKind::Image { .. }, Some(first)) = (&b.kind, l.lines.first()) {
+        let gx = bx + l.mirror_x(l.left - ty.list_w, ty.list_w);
+        paint::glyph(IMAGE, gx, by + first.y, ty.list_w, first.h, ty.body + 2, fg.darker(1.4));
+    }
+    // Find matches under the text.
+    for (r, current) in c.marks {
+        let r = r.start.min(text.len())..r.end.min(text.len());
+        let color = if *current { p.accent } else { p.yellow };
+        let a = if *current { 0.55 } else { 0.3 };
+        for (x, y, w, h) in l.rects(text, r, m) {
+            paint::alpha_fill(bx + x, by + y, w, h, color, a);
         }
     }
     // Selection under the text.
@@ -1604,6 +2469,8 @@ pub(super) fn draw_block(
 
 /// Nerd Font "content copy".
 const COPY: &str = "\u{f018f}";
+/// Nerd Font "image".
+const IMAGE: &str = "\u{f02e9}";
 
 // --------------------------------------------------------------- events
 
