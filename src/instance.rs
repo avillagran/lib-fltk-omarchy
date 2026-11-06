@@ -411,13 +411,33 @@ impl Client {
         let mut c = ipc::connect(&ep, self.timeout).map_err(io_error)?;
         let left = self.timeout.saturating_sub(start.elapsed()).max(Duration::from_millis(1));
         c.set_timeout(Some(left)).map_err(Error::Io)?;
-        write_frame(&mut c, &req.encode()).map_err(io_error)?;
-        match read_frame(&mut c, self.max_reply) {
-            Ok(body) => decode_reply(&body),
-            Err(FrameError::TooLarge) => Err(Error::TooLarge),
-            Err(FrameError::Eof) => Err(Error::Protocol("connection closed without a reply".into())),
-            Err(FrameError::Io(e)) => Err(io_error(e)),
+        let write_error=write_frame(&mut c, &req.encode()).err();
+        if let Some(error)=write_error.as_ref() {
+            if !matches!(error.kind(),io::ErrorKind::BrokenPipe|io::ErrorKind::ConnectionReset) {
+                return Err(io_error(write_error.unwrap()));
+            }
         }
+        let left=self.timeout.saturating_sub(start.elapsed());
+        if left.is_zero(){return Err(write_error.map_or(Error::Timeout,io_error));}
+        c.set_timeout(Some(left)).map_err(Error::Io)?;
+        receive_reply(&mut c,self.max_reply,write_error)
+    }
+}
+
+fn receive_reply(c: &mut impl Read, limit: usize, write_error: Option<io::Error>) -> Result<String,Error> {
+    let reply=match read_frame(c,limit) {
+        Ok(body)=>decode_reply(&body),
+        Err(FrameError::TooLarge)=>Err(Error::TooLarge),
+        Err(FrameError::Eof)=>Err(Error::Protocol("connection closed without a reply".into())),
+        Err(FrameError::Io(error))=>Err(io_error(error)),
+    };
+    // A busy/size rejection may arrive before the request has been sent.
+    // Preserve a complete remote error across that close/write race. A
+    // success or incomplete response cannot complete a failed request.
+    match (write_error,reply) {
+        (Some(_),Err(error @ Error::Remote(_)))=>Err(error),
+        (Some(error),_)=>Err(io_error(error)),
+        (None,reply)=>reply,
     }
 }
 
@@ -1070,6 +1090,19 @@ mod tests {
         let r = rt.opts("dev.test.a").client().call("ping", "");
         assert!(matches!(&r, Err(Error::Remote(e)) if e.starts_with("busy")), "{r:?}");
         drop(rx);
+    }
+
+    #[test]
+    fn complete_rejection_survives_write_failure_without_accepting_success() {
+        for (response,remote) in [(Err("busy: too many requests at once".into()),true),(Ok("unsent request".into()),false)] {
+            let mut bytes=Vec::new();
+            write_frame(&mut bytes,&encode_reply(&response)).unwrap();
+            let r=receive_reply(&mut io::Cursor::new(bytes),MAX_REPLY,Some(io::Error::from(io::ErrorKind::BrokenPipe)));
+            if remote {assert!(matches!(r,Err(Error::Remote(_))),"{r:?}");}
+            else {assert!(matches!(r,Err(Error::Io(e)) if e.kind()==io::ErrorKind::BrokenPipe));}
+        }
+        let r=receive_reply(&mut io::Cursor::new(vec![0,0]),MAX_REPLY,Some(io::Error::from(io::ErrorKind::ConnectionReset)));
+        assert!(matches!(r,Err(Error::Io(e)) if e.kind()==io::ErrorKind::ConnectionReset));
     }
 
     #[test]
