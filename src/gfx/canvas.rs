@@ -169,6 +169,27 @@ impl Canvas {
         Canvas { w, h, px: vec![0; w * h * 4], opacity: 1.0, blend: BlendMode::Normal, clips: Vec::new(), layers: Vec::new(), cov: Coverage::new(), unit: 1.0 }
     }
 
+    /// A canvas holding opaque RGB8 pixels (`w × h × 3`, row by row), e.g.
+    /// an offscreen picture of widgets (`layer::capture`).
+    pub fn from_rgb8(w: usize, h: usize, rgb: &[u8]) -> Canvas {
+        let mut c = Canvas::new(w, h);
+        for (o, p) in c.px.chunks_exact_mut(4).zip(rgb.chunks_exact(3)) {
+            o.copy_from_slice(&[p[0], p[1], p[2], 255]);
+        }
+        c
+    }
+
+    /// A canvas holding straight (not premultiplied) RGBA8 pixels.
+    pub fn from_rgba8(w: usize, h: usize, rgba: &[u8]) -> Canvas {
+        let mut c = Canvas::new(w, h);
+        for (o, p) in c.px.chunks_exact_mut(4).zip(rgba.chunks_exact(4)) {
+            let a = p[3] as u32;
+            let m = |v: u8| ((v as u32 * a + 127) / 255) as u8;
+            o.copy_from_slice(&[m(p[0]), m(p[1]), m(p[2]), p[3]]);
+        }
+        c
+    }
+
     /// Drawing units are scaled by `unit` (View sets it when it renders at
     /// a lower resolution than the widget).
     pub fn set_unit(&mut self, unit: f32) {

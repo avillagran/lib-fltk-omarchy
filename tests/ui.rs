@@ -38,6 +38,7 @@ mod chart_ui;
 mod keys_ui;
 mod list_ui;
 mod typo_ui;
+mod layer_ui;
 mod media_ui;
 mod transcript_ui;
 
@@ -2010,6 +2011,7 @@ fn main() {
     keys_ui::checks(&mut run);
     list_ui::checks(&mut run);
     typo_ui::checks(&mut run);
+    layer_ui::checks(&mut run);
     media_ui::checks(&mut run);
     transcript_ui::checks(&mut run);
     #[cfg(feature = "a11y")]

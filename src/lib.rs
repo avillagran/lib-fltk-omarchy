@@ -11,6 +11,7 @@ pub mod i18n;
 pub mod icon;
 pub mod instance;
 pub mod keys;
+pub mod layer;
 pub mod layout;
 pub mod list;
 pub mod mask;
