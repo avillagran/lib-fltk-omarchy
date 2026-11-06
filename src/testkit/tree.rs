@@ -152,7 +152,8 @@ fn visit(
     // Window coordinates of children: fltk's are relative to the nearest
     // window; a subwindow adds its own position.
     let rect = if depth == 0 { (0, 0, w.w(), w.h()) } else { (off.0 + w.x(), off.1 + w.y(), w.w(), w.h()) };
-    let shown = parent_visible && w.visible();
+    // The window itself counts as shown: headless windows render offscreen.
+    let shown = depth == 0 || (parent_visible && w.visible());
     let visible = shown && meets(rect, clip);
     let d = lite::described(w);
     let mut n = Node { bounds: Some(rect), ..Node::default() };
@@ -174,7 +175,10 @@ fn visit(
         name = clean_label(&w.label());
     }
     let kind = if n.role == Role::Unknown { class_of(w).to_string() } else { format!("{:?}", n.role) };
-    let focused = focus == Some(w.as_widget_ptr() as usize);
+    // A leaf (a composite control describing itself) has the focus when
+    // one of its inner widgets has it.
+    let focused = focus == Some(w.as_widget_ptr() as usize)
+        || (n.leaf && fltk::app::focus().is_some_and(|f| f.inside(w)));
     out.push(Element {
         path: path.clone(),
         kind,

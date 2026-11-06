@@ -266,9 +266,14 @@ impl Gate {
     /// Everything found in the recording.
     pub fn check(&self, rules: &Rules) -> Vec<Finding> {
         let mut out = Vec::new();
+        // Frames where some tracked thing moves: things appearing or leaving
+        // then are scrolled in or out, not popping.
+        let moving: Vec<bool> = (0..self.frames)
+            .map(|k| self.series.iter().any(|v| step_of(v, k).is_some_and(|d| d > 0)))
+            .collect();
         for (name, v) in self.names.iter().zip(&self.series) {
             let excused = |k: usize| rules.inputs_excuse && self.inputs.iter().any(|(f, _)| *f == k);
-            check_track(name, v, rules, &excused, &mut out);
+            check_track(name, v, rules, &excused, &moving, &mut out);
         }
         out.sort_by_key(|f| f.frame);
         out
@@ -311,7 +316,14 @@ fn step_of(v: &[Option<Sample>], k: usize) -> Option<i32> {
     Some((b.rect.0 - a.rect.0).abs().max((b.rect.1 - a.rect.1).abs()))
 }
 
-fn check_track(name: &str, v: &[Option<Sample>], r: &Rules, excused: &dyn Fn(usize) -> bool, out: &mut Vec<Finding>) {
+fn check_track(
+    name: &str,
+    v: &[Option<Sample>],
+    r: &Rules,
+    excused: &dyn Fn(usize) -> bool,
+    moving: &[bool],
+    out: &mut Vec<Finding>,
+) {
     let n = v.len();
     // Jumps: a big step between frames that hold still.
     for k in 1..n {
@@ -319,8 +331,10 @@ fn check_track(name: &str, v: &[Option<Sample>], r: &Rules, excused: &dyn Fn(usi
         if step <= r.max_jump || excused(k) {
             continue;
         }
-        let prev = step_of(v, k - 1).unwrap_or(0);
-        let next = step_of(v, k + 1).unwrap_or(0);
+        // A neighbor frame where it is not shown (moved out of view) says
+        // nothing: no verdict. The recording's edges count as still.
+        let around = |j: usize| if j == 0 || j >= n { Some(0) } else { step_of(v, j) };
+        let (Some(prev), Some(next)) = (around(k - 1), around(k + 1)) else { continue };
         if prev * 4 < step && next * 4 < step {
             let (a, b) = (v[k - 1].unwrap().rect, v[k].unwrap().rect);
             out.push(Finding {
@@ -338,7 +352,9 @@ fn check_track(name: &str, v: &[Option<Sample>], r: &Rules, excused: &dyn Fn(usi
         if was == is {
             continue;
         }
-        let back = (k + 1..n.min(k + h + 1)).find(|&j| v[j].is_some() == was);
+        let back = (k + 1..n.min(k + h + 1))
+            .find(|&j| v[j].is_some() == was)
+            .filter(|&j| !moving.get(k).copied().unwrap_or(false) && !moving.get(j).copied().unwrap_or(false));
         if let Some(j) = back {
             out.push(Finding {
                 kind: FindingKind::Pop,
@@ -419,7 +435,7 @@ mod tests {
 
     fn kinds(v: &[Option<i32>]) -> Vec<FindingKind> {
         let mut out = Vec::new();
-        check_track("t", &ys(v), &Rules::default(), &|_| false, &mut out);
+        check_track("t", &ys(v), &Rules::default(), &|_| false, &[], &mut out);
         out.into_iter().map(|f| f.kind).collect()
     }
 
@@ -441,7 +457,7 @@ mod tests {
     fn excused_inputs_may_jump() {
         let mut out = Vec::new();
         let r = Rules { inputs_excuse: true, ..Rules::default() };
-        check_track("t", &ys(&[Some(0), Some(100), Some(100)]), &r, &|k| k == 1, &mut out);
+        check_track("t", &ys(&[Some(0), Some(100), Some(100)]), &r, &|k| k == 1, &[], &mut out);
         assert!(out.is_empty());
     }
 
@@ -454,11 +470,19 @@ mod tests {
     }
 
     #[test]
+    fn passing_through_a_scroll_is_no_pop_or_jump() {
+        // Shown one frame while everything moves (a fast glide), then out.
+        let mut out = Vec::new();
+        check_track("t", &ys(&[None, Some(200), Some(80), None]), &Rules::default(), &|_| false, &[false, true, true, true], &mut out);
+        assert!(out.is_empty(), "{out:?}");
+    }
+
+    #[test]
     fn opacity_dips_pop() {
         let mut v = ys(&[Some(0); 5]);
         v[2] = Some(Sample { rect: (0, 0, 10, 10), opacity: 0.2 });
         let mut out = Vec::new();
-        check_track("t", &v, &Rules::default(), &|_| false, &mut out);
+        check_track("t", &v, &Rules::default(), &|_| false, &[], &mut out);
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].kind, FindingKind::Pop);
     }

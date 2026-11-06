@@ -120,6 +120,8 @@ pub(crate) fn steps_of(v: &Value) -> Vec<Value> {
 pub fn run_steps<W: WindowExt>(window: &W, steps: &[Value]) -> Report {
     let was_frozen = clock::frozen();
     clock::freeze();
+    // Lay the window out (a headless window was never drawn).
+    super::render_frame(window);
     let mut report = Report::default();
     for (index, step) in steps.iter().enumerate() {
         let op = op_of(step);
