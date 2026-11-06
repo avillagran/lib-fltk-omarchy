@@ -654,7 +654,7 @@ fn act(w: &Widget, inn: &Rc<RefCell<Inner>>, hooks: &Hooks, r: &Request) -> bool
     // The target a link or copy key names (tables: [block, row, cell, link]).
     let target = match path.last().copied() {
         Some(COPY_KEY) => Some(Target::Copy { block: k }),
-        Some(a) if a >= ACTION && a < ACTION + (1 << 16) => Some(Target::Action {
+        Some(a) if (ACTION..ACTION + (1 << 16)).contains(&a) => Some(Target::Action {
             block: k,
             slot: (a - ACTION) as usize,
         }),

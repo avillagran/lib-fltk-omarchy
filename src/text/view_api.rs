@@ -293,10 +293,8 @@ impl RichText {
                 sync_all(&rt, m, &*render);
             } else {
                 for id in changes.updated().iter().chain(changes.inserted()) {
-                    if let Some((key, content)) = m.with_id(*id, |t| (m.key_of(*id), render(t))) {
-                        if let Some(key) = key {
-                            rt.set_message(&key.to_string(), content);
-                        }
+                    if let Some((Some(key), content)) = m.with_id(*id, |t| (m.key_of(*id), render(t))) {
+                        rt.set_message(&key.to_string(), content);
                     }
                 }
             }

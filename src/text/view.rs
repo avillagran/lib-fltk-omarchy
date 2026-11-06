@@ -1442,9 +1442,7 @@ impl Inner {
                 self.notes.push(Note::Action(ev));
             }
             Target::Action { block, slot } => {
-                let Some(id) = self.actions_of(block).get(slot).map(|a| a.id.clone()) else {
-                    return None;
-                };
+                let id = self.actions_of(block).get(slot).map(|a| a.id.clone())?;
                 let ev = self.action_event(block, &id);
                 let builtin = matches!(self.store.shape(block).kind, ShapeKind::Table(_))
                     && (id == BlockAction::COPY_MARKDOWN || id == BlockAction::COPY_CSV);
