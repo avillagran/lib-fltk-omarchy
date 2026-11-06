@@ -220,6 +220,7 @@ impl AppWindow {
         });
         let m3 = mode.clone();
         win.draw(move |w| {
+            let _frame = crate::testkit::frames::Frame::begin(w);
             // Only views that can move their own pixels scrolled: let FLTK
             // update just them, without repainting the background under them.
             if w.damage_type() == Damage::Child && scroll_only(w) {
@@ -254,6 +255,7 @@ impl AppWindow {
             let mut w = win.clone();
             move |t| { w.set_color(t.palette.background.fl()); w.redraw(); }
         });
+        crate::testkit::note_window(&win);
         AppWindow { win, header, body, mode, size: (width, height), min, shortcuts, table }
     }
 
@@ -335,8 +337,11 @@ impl AppWindow {
         self.table.clone()
     }
 
+    #[track_caller]
     pub fn shortcut(&mut self, spec: &str, f: impl FnMut() + 'static) {
         let keys = crate::keys::parse(spec).unwrap_or_else(|e| panic!("{e}"));
+        let (site, mut f) = (std::panic::Location::caller(), f);
+        let f = move || crate::testkit::frames::watch(site, &mut f);
         self.shortcuts.borrow_mut().push((keys, Box::new(f)));
     }
 
@@ -344,6 +349,10 @@ impl AppWindow {
     /// with a fixed size so Hyprland floats it at the requested size
     /// (smaller first buffers), then the size range is relaxed.
     pub fn show(&mut self) {
+        // Scripted runs stay offscreen (docs/TESTKIT.md).
+        if crate::testkit::env::headless() {
+            return;
+        }
         if self.mode.get() == Mode::Floating && hyprland::available() && !self.win.shown() {
             // Map normally, then float it as soon as Hyprland lists the window.
             // (A fixed size range at map time makes Hyprland float it too, but
@@ -472,6 +481,13 @@ pub fn read_pixels(win: &mut DoubleWindow) -> Option<Vec<u8>> {
 
 /// Offscreen render of any window into a PNG.
 pub fn snapshot(win: &mut DoubleWindow, path: &Path) -> std::io::Result<()> {
+    let img = render(win)?;
+    let data = img.to_rgb_data();
+    png::write(path, img.data_w() as u32, img.data_h() as u32, img.depth() as u8, &data)
+}
+
+/// Offscreen render of any window (what [`snapshot`] writes).
+pub(crate) fn render(win: &mut DoubleWindow) -> std::io::Result<fltk::image::RgbImage> {
     use fltk::surface::ImageSurface;
     let (w, h) = (win.w(), win.h());
     // Lay out flex children for the current size even if never shown.
@@ -489,9 +505,7 @@ pub fn snapshot(win: &mut DoubleWindow, path: &Path) -> std::io::Result<()> {
     }
     let img = surf.image();
     ImageSurface::pop_current();
-    let img = img.ok_or_else(|| std::io::Error::other("offscreen render failed"))?;
-    let data = img.to_rgb_data();
-    png::write(path, img.data_w() as u32, img.data_h() as u32, img.depth() as u8, &data)
+    img.ok_or_else(|| std::io::Error::other("offscreen render failed"))
 }
 
 thread_local! {
