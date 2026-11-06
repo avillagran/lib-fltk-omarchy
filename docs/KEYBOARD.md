@@ -195,7 +195,7 @@ operation started from a menu.
 | Composer | the TextArea keys; Enter sends, Shift+Enter new line (`SendKey::ModEnter` swaps them), Mod+Enter sends, Mod+Shift+Enter alternate send; expanded editor (`.expanded`): Enter new line, Mod+Enter sends; with `.history`: Up on the first line / Down on the last line walk the prompts sent before (the draft comes back past the newest); Mod+Shift+A attaches files (`.attach_button()`). Completion list open: Up / Down, PageUp / PageDown, Enter or Tab accept, Esc closes (the input keeps focus). Attachment chips: one Tab stop, Left / Right, Delete removes, Enter opens |
 | NumberField | Up / Down |
 | Slider | Left / Right / Up / Down |
-| TabBar | anywhere: Ctrl+Tab, Ctrl+Shift+Tab, Ctrl+PageDown, Ctrl+PageUp. Focused: Left / Right / Home / End, Delete closes |
+| TabBar | anywhere: Ctrl+Tab, Ctrl+Shift+Tab, Ctrl+PageDown, Ctrl+PageUp. Focused: Left/Right/Home/End select; Alt+Left/Right moves cursor only; Enter/Space activates cursor; Delete closes cursor; Menu/Shift+F10 context; Mod+Shift+Left/Right requests enabled reorder without selection |
 | List | Up / Down, j / k, PageUp / PageDown, Home / End, Enter |
 | RichText | Up / Down, PageUp / PageDown, Home / End (End follows a stream again) scroll; Tab / Shift+Tab go through the links and code copy buttons in view, then on to the next control; Enter / Space open the link or copy the code; Ctrl+A select all, Ctrl+C copy (Cmd on macOS); Esc clears |
 | RichLabel | with links: a Tab stop; Enter / Space open the first link |

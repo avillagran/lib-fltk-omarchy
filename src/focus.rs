@@ -854,6 +854,13 @@ pub fn click_at_with<W: WindowExt>(window: &W, x: i32, y: i32, mods: Shortcut) {
 /// Sends a right click (press + release) at window coordinates `(x, y)` of
 /// `window` through fltk's normal event path (tests of context menus).
 pub fn right_click_at<W: WindowExt>(window: &W, x: i32, y: i32) {
+    click_button_at(window, x, y, 3);
+}
+
+/// Click a numbered mouse button through the normal event path: 1 left,
+/// 2 middle, 3 right. Other positive button numbers test auxiliary inputs.
+pub fn click_button_at<W: WindowExt>(window: &W, x: i32, y: i32, button: i32) {
+    assert!((1..=32).contains(&button), "invalid mouse button");
     let win = window.as_widget_ptr() as app::WindowPtr;
     // SAFETY: fltk's event globals are plain data, used on the UI thread.
     unsafe {
@@ -862,8 +869,8 @@ pub fn right_click_at<W: WindowExt>(window: &W, x: i32, y: i32) {
         FL_E_X_ROOT = window.x() + x;
         FL_E_Y_ROOT = window.y() + y;
         FL_E_CLICKS = 0;
-        FL_E_KEYSYM = Key::from_i32(0xfee8 + 3).bits(); // FL_Button + 3 (right)
-        FL_E_STATE = 0x0400_0000; // FL_BUTTON3
+        FL_E_KEYSYM = Key::from_i32(0xfee8 + button).bits();
+        FL_E_STATE = match button { 1 => 0x0100_0000, 2 => 0x0200_0000, 3 => 0x0400_0000, _ => 0 };
     }
     dispatch(Event::Push, win);
     // SAFETY: as above.
@@ -911,6 +918,7 @@ pub fn mouse_up<W: WindowExt>(window: &W, x: i32, y: i32) {
         FL_E_Y = y;
         FL_E_X_ROOT = window.x() + x;
         FL_E_Y_ROOT = window.y() + y;
+        FL_E_KEYSYM = Key::from_i32(0xfee8 + 1).bits();
         FL_E_STATE = 0;
     }
     dispatch(Event::Released, win);

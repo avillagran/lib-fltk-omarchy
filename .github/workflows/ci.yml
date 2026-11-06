@@ -91,6 +91,10 @@ jobs:
         run: |
           cargo build --locked --release --example platform_check
           script/x11-check
+      - name: keyed tabs native buttons and keyboard (CPU, private Xvfb)
+        run: |
+          cargo build --locked --example tabs_input_check
+          script/tabs-input-check
       - name: gpu feature
         run: |
           cargo build --locked --all-targets --features gpu

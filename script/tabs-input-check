@@ -1,0 +1,135 @@
+#!/usr/bin/env python3
+"""Drive the CPU tab fixture with XTest on a fresh private Xvfb display."""
+import ctypes
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import time
+import uuid
+
+
+def inside(binary, output):
+    x11 = ctypes.CDLL("libX11.so.6")
+    xt = ctypes.CDLL("libXtst.so.6")
+    x11.XOpenDisplay.restype = ctypes.c_void_p
+    x11.XDefaultRootWindow.restype = ctypes.c_ulong
+    x11.XKeysymToKeycode.restype = ctypes.c_ubyte
+    d = ctypes.c_void_p(x11.XOpenDisplay(None))
+    if not d.value:
+        raise RuntimeError("private display unavailable")
+    log = (output / "application.log").open("w")
+    process = subprocess.Popen([str(binary), str(output)], stdout=log, stderr=subprocess.STDOUT)
+    try:
+        deadline = time.monotonic() + 8
+        while True:
+            try:
+                ready = json.loads((output / "ready.json").read_text())
+                break
+            except (FileNotFoundError, json.JSONDecodeError):
+                pass
+            if process.poll() is not None or time.monotonic() > deadline:
+                raise RuntimeError("fixture did not become ready; inspect application.log")
+            time.sleep(0.02)
+        tabs = {t["key"]: t for t in ready["tabs"]}
+
+        def move(x, y):
+            xt.XTestFakeMotionEvent(d, -1, int(x), int(y), 0)
+            x11.XFlush(d)
+            time.sleep(0.04)
+
+        def button(number, down):
+            xt.XTestFakeButtonEvent(d, number, int(down), 0)
+            x11.XFlush(d)
+            time.sleep(0.06)
+
+        def click(tab, number, close=False):
+            move(tab["close_x"] if close else tab["x"] + tab["w"] // 2, tab["close_y"] if close else tab["y"])
+            button(number, True)
+            button(number, False)
+
+        move(tabs[20]["x"] + tabs[20]["w"] // 2, tabs[20]["y"])
+        root = x11.XDefaultRootWindow(d)
+        returned_root, child = ctypes.c_ulong(), ctypes.c_ulong()
+        coords = [ctypes.c_int() for _ in range(4)]
+        mask = ctypes.c_uint()
+        x11.XQueryPointer(d, ctypes.c_ulong(root), ctypes.byref(returned_root), ctypes.byref(child),
+                          *(ctypes.byref(c) for c in coords), ctypes.byref(mask))
+        if not child.value:
+            raise RuntimeError("fixture window not under the private pointer")
+        x11.XSetInputFocus(d, child, 2, 0)
+        x11.XFlush(d)
+        click(tabs[20], 3)
+        click(tabs[20], 3, True)
+        click(tabs[20], 2)
+        start = tabs[20]["x"] + tabs[20]["w"] // 2
+        end = tabs[30]["x"] + tabs[30]["w"] - 3
+        move(start, tabs[20]["y"])
+        button(1, True)
+        for i in range(1, 7):
+            move(start + (end - start) * i // 6, tabs[20]["y"])
+        button(1, False)
+        # B moved into C's old slot. Context must still identify B.
+        click(tabs[30], 3, True)
+        keys = [x11.XKeysymToKeycode(d, ctypes.c_ulong(k)) for k in (0xffe3, 0xffe1, 0xff51)]
+        for key in keys:
+            xt.XTestFakeKeyEvent(d, key, 1, 0)
+        for key in reversed(keys):
+            xt.XTestFakeKeyEvent(d, key, 0, 0)
+        x11.XFlush(d)
+        time.sleep(0.1)
+        # App-owned Move chords must not become next/previous selection.
+        for symbol in (0xff56, 0xff55):  # PageDown, PageUp
+            keys = [x11.XKeysymToKeycode(d, ctypes.c_ulong(k)) for k in (0xffe3, 0xffe1, symbol)]
+            for key in keys:
+                xt.XTestFakeKeyEvent(d, key, 1, 0)
+            for key in reversed(keys):
+                xt.XTestFakeKeyEvent(d, key, 0, 0)
+            x11.XFlush(d)
+            time.sleep(0.1)
+        click(tabs[20], 1, True)
+        click(tabs[30], 1)
+        (output / "done").write_text("done\n")
+        process.wait(timeout=5)
+        if process.returncode:
+            raise RuntimeError("fixture failed; inspect application.log")
+    finally:
+        if process.poll() is None:
+            process.terminate()
+            process.wait(timeout=5)
+        log.close()
+        x11.XCloseDisplay(d)
+    report = json.loads((output / "report.json").read_text())
+    events = report["events"]
+    contexts = [e for e in events if e["kind"] == "context"]
+    closes = [e for e in events if e["kind"] == "close"]
+    reorders = [e for e in events if e["kind"] == "reorder"]
+    selects = [e for e in events if e["kind"] == "select"]
+    assert len(contexts) == 3 and all(e["key"] == 20 and e["selected"] == 10 and e["button"] == 3 for e in contexts), report
+    assert len(closes) == 2 and [e["button"] for e in closes] == [2, 1] and all(e["key"] == 20 and e["selected"] == 10 for e in closes), report
+    assert [e["order"] for e in reorders] == [[10, 30, 20], [10, 20, 30]] and all(e["selected"] == 10 for e in reorders), report
+    assert len(selects) == 1 and selects[0]["key"] == 30 and report["selected"] == 30, report
+    assert report["backend"] == "CPU", report
+    print(json.dumps(report))
+    print("PASS native buttons/context/drag/keyboard with stable keys:", output)
+
+
+if __name__ == "__main__":
+    root = Path(__file__).resolve().parent.parent
+    if len(sys.argv) == 4 and sys.argv[1] == "--inside":
+        if os.environ.get("OMARCHY_PRIVATE_TAB_TEST") != sys.argv[2]:
+            raise SystemExit("private Xvfb launcher required")
+        inside(Path(os.environ["OMARCHY_TAB_TEST_BINARY"]), Path(sys.argv[3]))
+    else:
+        binary = Path(os.environ.get("TABS_INPUT_BIN", root / "target/debug/examples/tabs_input_check")).resolve()
+        if not binary.is_file() or not binary.is_relative_to(root / "target"):
+            raise SystemExit("build --example tabs_input_check first; binary must be inside target/")
+        output = root / "build" / ("tabs-input-" + uuid.uuid4().hex)
+        output.mkdir(parents=True, exist_ok=False)
+        token = uuid.uuid4().hex
+        env = os.environ.copy()
+        env.pop("WAYLAND_DISPLAY", None)
+        env.pop("HYPRLAND_INSTANCE_SIGNATURE", None)
+        env.update(FLTK_BACKEND="x11", OMARCHY_PRIVATE_TAB_TEST=token, OMARCHY_TAB_TEST_BINARY=str(binary))
+        subprocess.run(["xvfb-run", "-a", "-s", "-screen 0 1280x800x24", sys.executable, "-I", str(Path(__file__).resolve()), "--inside", token, str(output)], env=env, check=True, timeout=30)

@@ -1669,10 +1669,21 @@ pub struct TabBar {
     tabs: Rc<RefCell<Vec<String>>>,
     value: State<usize>,
     close: Cb<usize>,
+    select: Cb<usize>,
     closable: Rc<Cell<bool>>,
     geo: Rc<TabGeo>,
+    ids: Rc<RefCell<Vec<u64>>>,
+    cursor: Rc<Cell<Option<u64>>>,
+    context: Cb<(usize, i32, i32)>,
+    reorder: Cb<(usize, usize)>,
 }
 fltk::widget_extends!(TabBar, Widget, inner);
+
+mod tabs;
+pub use tabs::{KeyedTabBar, TabContext, TabReorder, TabHit, TabPart};
+
+#[derive(Clone)]
+struct TabPress { id: u64, button: i32, x: i32, y: i32, close: bool, dragged: bool, target: Option<(u64, bool)> }
 
 /// Tab strip geometry with horizontal scrolling.
 struct TabGeo {
@@ -1759,19 +1770,27 @@ impl TabBar {
         inner.set_frame(FrameType::NoBox);
         inner.set_visible_focus();
         let tabs: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(tabs.iter().map(|s| s.to_string()).collect()));
+        let ids = Rc::new(RefCell::new((0..tabs.borrow().len() as u64).collect::<Vec<_>>()));
+        let cursor = Rc::new(Cell::new(None));
+        let pressed: Rc<RefCell<Option<TabPress>>> = Rc::default();
+        let context: Cb<(usize, i32, i32)> = cb();
+        let reorder: Cb<(usize, usize)> = cb();
         let hover = Rc::new(Cell::new(-1i32));
         let closable = Rc::new(Cell::new(false));
         let close: Cb<usize> = cb();
+        let select: Cb<usize> = cb();
         let scroll = Rc::new(Cell::new(0i32));
-        let revealed = Rc::new(Cell::new(usize::MAX));
+        let revealed = Rc::new(Cell::new(None::<u64>));
         let geo = Rc::new(TabGeo { tabs: tabs.clone(), scroll: scroll.clone() });
         // The selection (fill and accent line) slides to the new tab.
         let slide: Rc<RefCell<(Anim<f64>, Anim<f64>)>> = Rc::default();
         let (tb, v, hv, cl, g, rv) = (tabs.clone(), value.clone(), hover.clone(), closable.clone(), geo.clone(), revealed.clone());
+        let (draw_ids, draw_cursor, draw_press) = (ids.clone(), cursor.clone(), pressed.clone());
         inner.draw(move |w| {
             // Keep the selected tab (and its close glyph) in view when the selection changes.
-            if rv.get() != v.get() {
-                rv.set(v.get());
+            let selected_id=draw_ids.borrow().get(v.get()).copied();
+            if rv.get() != selected_id {
+                rv.set(selected_id);
                 g.reveal(w, v.get());
             }
             g.clamp(w);
@@ -1802,7 +1821,8 @@ impl TabBar {
                     let fill = if !sel && hot { Some(t.fill(&t.controls.hover, under)) } else { None };
                     let mx = m.x(x, tw);
                     paint::surface(mx, w.y(), tw, w.h() - 1, t.radius, fill, None);
-                    if sel && crate::focus::show_ring(w) {
+                    let focused = draw_cursor.get().map_or(sel, |id| draw_ids.borrow().get(i)==Some(&id));
+                    if focused && crate::focus::show_ring(w) {
                         paint::stroke(mx, w.y(), tw, w.h() - 1, t.radius, t.controls.focus.border_width.max(1), t.border(&t.controls.focus, under));
                     }
                     let pad = t.spacing.control_padding_x;
@@ -1811,6 +1831,14 @@ impl TabBar {
                     paint::text_elided(label, m.x(x + pad, lw), w.y(), lw, w.h(), t.font.body, sel, if sel { fg } else { fg.darker(1.2) }, m.align(Align::Left));
                     if cl.get() && (sel || hot) {
                         paint::glyph(glyph::CROSS, m.x(x + tw - pad - t.font.body, t.font.body), w.y(), t.font.body, w.h(), t.font.body_small, fg.darker(1.4));
+                    }
+                }
+                if let Some((id, after)) = draw_press.borrow().as_ref().filter(|p|p.dragged && draw_ids.borrow().contains(&p.id)).and_then(|p|p.target) {
+                    if let Some(i) = draw_ids.borrow().iter().position(|v|*v==id) {
+                        if let Some(&(x, width)) = g.tabs_at(w).get(i) {
+                            let edge = if after { x+width } else { x };
+                            paint::fill(m.x(edge-1,2), w.y()+2, 2, (w.h()-4).max(1), 0, t.palette.accent);
+                        }
                     }
                 }
                 draw::pop_clip();
@@ -1830,12 +1858,14 @@ impl TabBar {
             });
         });
         let (v, hv, cl, g, cc) = (value.clone(), hover.clone(), closable.clone(), geo.clone(), close.clone());
+        let (hit_ids, hit_cursor, hit_press, context_cb, reorder_cb) = (ids.clone(), cursor.clone(), pressed, context.clone(), reorder.clone());
+        let selected_cb=select.clone();
         inner.handle(move |w, ev| {
             let n = g.tabs.borrow().len();
-            let pick = |i: usize| if i < n && i != v.get() { v.set(i) };
+            let pick = |i: usize| if i < n { hit_cursor.set(hit_ids.borrow().get(i).copied()); v.set(i); fire(&selected_cb,i); };
             match ev {
                 Event::Enter => true,
-                Event::Focus | Event::Unfocus => { w.redraw(); true }
+                Event::Focus | Event::Unfocus => { if ev==Event::Unfocus {hit_press.borrow_mut().take();} w.redraw(); true }
                 Event::Move => {
                     let h = match g.hit(w, app::event_x()) { Hit::Tab(i, _) => i as i32, Hit::Arrow(k) => -10 - k as i32, Hit::None => -1 };
                     if hv.get() != h { hv.set(h); w.redraw(); }
@@ -1853,8 +1883,27 @@ impl TabBar {
                     w.redraw();
                     true
                 }
+                Event::KeyDown if app::event_key()==Key::Escape && hit_press.borrow().is_some() => {hit_press.borrow_mut().take();w.redraw();true}
                 Event::KeyDown if n > 0 => {
-                    let cur = v.get();
+                    let key = crate::layout::logical_key(w, app::event_key());
+                    let cur = hit_cursor.get().and_then(|id|hit_ids.borrow().iter().position(|v|*v==id)).unwrap_or(v.get().min(n-1));
+                    if matches!(key, Key::Left | Key::Right) && app::is_event_alt() {
+                        let next = if key==Key::Left {cur.saturating_sub(1)} else {(cur+1).min(n-1)};
+                        hit_cursor.set(hit_ids.borrow().get(next).copied()); g.reveal(w,next);w.redraw();return true;
+                    }
+                    if matches!(key, Key::Left | Key::Right) && app::event_state().contains(crate::keys::PRIMARY | Shortcut::Shift) && reorder_cb.borrow().is_some() {
+                        let next = if key==Key::Left {cur.saturating_sub(1)} else {(cur+1).min(n-1)};
+                        if cur!=next {fire(&reorder_cb,(cur,next));}
+                        if !w.was_deleted(){
+                            if let Some(i)=hit_cursor.get().and_then(|id|hit_ids.borrow().iter().position(|v|*v==id)){g.reveal(w,i);}
+                            w.redraw();
+                        }return true;
+                    }
+                    if key==Key::Menu || (key==Key::F10 && app::is_event_shift()) {
+                        let m=crate::layout::Mirror::of(w);let (x,width)=g.tabs_at(w)[cur];
+                        fire(&context_cb,(cur,m.x(x,width)+width/2,w.y()+w.h()));return true;
+                    }
+                    if matches!(key,Key::Enter | Key::KPEnter) || key==Key::from_char(' ') {pick(cur);return true;}
                     // Right to left: Left goes to the next tab (on the left).
                     match crate::layout::logical_key(w, app::event_key()) {
                         Key::Left => pick(cur.saturating_sub(1)),
@@ -1868,33 +1917,79 @@ impl TabBar {
                 }
                 Event::Shortcut if n > 0 && crate::focus::visible_in_window(w) && app::is_event_ctrl() => {
                     let back = app::is_event_shift();
-                    let cur = v.get();
+                    let cur = v.get().min(n - 1);
                     match app::event_key() {
                         Key::Tab if back => pick((cur + n - 1) % n),
                         Key::Tab => pick((cur + 1) % n),
-                        Key::PageUp => pick((cur + n - 1) % n),
-                        Key::PageDown => pick((cur + 1) % n),
+                        Key::PageUp if !back => pick((cur + n - 1) % n),
+                        Key::PageDown if !back => pick((cur + 1) % n),
                         _ => return false,
                     }
                     true
                 }
                 Event::Push => {
-                    let _ = w.take_focus();
-                    match g.hit(w, app::event_x()) {
-                        Hit::Arrow(k) => {
-                            let step = (g.view(w).1 * 3 / 4).max(40);
-                            g.scroll.set(g.scroll.get() + if k == 0 { -step } else { step });
-                            g.clamp(w);
-                            w.redraw();
+                    hit_press.borrow_mut().take();
+                    if app::event_x()<w.x() || app::event_x()>=w.x()+w.w() || app::event_y()<w.y() || app::event_y()>=w.y()+w.h(){return false;}
+                    let button=app::event_button();
+                    if !matches!(button,1|2|3) {return true;}
+                    match g.hit(w,app::event_x()) {
+                        Hit::Tab(i,on_close) => {
+                            let Some(id)=hit_ids.borrow().get(i).copied() else {return true};
+                            if button==3 {
+                                hit_cursor.set(Some(id));
+                                fire(&context_cb,(i,app::event_x(),app::event_y()));return true;
+                            }
+                            if button==1 {let _=w.take_focus();hit_cursor.set(Some(id));w.redraw();}
+                            *hit_press.borrow_mut()=Some(TabPress{id,button,x:app::event_x(),y:app::event_y(),close:on_close&&cl.get(),dragged:false,target:None});
                         }
-                        Hit::Tab(i, on_close) => {
-                            if app::event_mouse_button() == app::MouseButton::Middle || (cl.get() && on_close) { fire(&cc, i); }
-                            else { v.set(i); }
+                        Hit::Arrow(k) if button==1 => {
+                            let step=(g.view(w).1*3/4).max(40);
+                            g.scroll.set(g.scroll.get()+if k==0{-step}else{step});g.clamp(w);w.redraw();
                         }
-                        Hit::None => {}
+                        _ => {}
                     }
                     true
                 }
+                Event::Drag => {
+                    let mut press=hit_press.borrow_mut();
+                    let Some(p)=press.as_mut().filter(|p|p.button==1 && !p.close) else {return true};
+                    if reorder_cb.borrow().is_none() {return true;}
+                    p.dragged |= (app::event_x()-p.x).abs().max((app::event_y()-p.y).abs())>=5;
+                    if p.dragged && (app::event_y()<w.y() || app::event_y()>=w.y()+w.h()) {p.target=None;w.redraw();return true;}
+                    if p.dragged {
+                        match g.hit(w,app::event_x()) {
+                            Hit::Tab(i,_) => {
+                                let (x,width)=g.tabs_at(w)[i];
+                                p.target=hit_ids.borrow().get(i).copied().map(|id|(id,crate::layout::Mirror::of(w).point(app::event_x())>=x+width/2));
+                            }
+                            Hit::Arrow(k) => {g.scroll.set(g.scroll.get()+if k==0{-40}else{40});g.clamp(w);}
+                            Hit::None => {p.target=None;}
+                        }
+                        w.redraw();
+                    }
+                    true
+                }
+                Event::Released => {
+                    if hit_press.borrow().as_ref().is_some_and(|p|p.button!=app::event_button()) {return true;}
+                    let Some(p)=hit_press.borrow_mut().take() else {return true};
+                    if !w.was_deleted(){w.redraw();}
+                    let Some(from)=hit_ids.borrow().iter().position(|id|*id==p.id) else {return true};
+                    if p.dragged && app::event_y()>=w.y() && app::event_y()<w.y()+w.h() && app::event_x()>=w.x() && app::event_x()<w.x()+w.w() {
+                        if let Some((target,after))=p.target {
+                            let to=hit_ids.borrow().iter().position(|id|*id==target).map(|i|i+usize::from(after));
+                            if let Some(to)=to {let to=to-usize::from(from<to);if from!=to{fire(&reorder_cb,(from,to));}}
+                        }
+                    } else if !p.dragged && app::event_y()>=w.y() && app::event_y()<w.y()+w.h() {
+                        if let Hit::Tab(i,on_close)=g.hit(w,app::event_x()) {
+                            if hit_ids.borrow().get(i)==Some(&p.id) {
+                                if p.button==2 && cl.get() || p.button==1 && p.close && on_close {fire(&cc,from);}
+                                else if p.button==1 && !p.close {pick(from);}
+                            }
+                        }
+                    }
+                    if !w.was_deleted(){w.redraw();}true
+                }
+                Event::Hide => {hit_press.borrow_mut().take();w.redraw();false}
                 _ => false,
             }
         });
@@ -1902,6 +1997,7 @@ impl TabBar {
         let mut w2 = inner.clone();
         crate::state::bind_widget(&inner, value, false, move |_| w2.redraw());
         let (tb, v, g, me) = (tabs.clone(), value.clone(), geo.clone(), inner.clone());
+        let (aids,acursor)=(ids.clone(),cursor.clone());
         a11y::describe(&inner, move |n| {
             n.role(Role::TabList).focusable();
             let tabs = tb.borrow();
@@ -1911,21 +2007,24 @@ impl TabBar {
                 // Scrolled-out tabs keep their place, clipped to the strip.
                 let (x, tw) = if x + tw > vx && x < vx + vw { (x.max(vx), (x + tw).min(vx + vw) - x.max(vx)) } else { (x, 0) };
                 let x = m.x(x, tw);
-                n.child(i as u64, |t| {
+                n.child(aids.borrow().get(i).copied().unwrap_or(i as u64), |t| {
                     t.role(Role::Tab).name(label).selected(v.get() == i).position(i + 1, tabs.len())
                         .bounds(x, me.y(), tw, me.h()).action(Action::Click).action(Action::ScrollIntoView).focusable();
-                    if v.get() == i {
+                    if crate::focus::is_focused(&me) && acursor.get().map_or(v.get()==i,|id|aids.borrow().get(i)==Some(&id)) {
                         t.focused();
                     }
                 });
             }
         });
         let (v, g, mut me, n) = (value.clone(), geo.clone(), inner.clone(), tabs.clone());
+        let (aids,acursor)=(ids.clone(),cursor.clone());
+        let selected_cb=select.clone();
         a11y::on_action(&inner, move |r| {
-            let Some(i) = r.key().map(|k| k as usize).filter(|i| *i < n.borrow().len()) else { return false };
+            let Some(i) = r.key().and_then(|id|aids.borrow().iter().position(|v|*v==id)).filter(|i| *i < n.borrow().len()) else { return false };
             match r.action {
                 Action::Click | Action::Focus => {
-                    v.set(i);
+                    acursor.set(aids.borrow().get(i).copied());
+                    if r.action == Action::Click {v.set(i);fire(&selected_cb,i);}
                     if r.action == Action::Focus {
                         let _ = me.take_focus();
                     }
@@ -1936,7 +2035,7 @@ impl TabBar {
             me.redraw();
             true
         });
-        TabBar { inner, tabs, value: value.clone(), close, closable, geo }
+        TabBar { inner, tabs, value: value.clone(), close, select, closable, geo, ids, cursor, context, reorder }
     }
 
     /// True when the tabs are wider than the bar (arrows and scrolling on).
@@ -1967,6 +2066,7 @@ impl TabBar {
     }
 
     pub fn set_tabs(&mut self, tabs: &[&str]) {
+        *self.ids.borrow_mut()=(0..tabs.len() as u64).collect();
         *self.tabs.borrow_mut() = tabs.iter().map(|s| s.to_string()).collect();
         if self.value.get() >= tabs.len() && !tabs.is_empty() { self.value.set(tabs.len() - 1); }
         self.inner.redraw();
@@ -1975,5 +2075,13 @@ impl TabBar {
     pub fn tabs(&self) -> Vec<String> { self.tabs.borrow().clone() }
     pub fn selected(&self) -> usize { self.value.get() }
     /// Programmatic close request (fires on_close).
-    pub fn request_close(&self, i: usize) { fire(&self.close, i); }
+    pub fn request_close(&self, i: usize) { if !self.inner.was_deleted() && i<self.tabs.borrow().len(){fire(&self.close, i);} }
+    /// Requests a context menu without selecting or closing the tab.
+    pub fn on_context(self, f: impl FnMut(usize,i32,i32)+'static) -> Self {
+        let mut f=f;*self.context.borrow_mut()=Some(Box::new(move |(i,x,y)|f(i,x,y)));self
+    }
+    /// Requests a remove-then-insert move; the app updates its model.
+    pub fn reorderable(self, f: impl FnMut(usize,usize)+'static) -> Self {
+        let mut f=f;*self.reorder.borrow_mut()=Some(Box::new(move |(from,to)|f(from,to)));self
+    }
 }

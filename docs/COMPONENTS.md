@@ -313,7 +313,12 @@ let tab = State::new(1usize);
 col.fit(&*TabBar::new(&["Home", "Downloads", "Work"], &tab).on_close(|i| println!("close {i}")));
 ```
 
-More: `set_tabs(..)`, `request_close(i)`; a middle click closes a tab.
+More: `set_tabs(..)`, `request_close(i)`; middle click requests close.
+Right click never selects or closes, including over the close hit area.
+Dynamic tabs use `TabBar::from_model(&model, &selected_key, title)` with
+stable keys, context requests and drag/keyboard reorder without activation.
+Compound `(pane_id, tab_id)` keys and widget-owned hit geometry are covered
+in [Keyed tab strips](TABS.md).
 
 When the tabs do not fit, ‹ › arrows appear at the edges and the strip
 scrolls with them or with the wheel. The selected tab, close glyph
@@ -324,7 +329,10 @@ included, is scrolled into view (`overflowing()`, `scroll_offset()`,
 
 **Keys:** Ctrl+Tab / Ctrl+PageDown go to the next tab and Ctrl+Shift+Tab /
 Ctrl+PageUp to the previous one, from anywhere in the window. When the bar
-has focus, Left/Right/Home/End pick a tab and Delete closes it.
+has focus, Left/Right/Home/End pick a tab; Alt+Left/Right moves only its
+cursor, Enter/Space activates it, and Delete requests close of the cursor
+tab. With reorder enabled, Mod+Shift+Left/Right requests a move without
+activation. Menu/Shift+F10 requests the cursor tab's context menu.
 
 ## Sidebar
 
@@ -1292,7 +1300,7 @@ with an area limit and a time budget, and shape hit-testing: all in
 | text tokens | `widgets::Label` | `new`, `styled(text, TextStyle::..)`, `section(..)`, `.bold()`, `.tone()`, `.center()`, `.right()`, `.bind()` |
 | PanelHero / PanelSeparator | `widgets::Hero`, `widgets::Separator` | `new(glyph, title, meta).detail(..)`, `new()` |
 | CursorSurface row | `widgets::Row` | `new(glyph, label)`, `.detail()`, `.current()`, `.on_click()` |
-| tabs | `widgets::TabBar` | `new(&labels, &State<usize>)`, `.on_close()`, `set_tabs`, `request_close` |
+| tabs | `widgets::TabBar`, `KeyedTabBar<K>` | `new`, `from_model`, `on_close`, `on_context`, `reorderable`, `rect_for_key`, `close_rect_for_key`, `hit_test` ([guide](TABS.md)) |
 | Dropdown | `overlay::Dropdown` | `new(label, &options, &State<usize>)`, `open()`, `set_options` |
 | SearchableDropdown | `popups::SearchableDropdown` | `new(placeholder, vec![(label, description)], &State<Option<usize>>)`, `open()`, `filter()` |
 | rich text / Markdown | `text::RichText`, `text::RichLabel` | `RichText::new()`, `.stick_to_bottom()`, `.on_link()`, `append_markdown`, `push_markdown`, `sender()`, `bind_markdown`, `append_block`, `plain_text`, `selected_text`; `RichLabel::new(md)`, `.on_link()`, `.bind()`; `Document::from_markdown`, `MarkdownStream::push` |
