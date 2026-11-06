@@ -5,7 +5,7 @@
 //! patch.
 use super::{check, pixel, pump_until};
 use fltk::prelude::*;
-use fltk_omarchy::diff::{DiffFiles, DiffView, ExpandRequest};
+use fltk_omarchy::diff::{Annotation, DiffFiles, DiffView, ExpandRequest, LineRange, LineRef, Side};
 use fltk_omarchy::focus::{self, press};
 use fltk_omarchy::layout;
 use fltk_omarchy::theme::{self, Rgb};
@@ -59,6 +59,11 @@ struct Fixture {
 }
 
 fn fixture(w: i32, h: i32, with_files: bool, patch: &str) -> Fixture {
+    fixture_with(w, h, with_files, patch, |v| v)
+}
+
+/// A fixture whose view is configured by `cfg` (hooks) before it is laid out.
+fn fixture_with(w: i32, h: i32, with_files: bool, patch: &str, cfg: impl FnOnce(DiffView) -> DiffView) -> Fixture {
     let mut win = AppWindow::new("Diff", w, h);
     let mut body = win.body();
     body.set_margin(0);
@@ -67,7 +72,7 @@ fn fixture(w: i32, h: i32, with_files: bool, patch: &str) -> Fixture {
     row.begin();
     row.set_margin(0);
     row.set_pad(0);
-    let view = DiffView::new();
+    let view = cfg(DiffView::new());
     let files = with_files.then(|| {
         let f = DiffFiles::new(&view);
         row.add(&*f);
@@ -433,6 +438,262 @@ pub fn checks(run: &mut dyn FnMut(&str, Check)) {
         check(v.panel().has_focus(), "Enter moves into the diff")?;
         press("Mod+Right");
         check(files.panel().cursor() == Some(2), &format!("tree follows: {:?}", files.panel().cursor()))?;
+        close(f);
+        Ok(())
+    });
+
+    run("diff: line numbers select by file, side and number; Shift+click extends; gutter drag; the range survives split, fold, wrap and more context", &|_| {
+        let selected = Rc::new(RefCell::new(Vec::<Option<LineRange>>::new()));
+        let asked = Rc::new(RefCell::new(Vec::<ExpandRequest>::new()));
+        let (s2, a2) = (selected.clone(), asked.clone());
+        let f = fixture_with(900, 460, false, PATCH, move |v| v.on_select(move |r| s2.borrow_mut().push(r)).on_expand(move |r| a2.borrow_mut().push(r)));
+        let v = &f.view;
+        let row = |side, n| v.row_of_line_ref(0, LineRef::new(side, n)).ok_or(format!("no row for {side:?} {n}"));
+        // Right part of a number cell (the comment button sits on the left).
+        let click_number = |side, n, mods| -> Result<(), String> {
+            let r = row(side, n)?;
+            let (x, y, w, h) = v.number_rect(r, side).ok_or("no number rect")?;
+            focus::click_at_with(&*f.win, x + w - 6, y + h / 2, mods);
+            Ok(())
+        };
+        let new = |a, b| Some(LineRange { file: 0, side: Side::New, start: a, end: b });
+        click_number(Side::New, 12, fltk::enums::Shortcut::None)?;
+        check(v.selected_range() == new(12, 12), &format!("click selects new 12: {:?}", v.selected_range()))?;
+        check(selected.borrow().last() == Some(&new(12, 12)), "on_select")?;
+        click_number(Side::New, 15, fltk::enums::Shortcut::Shift)?;
+        check(v.selected_range() == new(12, 15), &format!("Shift+click extends: {:?}", v.selected_range()))?;
+        // Rows from new 12 to new 15, the removed line 14 between them too.
+        let panel = v.panel();
+        let removed = row(Side::Old, 14)?;
+        check(panel.selection_len() == 5 && panel.is_selected(panel.id_at(removed).unwrap()), &format!("5 rows selected: {}", panel.selection_len()))?;
+        v.set_split(true);
+        let sel_ok = |what: &str| -> Result<(), String> {
+            check(v.selected_range() == new(12, 15), &format!("{what}: range {:?}", v.selected_range()))?;
+            for n in [12, 15] {
+                let id = panel.id_at(row(Side::New, n)?).unwrap();
+                check(panel.is_selected(id), &format!("{what}: new {n} selected"))?;
+            }
+            Ok(())
+        };
+        sel_ok("split")?;
+        v.set_wrap(true);
+        sel_ok("wrap")?;
+        v.set_wrap(false);
+        v.set_folded(0, 0, true);
+        check(v.selected_range() == new(12, 15) && v.row_of_line_ref(0, LineRef::new(Side::New, 12)).is_none(), "folded: the range stays, its lines are hidden")?;
+        v.set_folded(0, 0, false);
+        sel_ok("unfolded")?;
+        // More context above hunk 0: line indexes move, numbers stay.
+        let hunk = v.row_of_hunk(0, 0).unwrap();
+        panel.set_cursor(panel.id_at(hunk));
+        press("e");
+        let req = asked.borrow().last().cloned().ok_or("no expand request")?;
+        v.provide_context(&req, (req.first..=req.last).map(|n| format!("line {n}")).collect());
+        check(v.with_patch(|p| p.files[0].hunks[0].new_start) < 12, "context added")?;
+        sel_ok("more context")?;
+        v.set_split(false);
+        sel_ok("unified again")?;
+        let n = selected.borrow().len();
+        // Drag down the new numbers from 13 to 16.
+        let (x, y0, w, h) = v.number_rect(row(Side::New, 13)?, Side::New).unwrap();
+        let (_, y1, _, _) = v.number_rect(row(Side::New, 16)?, Side::New).unwrap();
+        focus::mouse_drag(&*f.win, (x + w - 6, y0 + h / 2), (x + w - 6, y1 + h / 2), true);
+        check(v.selected_range() == new(13, 16), &format!("drag: {:?}", v.selected_range()))?;
+        check(selected.borrow().len() > n, "drag calls on_select")?;
+        // The old side: a removed line's number.
+        click_number(Side::Old, 14, fltk::enums::Shortcut::None)?;
+        check(v.selected_range() == Some(LineRange { file: 0, side: Side::Old, start: 14, end: 14 }), &format!("old 14: {:?}", v.selected_range()))?;
+        // Keys: Shift+Down from a context line gives a new-side range.
+        panel.focus();
+        panel.select_only(panel.id_at(row(Side::New, 12)?).unwrap());
+        press("Shift+Down");
+        press("Shift+Down");
+        check(v.selected_range() == new(12, 13), &format!("keys: {:?}", v.selected_range()))?;
+        v.set_selected_range(None);
+        check(v.selected_range().is_none() && panel.selection_len() == 0, "cleared")?;
+        close(f);
+        Ok(())
+    });
+
+    run("diff: comment button on the hovered and cursor line (accent), click or Enter call on_comment with the line or the range", &|shots| {
+        let comments = Rc::new(RefCell::new(Vec::<LineRange>::new()));
+        let c2 = comments.clone();
+        let f = fixture_with(900, 420, false, PATCH, move |v| v.on_comment(move |r| c2.borrow_mut().push(r)));
+        let v = &f.view;
+        let accent = theme::with(|t| rgb(t.palette.accent));
+        let row = |side, n| v.row_of_line_ref(0, LineRef::new(side, n)).unwrap();
+        let r13 = row(Side::New, 13);
+        let (bx, by, bw, bh) = v.comment_button_rect(r13, Side::New).ok_or("no button rect")?;
+        // Nothing under the pointer: no button.
+        let p = shot(&f, shots, "diff-comment-none.png")?;
+        check(!near(pixel(&p, bx + 3, by + bh / 2)?, accent, 12), "no button before hovering")?;
+        focus::hover_at(&*f.win, bx + 200, by + bh / 2);
+        let p = shot(&f, shots, "diff-comment-hover.png")?;
+        let px = pixel(&p, bx + 2, by + bh / 2)?;
+        check(near(px, accent, 3), &format!("hover shows the accent button: {px:?} vs {accent:?}"))?;
+        focus::click_at(&*f.win, bx + bw / 2, by + bh / 2);
+        check(*comments.borrow() == [LineRange { file: 0, side: Side::New, start: 13, end: 13 }], &format!("click comments on the line: {:?}", comments.borrow()))?;
+        check(v.selected_range() == Some(LineRange { file: 0, side: Side::New, start: 13, end: 13 }), "and selects it")?;
+        // A range: the button of a line inside it comments on the range.
+        v.set_selected_range(Some(LineRange { file: 0, side: Side::New, start: 12, end: 15 }));
+        let (bx, by, bw, bh) = v.comment_button_rect(row(Side::Old, 14), Side::New).unwrap();
+        focus::click_at(&*f.win, bx + bw / 2, by + bh / 2);
+        check(comments.borrow().last() == Some(&LineRange { file: 0, side: Side::New, start: 12, end: 15 }), &format!("range comment: {:?}", comments.borrow().last()))?;
+        // Keyboard: the cursor line shows the button; Enter comments.
+        focus::hover_at(&*f.win, 5, 5);
+        v.panel().focus();
+        v.panel().select_only(v.panel().id_at(row(Side::New, 16)).unwrap());
+        let p = shot(&f, shots, "diff-comment-cursor.png")?;
+        let (bx, by, _, bh) = v.comment_button_rect(row(Side::New, 16), Side::New).unwrap();
+        check(near(pixel(&p, bx + 2, by + bh / 2)?, accent, 3), "cursor line shows the button")?;
+        press("Enter");
+        check(comments.borrow().last() == Some(&LineRange { file: 0, side: Side::New, start: 16, end: 16 }), &format!("Enter: {:?}", comments.borrow().last()))?;
+        // Split: the left half comments on the old side.
+        v.set_split(true);
+        let r = row(Side::Old, 14);
+        let (bx, by, bw, bh) = v.comment_button_rect(r, Side::Old).ok_or("left button")?;
+        focus::click_at(&*f.win, bx + bw / 2, by + bh / 2);
+        check(comments.borrow().last() == Some(&LineRange { file: 0, side: Side::Old, start: 14, end: 14 }), &format!("split left: {:?}", comments.borrow().last()))?;
+        // Headers have no button; Enter on a hunk header still folds.
+        let hunk = v.row_of_hunk(0, 0).unwrap();
+        check(v.comment_button_rect(hunk, Side::New).is_none(), "no button on headers")?;
+        v.panel().select_only(v.panel().id_at(hunk).unwrap());
+        let n = comments.borrow().len();
+        press("Enter");
+        check(v.is_folded(0, 0) && comments.borrow().len() == n, "Enter on a header folds")?;
+        close(f);
+        Ok(())
+    });
+
+    run("diff: annotations reserve rows under lines, painted or hosting a widget; heights change with the view anchored; hidden with their line", &|shots| {
+        let f = fixture_with(900, 420, false, PATCH, |v| {
+            v.annotation_painter(|a| {
+                let c = a.theme.palette.blue.over(a.under, 0.5);
+                fltk_omarchy::paint::fill(a.x, a.y + 2, a.w, a.h - 4, 0, c);
+            })
+        });
+        let v = &f.view;
+        let blue = theme::with(|t| rgb(t.palette.blue.over(t.palette.background, 0.5)));
+        let h0 = v.content_height();
+        let r13 = v.row_of_line_ref(0, LineRef::new(Side::New, 13)).unwrap();
+        let next = r13 + 1;
+        let (_, y_next0, _, _) = v.row_rect(next).unwrap();
+        let hosted = fltk_omarchy::widgets::Button::new("Reply").bordered();
+        v.set_annotations(vec![
+            Annotation::new(0, LineRef::new(Side::New, 13), "thread", 60).label("Thread: 2 comments"),
+            Annotation::new(0, LineRef::new(Side::Old, 49), "reply", 36),
+        ]);
+        v.host_annotation("reply", &*hosted);
+        let p = shot(&f, shots, "diff-annotations.png")?;
+        check(v.content_height() == h0 + 96, &format!("content grows by the annotations: {} → {}", h0, v.content_height()))?;
+        let (ax, ay, aw, ah) = v.annotation_rect("thread").ok_or("no thread rect")?;
+        let (_, y13, _, h13) = v.row_rect(r13).unwrap();
+        check(ay == y13 + h13 && ah == 60, &format!("under its line: {ay} vs {}", y13 + h13))?;
+        check(v.row_rect(next).unwrap().1 == y_next0 + 60, "rows below move down")?;
+        let px = pixel(&p, ax + aw / 2, ay + ah / 2)?;
+        check(near(px, blue, 3), &format!("painted: {px:?} vs {blue:?}"))?;
+        let rr = v.annotation_rect("reply").ok_or("no reply rect")?;
+        check(hosted.visible() && (hosted.x(), hosted.y(), hosted.w(), hosted.h()) == rr, &format!("hosted widget over its annotation: {:?} vs {rr:?}", (hosted.x(), hosted.y(), hosted.w(), hosted.h())))?;
+        // Split: under the pair row.
+        v.set_split(true);
+        shot(&f, shots, "diff-annotations-split.png")?;
+        let r13 = v.row_of_line_ref(0, LineRef::new(Side::New, 13)).unwrap();
+        let (_, y13, _, h13) = v.row_rect(r13).unwrap();
+        check(v.annotation_rect("thread").is_some_and(|r| r.1 == y13 + h13), "split: under the pair row")?;
+        v.set_split(false);
+        // Taller: the top of the view stays on the same line.
+        v.set_scroll_offset(0);
+        shot(&f, shots, "diff-annotations-0.png")?;
+        let r49 = v.row_of_line_ref(0, LineRef::new(Side::Old, 49)).unwrap();
+        let top_row = r49 - 1;
+        let (_, ty, _, _) = v.row_rect(top_row).unwrap();
+        v.set_scroll_offset((ty - v.y()) as i64);
+        shot(&f, shots, "diff-annotations-scrolled.png")?;
+        let before = v.row_rect(r49).unwrap().1;
+        check(v.set_annotation_height("thread", 140), "height set")?;
+        shot(&f, shots, "diff-annotations-taller.png")?;
+        check(v.row_rect(r49).unwrap().1 == before, &format!("anchored: {before} → {}", v.row_rect(r49).unwrap().1))?;
+        check(v.annotation_rect("thread").unwrap().3 == 140, "new height")?;
+        // Folded or scrolled away: the hosted widget hides.
+        v.set_folded(0, 1, true);
+        shot(&f, shots, "diff-annotations-folded.png")?;
+        check(v.annotation_rect("reply").is_none() && !hosted.visible(), "folded: hidden")?;
+        v.set_folded(0, 1, false);
+        shot(&f, shots, "diff-annotations-unfolded.png")?;
+        check(hosted.visible(), "unfolded: shown again")?;
+        v.set_scroll_offset(v.content_height());
+        v.set_collapsed(0, true);
+        shot(&f, shots, "diff-annotations-collapsed.png")?;
+        check(!hosted.visible() && v.annotation_rect("thread").is_none(), "collapsed file: hidden")?;
+        close(f);
+        // 12 000 lines with an annotation every 100 lines: still a screenful drawn.
+        let f = fixture(760, 420, false, &synthetic(200, 60));
+        let notes: Vec<Annotation> = (0..200).flat_map(|file| (0..1).map(move |h| Annotation::new(file, LineRef::new(Side::New, 5 + h * 100), format!("n{file}"), 48))).collect();
+        let h0 = f.view.content_height();
+        let t = Instant::now();
+        f.view.set_annotations(notes);
+        let h1 = f.view.content_height();
+        let relayout = t.elapsed();
+        f.view.set_scroll_offset(h1 / 2);
+        let t = Instant::now();
+        f.win.clone().snapshot(shots.join("diff-big-annotations.png")).map_err(|e| e.to_string())?;
+        let frame = t.elapsed();
+        check(h1 == h0 + 200 * 48 && f.view.rows_drawn() < 40, &format!("12k + 200 annotations: height {h0} → {h1}, drawn {}", f.view.rows_drawn()))?;
+        let t = Instant::now();
+        for k in 0..50 {
+            f.view.set_annotation_height("n100", 48 + k);
+            f.view.content_height();
+        }
+        let per_change = t.elapsed() / 50;
+        check(relayout.as_millis() < 200 && frame.as_millis() < 2000 && per_change.as_millis() < 20, &format!("relayout {relayout:?}, frame {frame:?}, height change {per_change:?}"))?;
+        close(f);
+        Ok(())
+    });
+
+    run("diff: Tab goes from the diff into hosted annotation widgets in display order, Shift+Tab back; Escape returns to the annotated line", &|shots| {
+        let f = fixture_with(900, 420, false, PATCH, |v| v);
+        let v = &f.view;
+        let after = fltk_omarchy::widgets::Button::new("After");
+        let mut body = f.win.body();
+        body.add(&*after);
+        body.fixed(&*after, 28);
+        let reply = fltk_omarchy::widgets::Button::new("Reply").bordered();
+        let resolve = fltk_omarchy::widgets::Button::new("Resolve").bordered();
+        v.set_annotations(vec![
+            Annotation::new(0, LineRef::new(Side::Old, 49), "second", 36),
+            Annotation::new(0, LineRef::new(Side::New, 13), "first", 36),
+        ]);
+        v.host_annotation("second", &*resolve);
+        v.host_annotation("first", &*reply);
+        body.layout();
+        shot(&f, shots, "diff-annotations-tab.png")?;
+        v.panel().focus();
+        check(v.panel().has_focus(), "diff focused")?;
+        press("Tab");
+        check(focus::is_focused(&*reply), &format!("Tab: the upper annotation first ({:?})", focus::current().map(|w| w.label())))?;
+        press("Tab");
+        check(focus::is_focused(&*resolve), &format!("Tab: then the lower one ({:?})", focus::current().map(|w| w.label())))?;
+        press("Shift+Tab");
+        press("Shift+Tab");
+        check(v.panel().has_focus(), "Shift+Tab back to the diff")?;
+        press("Tab");
+        press("Escape");
+        check(v.panel().has_focus(), "Escape returns to the diff")?;
+        let r13 = v.row_of_line_ref(0, LineRef::new(Side::New, 13)).unwrap();
+        check(v.panel().cursor_index() == Some(r13), &format!("on the annotated line: {:?} vs {r13}", v.panel().cursor_index()))?;
+        // Focus stays in a hosted widget scrolled out of view (clipped).
+        press("Tab");
+        v.set_scroll_offset(v.content_height());
+        shot(&f, shots, "diff-annotations-tab-scrolled.png")?;
+        check(focus::is_focused(&*reply), "focus stays while scrolled away")?;
+        // Its line hidden: focus comes back to the diff.
+        v.set_scroll_offset(0);
+        v.set_folded(0, 0, true);
+        shot(&f, shots, "diff-annotations-tab-folded.png")?;
+        for _ in 0..5 {
+            fltk::app::wait_for(0.01).ok();
+        }
+        check(v.panel().has_focus() && !reply.visible(), "line folded: focus back to the diff")?;
         close(f);
         Ok(())
     });

@@ -5,6 +5,9 @@
 //! - [`DiffView`] draws a patch, unified or side by side, one canvas and
 //!   only the rows in view.
 //! - [`DiffFiles`] is the file tree next to it (a toolkit `Tree`).
+//! - Review: lines by [`LineRef`] (side and number), [`LineRange`]
+//!   selections, `on_comment`, and [`Annotation`]s under lines (painted or
+//!   hosting a widget).
 //!
 //! ```
 //! use fltk_omarchy::diff::{self, FileStatus, LineKind};
@@ -42,9 +45,11 @@
 
 mod files;
 mod parse;
+mod review;
 mod rows;
 mod view;
 
 pub use files::DiffFiles;
 pub use parse::{parse, parse_with, unquote, DiffError, FileDiff, FileStatus, Hunk, Line, LineKind, Limits, Patch};
+pub use review::{Annotation, AnnotationPaint, LineRange, LineRef, Side};
 pub use view::{DiffView, ExpandRequest};
