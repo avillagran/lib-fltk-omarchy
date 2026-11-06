@@ -735,3 +735,40 @@ its parent eight times). Warm/first-normal/cache-disabled runs measured
 These are one observation per condition, not proof of a CPU/PSS saving.
 Idle phases submit zero frames or instance uploads and all runs keep focus
 unchanged. Cold memory still exceeds the budget. [Raw atlas observations](scene-atlas-2026-11-06.json).
+
+
+## Post-compilation heap diagnostic
+
+With `SCENE_BENCH_BIN` pointing to the built lava example,
+`script/scene-bench --overlay --no-shader-cache --trim-heap` requests a
+one-time allocator trim in the lava benchmark 250 ms after GPU activation.
+It is a diagnostic option, not a renderer policy. The script rejects a
+binary that does not acknowledge the option. A marker before the operation
+allows the parent to sample PSS; allocator counters are sampled immediately
+around it. Mapping results contain aggregate classes, not addresses/paths.
+
+Two ABBA stages (control/trim/trim/control) found only a transient benefit.
+Trim took approximately 0.19–0.27 ms. With caches disabled, idle anonymous
+PSS was about 68.7 MiB in controls and 66.8 MiB after trimming. After the
+5→4 deletion both returned to about 69.1 MiB. Reported occupied arena space
+was approximately 55.1 MiB, with 2.3 MiB free; trimming did not change the
+occupied count. In two normal-cache observations it was about 18.3 MiB
+occupied and anonymous PSS about 31.8 MiB. These allocator counters do not
+identify the allocation owner or measure resident memory. File-backed
+sharing also changed total PSS substantially, including one early trim
+case, so a total-PSS difference alone is not evidence of heap reclamation.
+
+The optional `platform::memory::allocator_snapshot` dynamically resolves
+and verifies the glibc provider for `mallinfo2`, returning `None` on other
+platforms, older libraries or interposed providers. Use it after allocator
+setup, without concurrent allocator reconfiguration. Counter semantics:
+[GNU allocator statistics](https://sourceware.org/glibc/manual/latest/html_node/Statistics-of-Malloc.html).
+
+No heap trim or tuning was added to `Surface`, `Renderer` or normal app
+startup. The cold-memory gate remains unmet. Further work must investigate
+occupied allocations and compilation/context caches rather than assume
+large amounts of freed heap are available. The Khronos
+[parallel-compile hint](https://raw.githubusercontent.com/KhronosGroup/OpenGL-Registry/main/extensions/KHR/KHR_parallel_shader_compile.txt)
+is a possible separate experiment; its queried state is a request, not an
+actual worker count or guarantee, and no policy has been selected here.
+[Raw staged controls](scene-heap-2026-11-06.json) preserve all observations.

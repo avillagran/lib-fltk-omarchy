@@ -69,6 +69,12 @@ fn phase(
         }),
     );
 }
+fn allocator() -> serde_json::Value {
+    fltk_omarchy::platform::memory::allocator_snapshot().map_or(serde_json::Value::Null, |s| serde_json::json!({
+        "arena_bytes":s.arena_bytes,"used_arena_bytes":s.used_arena_bytes,
+        "free_arena_bytes":s.free_arena_bytes,"mapped_bytes":s.mapped_bytes,
+    }))
+}
 fn start(view: Surface, core: Rc<Core>, mut window: AppWindow, path: String) {
     anim::set_enabled(true);
     let overlay = std::env::args().any(|a| a == "--bench-overlay");
@@ -87,6 +93,23 @@ fn start(view: Surface, core: Rc<Core>, mut window: AppWindow, path: String) {
     std::fs::write(&phase_path, "warmup").expect("benchmark phase");
     let current = Rc::new(RefCell::new(sample(&view)));
     let report = Rc::new(RefCell::new(serde_json::Map::new()));
+    let trim = std::env::args().any(|a| a == "--bench-trim");
+    report.borrow_mut().insert("heap_trim_requested".into(), serde_json::json!(trim));
+    let p = phase_path.clone();
+    app::add_timeout3(0.12, move |_| { std::fs::write(&p, "before_trim").unwrap(); });
+    let r = report.clone();
+    app::add_timeout3(0.25, move |_| {
+        // Diagnostic only: measure a post-compilation allocator operation
+        // separately from steady-state rendering. No allocator tuning.
+        let before = allocator();
+        let (at, cpu_before) = (Instant::now(), cpu());
+        let ran = trim && fltk_omarchy::platform::memory::trim_heap();
+        let (elapsed_us, cpu_seconds) = (at.elapsed().as_micros(), cpu()-cpu_before);
+        r.borrow_mut().insert("heap_trim".into(), serde_json::json!({
+            "ran": ran, "elapsed_us": elapsed_us, "cpu_seconds": cpu_seconds,
+            "allocator_before":before,"allocator_after":allocator(),
+        }));
+    });
     let (s, v, p) = (current.clone(), view.clone(), phase_path.clone());
     app::add_timeout3(0.5, move |_| {
         std::fs::write(&p, "idle").unwrap();

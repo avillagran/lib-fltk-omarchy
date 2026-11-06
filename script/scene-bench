@@ -9,6 +9,7 @@ No persistent compositor configuration or synthetic input is used.
 import argparse
 import json
 import os
+import re
 from pathlib import Path
 import shlex
 import signal
@@ -21,12 +22,39 @@ def query(name):
     return json.loads(subprocess.check_output(["hyprctl", name, "-j"]))
 
 
+def mapping_totals(pid):
+    # Only aggregate classes are recorded: no addresses or filenames.
+    totals, kind = {}, "other"
+    for line in Path(f"/proc/{pid}/smaps").read_text().splitlines():
+        if re.match(r"^[0-9a-fA-F]+-[0-9a-fA-F]+\s", line):
+            parts = line.split(maxsplit=5)
+            path = parts[5] if len(parts) > 5 else ""
+            if path == "[heap]":
+                kind = "heap"
+            elif path.startswith("[stack"):
+                kind = "stack"
+            elif not path or path.startswith("[anon"):
+                kind = "anonymous"
+            elif "nvidia" in path and ".so" in path:
+                kind = "vendor_library"
+            elif path.startswith(("/memfd:", "/dev/shm/")):
+                kind = "shared_memory"
+            elif path.startswith("/dev/"):
+                kind = "device"
+            else:
+                kind = "other_file"
+        elif line.startswith("Pss:"):
+            totals[kind] = totals.get(kind, 0) + int(line.split()[1])
+    return totals
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cpu", action="store_true")
     parser.add_argument("--size", default="420x340")
     parser.add_argument("--no-shader-cache", action="store_true", help="disable NVIDIA/Mesa disk shader caches for a cold-compilation control")
     parser.add_argument("--overlay", action="store_true", help="request the lava example's retained overlay workload")
+    parser.add_argument("--trim-heap", action="store_true", help="measure the lava benchmark's one-time post-compilation heap trim")
     args = parser.parse_args()
     root = Path(__file__).resolve().parent.parent
     binary = Path(os.environ.get("SCENE_BENCH_BIN", root / "target/release/examples/scene_surface")).resolve()
@@ -48,6 +76,8 @@ def main():
         command.append("--cpu")
     if args.overlay:
         command.append("--bench-overlay")
+    if args.trim_heap:
+        command.append("--bench-trim")
     if args.no_shader_cache:
         command = ["env", "__GL_SHADER_DISK_CACHE=0", "MESA_SHADER_CACHE_DISABLE=true"] + command
     # JSON quotes the Lua string; shlex quotes the separate shell arguments.
@@ -85,14 +115,15 @@ def main():
                     pass
         if pid and phase_file.exists():
             phase = phase_file.read_text()
-            if phase in ("idle", "animation", "idle_again") and phase not in phases:
+            if phase in ("before_trim", "idle", "animation", "idle_again") and phase not in phases:
                 try:
                     lines = Path(f"/proc/{pid}/smaps_rollup").read_text().splitlines()
                     rollup = {line.split(":", 1)[0]: int(line.split()[1]) for line in lines if ":" in line and line.split()[1:2] and line.split()[1].isdigit()}
                     samples.append({"phase": phase, "pss_kib": rollup.get("Pss", 0) + rollup.get("SwapPss", 0),
                                     "pss_anon_kib": rollup.get("Pss_Anon"), "pss_file_kib": rollup.get("Pss_File"),
                                     "pss_shmem_kib": rollup.get("Pss_Shmem"),
-                                    "private_kib": rollup.get("Private_Clean", 0) + rollup.get("Private_Dirty", 0)})
+                                    "private_kib": rollup.get("Private_Clean", 0) + rollup.get("Private_Dirty", 0),
+                                    "mapping_pss_kib": mapping_totals(pid)})
                     phases.add(phase)
                 except OSError:
                     pass
@@ -115,6 +146,8 @@ def main():
     if report.exists():
         print(report.read_text())
         data = json.loads(report.read_text())
+        if args.trim_heap and not data.get("heap_trim_requested"):
+            raise SystemExit("the selected binary did not provide the requested heap-trim diagnostic")
         if args.overlay and (not data.get("overlay") or (data.get("backend") == "Gpu" and not data.get("animation", {}).get("overlay_texture_bytes"))):
             raise SystemExit("the selected binary did not provide the requested retained overlay workload")
     else:

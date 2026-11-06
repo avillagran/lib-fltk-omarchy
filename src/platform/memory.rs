@@ -49,3 +49,63 @@ pub fn trim_heap() -> bool {
         false
     }
 }
+
+/// Diagnostic allocator accounting, not resident/PSS memory. Counters
+/// cover glibc allocations across the process, not individual owners.
+#[derive(Debug, Clone, Copy)]
+pub struct AllocatorSnapshot {
+    pub arena_bytes: usize,
+    pub used_arena_bytes: usize,
+    pub free_arena_bytes: usize,
+    pub mapped_bytes: usize,
+}
+
+/// Returns glibc's size_t counters when available, otherwise None. Resolve
+/// dynamically to preserve compatibility with glibc older than 2.33.
+/// Call after allocator setup, without concurrent allocator reconfiguration.
+pub fn allocator_snapshot() -> Option<AllocatorSnapshot> {
+    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    unsafe {
+        let symbol = libc::dlsym(libc::RTLD_DEFAULT, b"mallinfo2\0".as_ptr().cast());
+        if symbol.is_null() {
+            return None;
+        }
+        let mut provider: libc::Dl_info = std::mem::zeroed();
+        if libc::dladdr(symbol, &mut provider) == 0 || provider.dli_fname.is_null() {
+            return None;
+        }
+        let path = std::ffi::CStr::from_ptr(provider.dli_fname).to_bytes();
+        let name = path.rsplit(|b| *b == b'/').next()?;
+        if !name.starts_with(b"libc.so") && !name.starts_with(b"libc-") {
+            // Do not interpret an interposed provider as glibc accounting.
+            return None;
+        }
+        // SAFETY: glibc's mallinfo2 symbol has precisely this C signature;
+        // it remains loaded for the process lifetime. No ownership passes.
+        let query: unsafe extern "C" fn() -> libc::mallinfo2 = std::mem::transmute(symbol);
+        let info = query();
+        Some(AllocatorSnapshot {
+            arena_bytes: info.arena,
+            used_arena_bytes: info.uordblks,
+            free_arena_bytes: info.fordblks,
+            mapped_bytes: info.hblkhd,
+        })
+    }
+    #[cfg(not(all(target_os = "linux", target_env = "gnu")))]
+    {
+        None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn optional_allocator_snapshot_has_consistent_arena_accounting() {
+        if let Some(s) = super::allocator_snapshot() {
+            assert_eq!(
+                s.used_arena_bytes.checked_add(s.free_arena_bytes),
+                Some(s.arena_bytes)
+            );
+        }
+    }
+}
