@@ -173,7 +173,20 @@ pub fn checks(run: &mut dyn FnMut(&str, Check)) {
                 }
             }
         }
-        check(found, "word highlight on the changed word")?;
+        if !found {
+            // Report what the row holds (diagnosis on platforms we cannot see).
+            let mut seen: Vec<([u8; 3], usize)> = Vec::new();
+            for x in code_x..code_x + 400 {
+                let px = pixel(&p, x, y + h / 2)?;
+                match seen.iter_mut().find(|(c, _)| dist(*c, px) <= 2) {
+                    Some(e) => e.1 += 1,
+                    None => seen.push((px, 1)),
+                }
+            }
+            seen.sort_by(|a, b| b.1.cmp(&a.1));
+            seen.truncate(6);
+            return Err(format!("word highlight on the changed word: want {word:?} (tint {add:?}), row y {y} h {h}, code x {code_x}; colors {seen:?}"));
+        }
         // Line numbers are drawn in the gutter (dim ink on the tint).
         let (rx, ry, _, rh) = f.view.row_rect(removed).unwrap();
         let mut ink = false;
@@ -321,7 +334,19 @@ pub fn checks(run: &mut dyn FnMut(&str, Check)) {
                 seen |= near(px, current, 6) || (dist(px, current) < 48 && dist(px, current) + 12 < dist(px, bgc));
             }
         }
-        check(seen, "current match is highlighted")?;
+        if !seen {
+            let mut cs: Vec<([u8; 3], usize)> = Vec::new();
+            for x in cx..cx + 300 {
+                let px = pixel(&p, x, y + rh / 2)?;
+                match cs.iter_mut().find(|(c, _)| dist(*c, px) <= 2) {
+                    Some(e) => e.1 += 1,
+                    None => cs.push((px, 1)),
+                }
+            }
+            cs.sort_by(|a, b| b.1.cmp(&a.1));
+            cs.truncate(6);
+            return Err(format!("current match is highlighted: want {current:?}, row y {y} h {rh}, code x {cx}; colors {cs:?}"));
+        }
         press("Shift+F3");
         check(v.panel().cursor_index() == v.row_of_line(0, 0, 3), "Shift+F3 goes back")?;
         press("Escape");
