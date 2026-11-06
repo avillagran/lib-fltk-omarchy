@@ -253,7 +253,8 @@ on the GPU backend than on the CPU backend; idle stays 0 %; total PSS
 | P1 17 keys: command tables, record, repeat, suspend | merged |
 | P1 18 font weights, letter spacing, named and terminal colors, project colors | merged |
 | P1 19 charts (`chart`), QR codes (`qr`, feature), masked input (`TextField::mask`) | merged |
-| P1 9 native diff viewer, 10 `FrameView`, 11 video/audio, 15 paced animation clock, 16 layer rendering, 20 math | not started |
+| P1 15 paced animation clock (`anim::Pace`, `PaceMode`) | merged |
+| P1 9 native diff viewer, 10 `FrameView`, 11 video/audio, 16 layer rendering, 20 math | not started |
 | Section 4 GPU scene | not started |
 
 Verified locally on the merged branch: unit, doc and UI tests on X11

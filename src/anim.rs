@@ -34,7 +34,6 @@ use std::time::{Duration, Instant};
 thread_local! {
     static FORCED: Cell<Option<bool>> = const { Cell::new(None) };
     static ENV: Cell<Option<Option<bool>>> = const { Cell::new(None) };
-    static PENDING: RefCell<Vec<Widget>> = const { RefCell::new(Vec::new()) };
     static TIMER: Cell<bool> = const { Cell::new(false) };
     static CLOCK: Cell<Option<Instant>> = const { Cell::new(None) };
     static LAST_KICK: Cell<Option<Instant>> = const { Cell::new(None) };
@@ -554,40 +553,269 @@ impl<T: Lerp> Anim<T> {
     }
 }
 
-/// Redraws `w` on the next animation frame (one shared timer).
+/// How often an animation wants frames (o3-code's `T3Ticker` paces). The
+/// shared timer runs at the fastest pace any widget asked for; a widget
+/// with a slower pace is redrawn only when its own interval has passed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Pace {
+    /// 8 fps: ambient, decorative motion (a slow glow, an idle indicator).
+    Saver,
+    /// 30 fps: busy indicators, small effects.
+    Low,
+    /// 60 fps: control and layout transitions (the default).
+    Normal,
+    /// The monitor's refresh rate (Hyprland reports it; 60 elsewhere):
+    /// scrolling and motion that should feel as smooth as the display.
+    Display,
+}
+
+/// A global limit on [`Pace`]s, for battery or for show.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PaceMode {
+    /// Every pace at most [`Pace::Low`] (30 fps).
+    Saver,
+    /// Paces as asked.
+    Normal,
+    /// Every pace at [`Pace::Display`].
+    Max,
+}
+
+impl Pace {
+    /// This pace under `mode`.
+    pub fn under(self, mode: PaceMode) -> Pace {
+        match mode {
+            PaceMode::Saver => self.min(Pace::Low),
+            PaceMode::Normal => self,
+            PaceMode::Max => Pace::Display,
+        }
+    }
+
+    /// Time between frames at this pace on a `display_hz` monitor.
+    pub fn interval(self, display_hz: f64) -> Duration {
+        let fps = match self {
+            Pace::Saver => 8.0,
+            Pace::Low => 30.0,
+            Pace::Normal => 60.0,
+            Pace::Display => display_hz.clamp(30.0, 500.0),
+        };
+        Duration::from_secs_f64(1.0 / fps)
+    }
+}
+
+/// Frame scheduling for paced widgets (pure, so it can be tested).
+#[derive(Debug, Default)]
+pub struct Schedule {
+    /// (widget id, pace, last frame drawn by the clock or, for a new
+    /// request, when it was asked)
+    waiting: Vec<(usize, Pace, Instant)>,
+    last: Vec<(usize, Instant)>,
+}
+
+impl Schedule {
+    /// Asks for a frame for `id` at `pace` (a faster pace wins over a
+    /// pending slower one).
+    pub fn request(&mut self, id: usize, pace: Pace, now: Instant) {
+        let base = self.last.iter().find(|(i, _)| *i == id).map_or(now, |(_, t)| *t);
+        match self.waiting.iter_mut().find(|(i, _, _)| *i == id) {
+            Some(w) => w.1 = w.1.max(pace),
+            None => self.waiting.push((id, pace, base)),
+        }
+    }
+
+    /// How long until the next widget is due, or None when nothing waits.
+    pub fn next_wait(&self, now: Instant, hz: f64) -> Option<Duration> {
+        self.waiting
+            .iter()
+            .map(|(_, p, base)| (*base + p.interval(hz)).saturating_duration_since(now))
+            .min()
+    }
+
+    /// The widgets due at `now` (removed from the queue, remembered as drawn).
+    pub fn take_due(&mut self, now: Instant, hz: f64) -> Vec<usize> {
+        let mut due = Vec::new();
+        self.waiting.retain(|(id, p, base)| {
+            // A little early is fine: timers wake a bit late or early.
+            let ready = now + Duration::from_millis(2) >= *base + p.interval(hz);
+            if ready {
+                due.push(*id);
+            }
+            !ready
+        });
+        for id in &due {
+            match self.last.iter_mut().find(|(i, _)| i == id) {
+                Some(l) => l.1 = now,
+                None => self.last.push((*id, now)),
+            }
+        }
+        // Forget widgets idle for a while (their next frame starts fresh).
+        self.last.retain(|(_, t)| now.saturating_duration_since(*t) < Duration::from_secs(2));
+        due
+    }
+
+    /// Drops a widget (deleted).
+    pub fn forget(&mut self, id: usize) {
+        self.waiting.retain(|(i, _, _)| *i != id);
+        self.last.retain(|(i, _)| *i != id);
+    }
+
+    pub fn len(&self) -> usize {
+        self.waiting.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.waiting.is_empty()
+    }
+}
+
+static PACE_MODE: AtomicU8 = AtomicU8::new(1);
+
+/// Sets the global [`PaceMode`] (default `Normal`).
+pub fn set_pace_mode(mode: PaceMode) {
+    PACE_MODE.store(
+        match mode {
+            PaceMode::Saver => 0,
+            PaceMode::Normal => 1,
+            PaceMode::Max => 2,
+        },
+        Ordering::Relaxed,
+    );
+}
+
+/// The global [`PaceMode`].
+pub fn pace_mode() -> PaceMode {
+    match PACE_MODE.load(Ordering::Relaxed) {
+        0 => PaceMode::Saver,
+        2 => PaceMode::Max,
+        _ => PaceMode::Normal,
+    }
+}
+
+thread_local! {
+    static SCHEDULE: RefCell<Schedule> = RefCell::new(Schedule::default());
+    /// Widgets with a pending frame, with their id (a deleted widget has no
+    /// pointer to ask for).
+    static WIDGETS: RefCell<Vec<(usize, Widget)>> = const { RefCell::new(Vec::new()) };
+    static DISPLAY_HZ: Cell<(f64, Option<Instant>)> = const { Cell::new((60.0, None)) };
+}
+
+/// The monitor refresh rate used by [`Pace::Display`] (re-read every 3 s).
+fn display_hz() -> f64 {
+    let (hz, at) = DISPLAY_HZ.with(|d| d.get());
+    if at.is_some_and(|t| t.elapsed() < Duration::from_secs(3)) {
+        return hz;
+    }
+    let hz = crate::hyprland::refresh_hz_for(None).unwrap_or(60.0);
+    DISPLAY_HZ.with(|d| d.set((hz, Some(Instant::now()))));
+    hz
+}
+
+/// Redraws `w` on the next animation frame (one shared timer, 60 fps).
 pub fn request_redraw<W: WidgetExt>(w: &W) {
+    request_redraw_at(w, Pace::Normal);
+}
+
+/// Redraws `w` on its next frame at `pace` (under the global
+/// [`PaceMode`]). One shared timer serves every pace and stops when no
+/// widget waits.
+pub fn request_redraw_at<W: WidgetExt>(w: &W, pace: Pace) {
     // SAFETY: `w` is a live widget; the copy only tracks its deletion.
     let w = unsafe { <Widget as WidgetBase>::from_widget_ptr(w.as_widget_ptr()) };
-    PENDING.with(|p| {
-        let mut p = p.borrow_mut();
+    let id = w.as_widget_ptr() as usize;
+    WIDGETS.with(|list| {
+        let mut list = list.borrow_mut();
         // Widgets deleted mid-transition (a closed window) leave the list first.
-        p.retain(|x| !x.was_deleted());
-        if !p.iter().any(|x| x.as_widget_ptr() == w.as_widget_ptr()) {
-            p.push(w);
+        list.retain(|(i, x)| {
+            let keep = !x.was_deleted();
+            if !keep {
+                SCHEDULE.with(|s| s.borrow_mut().forget(*i));
+            }
+            keep
+        });
+        if !list.iter().any(|(i, _)| *i == id) {
+            list.push((id, w));
         }
     });
-    if TIMER.with(|t| t.replace(true)) {
+    SCHEDULE.with(|s| s.borrow_mut().request(id, pace.under(pace_mode()), Instant::now()));
+    arm();
+}
+
+/// Starts the shared timer for the next due widget (if not running).
+fn arm() {
+    if TIMER.with(|t| t.get()) {
         return;
     }
-    app::add_timeout3(1.0 / 60.0, |_| {
+    let hz = display_hz();
+    let Some(wait) = SCHEDULE.with(|s| s.borrow().next_wait(Instant::now(), hz)) else { return };
+    TIMER.with(|t| t.set(true));
+    app::add_timeout3(wait.as_secs_f64().max(0.001), |_| {
         TIMER.with(|t| t.set(false));
-        let list = PENDING.with(|p| std::mem::take(&mut *p.borrow_mut()));
+        let hz = display_hz();
+        let due = SCHEDULE.with(|s| s.borrow_mut().take_due(Instant::now(), hz));
+        let list: Vec<Widget> = WIDGETS.with(|l| {
+            let mut l = l.borrow_mut();
+            let picked = l.iter().filter(|(i, _)| due.contains(i)).map(|(_, w)| w.clone()).collect();
+            let waiting: Vec<usize> = SCHEDULE.with(|s| s.borrow().waiting.iter().map(|w| w.0).collect());
+            l.retain(|(i, _)| waiting.contains(i));
+            picked
+        });
         for mut w in list {
             if !w.was_deleted() {
                 w.redraw();
             }
         }
+        arm();
     });
 }
 
 /// Widgets waiting for an animation frame (tests).
 pub fn pending() -> usize {
-    PENDING.with(|p| p.borrow().iter().filter(|w| !w.was_deleted()).count())
+    SCHEDULE.with(|s| s.borrow().len())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn paced_schedule() {
+        let t0 = Instant::now();
+        let ms = |n: u64| t0 + Duration::from_millis(n);
+        let mut s = Schedule::default();
+        assert!(s.next_wait(t0, 60.0).is_none(), "nothing waits");
+        // A 60 fps widget (1) and an 8 fps one (2), both drawn at t0.
+        s.request(1, Pace::Normal, t0);
+        s.request(2, Pace::Saver, t0);
+        assert_eq!(s.take_due(ms(17), 60.0), vec![1], "first frame of the fast one");
+        s.request(1, Pace::Normal, ms(17));
+        let mut drawn2 = 0;
+        let mut drawn1 = 1;
+        let mut t = 17;
+        while t < 1000 {
+            t += 17;
+            let due = s.take_due(ms(t), 60.0);
+            drawn1 += due.contains(&1) as u32;
+            drawn2 += due.contains(&2) as u32;
+            for id in due {
+                s.request(id, if id == 1 { Pace::Normal } else { Pace::Saver }, ms(t));
+            }
+        }
+        assert!((55..=61).contains(&drawn1), "about 60 frames a second: {drawn1}");
+        assert!((7..=9).contains(&drawn2), "about 8 frames a second: {drawn2}");
+        // A faster request wins over a pending slower one.
+        let mut s = Schedule::default();
+        s.request(3, Pace::Saver, t0);
+        s.request(3, Pace::Display, t0);
+        assert!(s.next_wait(t0, 120.0).unwrap() <= Duration::from_millis(9));
+        assert_eq!(s.len(), 1);
+        s.forget(3);
+        assert!(s.is_empty());
+        // Modes.
+        assert_eq!(Pace::Display.under(PaceMode::Saver), Pace::Low);
+        assert_eq!(Pace::Saver.under(PaceMode::Saver), Pace::Saver);
+        assert_eq!(Pace::Saver.under(PaceMode::Max), Pace::Display);
+        assert_eq!(Pace::Normal.under(PaceMode::Normal), Pace::Normal);
+        assert_eq!(Pace::Display.interval(144.0), Duration::from_secs_f64(1.0 / 144.0));
+    }
 
     #[test]
     fn easings_start_at_0_and_end_at_1() {
