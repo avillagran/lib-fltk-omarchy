@@ -204,11 +204,13 @@ impl RichText {
     /// Closes the stream of message `key` (frees its parser state; a later
     /// `set_message` re-parses it whole).
     pub fn finish_message(&self, key: &str) {
-        let mut i = self.inner.borrow_mut();
-        if let Some(j) = i.key_index(key) {
-            i.msgs[j].stream = None;
-            i.msgs[j].src = None;
+        {
+            let mut i = self.inner.borrow_mut();
+            if let Some(j) = i.key_index(key) {
+                i.end_stream(j);
+            }
         }
+        self.widget.clone().redraw();
     }
 
     pub fn message_count(&self) -> usize {

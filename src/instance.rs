@@ -910,8 +910,16 @@ mod tests {
         assert_eq!(mode(&dir.join("instance.lock")), 0o600);
         assert!(call_pumped(&rx, rt.opts("dev.test.a").client(), Request::new("ping", &[])).is_ok());
         drop(server);
-        // The primary removes its own socket on exit.
-        assert!(std::fs::symlink_metadata(&sock).is_err());
+        // The primary removes its own socket on exit (its server thread does
+        // it right after the drop).
+        let gone = (0..100).any(|_| {
+            if std::fs::symlink_metadata(&sock).is_err() {
+                return true;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            false
+        });
+        assert!(gone, "socket left behind");
     }
 
     #[cfg(unix)]

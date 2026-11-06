@@ -1007,10 +1007,20 @@ impl Inner {
     fn close_open(&mut self) {
         if let Some(k) = self.open.take() {
             if let Some(j) = self.index_of(&k) {
-                self.msgs[j].stream = None;
-                self.msgs[j].src = None;
+                self.end_stream(j);
             }
         }
+    }
+
+    /// Ends message `j`'s stream: a tail shown settled gets its exact parse.
+    pub(super) fn end_stream(&mut self, j: usize) {
+        if let Some(mut s) = self.msgs[j].stream.take() {
+            if s.settles() {
+                let u = s.finish();
+                self.set_msg_blocks(j, u.keep, u.blocks);
+            }
+        }
+        self.msgs[j].src = None;
     }
 
     fn clear(&mut self) {
@@ -1821,6 +1831,7 @@ impl RichText {
     /// Closes the open section (frees its parser state).
     pub fn finish(&self) {
         self.inner.borrow_mut().close_open();
+        self.changed();
     }
 
     /// Appends blocks built in code (closes the open section).

@@ -133,4 +133,25 @@ pub fn checks(run: &mut dyn FnMut(&str, Check)) {
         fltk::window::DoubleWindow::delete((*win).clone());
         Ok(())
     });
+
+    run("rich text: a settled streaming tail hides open markers; finish gives the exact text", &|_| {
+        use fltk_omarchy::text::{markdown::MarkdownOptions, RichText};
+        let mut win = AppWindow::new("Settle", 420, 200);
+        let rt = RichText::new().markdown_options(MarkdownOptions::default().with_settle_tail(true));
+        win.end();
+        win.show();
+        let r2 = rt.clone();
+        pump_until(|| r2.w() > 0);
+        rt.push_markdown("Hello **wor");
+        fltk::app::wait_for(0.01).ok();
+        check(rt.plain_text().contains("Hello wor"), &format!("the open bold word is shown: {:?}", rt.plain_text()))?;
+        check(rt.plain_text().find('*').is_none(), &format!("no raw markers while streaming: {:?}", rt.plain_text()))?;
+        rt.push_markdown("ld** and `co");
+        check(rt.plain_text().find('`').is_none(), "an open code span is shown closed")?;
+        rt.push_markdown("de` done");
+        rt.finish();
+        check(rt.plain_text().trim_end() == "Hello world and code done", &format!("exact after finish: {:?}", rt.plain_text()))?;
+        fltk::window::DoubleWindow::delete((*win).clone());
+        Ok(())
+    });
 }

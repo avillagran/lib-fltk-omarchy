@@ -58,6 +58,13 @@ pub struct MarkdownOptions {
     /// Off: dollars are plain text. Apps that also get `\(…\)` / `\[…\]`
     /// pass their Markdown through [`super::math::normalize_delimiters`].
     pub math: bool,
+    /// While streaming, the open tail is shown as it is about to become
+    /// (Rune's tail settling): an unclosed `**`, `*`, `` ` ``, `~~` or
+    /// `[text](url` is drawn already closed, a trailing run of markers
+    /// (`and **`) waits for the next character, and a `|` line waits until
+    /// it is part of a table. Committed blocks and the final result
+    /// ([`MarkdownStream::finish`]) are always the exact parse.
+    pub settle_tail: bool,
 }
 
 impl Default for MarkdownOptions {
@@ -67,6 +74,7 @@ impl Default for MarkdownOptions {
             images: false,
             code_links: None,
             math: false,
+            settle_tail: false,
         }
     }
 }
@@ -93,6 +101,12 @@ impl MarkdownOptions {
         self
     }
 
+    /// Streaming tail settling (see [`MarkdownOptions::settle_tail`]).
+    pub fn with_settle_tail(mut self, on: bool) -> Self {
+        self.settle_tail = on;
+        self
+    }
+
     /// `$…$` / `$$…$$` as math (see [`MarkdownOptions::math`]).
     pub fn with_math(mut self, on: bool) -> Self {
         self.math = on;
@@ -113,6 +127,7 @@ impl fmt::Debug for MarkdownOptions {
             .field("images", &self.images)
             .field("code_links", &self.code_links.is_some())
             .field("math", &self.math)
+            .field("settle_tail", &self.settle_tail)
             .finish()
     }
 }
@@ -272,6 +287,7 @@ impl MarkdownStream {
         self.total += more.len();
         let parsed = convert(&self.tail, &self.defs, self.cont, &self.opts);
         let keep = self.committed;
+        let mut committed_blocks = 0;
         // Commit up to the last boundary whose first line is complete.
         let cut = parsed
             .units
@@ -289,12 +305,30 @@ impl MarkdownStream {
                 }
             }
             self.committed += u.block;
+            committed_blocks = u.block;
             self.cont = u.number;
             self.tail.drain(..p);
+        }
+        if self.opts.settle_tail {
+            // The committed blocks are exact; the open tail is shown settled.
+            let settled = settle(&self.tail);
+            let mut blocks: Vec<Block> = parsed.blocks.into_iter().take(committed_blocks).collect();
+            blocks.extend(convert(&settled, &self.defs, self.cont, &self.opts).blocks);
+            return StreamUpdate { keep, blocks };
         }
         StreamUpdate {
             keep,
             blocks: parsed.blocks,
+        }
+    }
+
+    /// The exact blocks of the open tail, for when the text is complete
+    /// (matters with [`MarkdownOptions::settle_tail`]): replace the stream's
+    /// blocks from `keep` on with `blocks`.
+    pub fn finish(&mut self) -> StreamUpdate {
+        StreamUpdate {
+            keep: self.committed,
+            blocks: convert(&self.tail, &self.defs, self.cont, &self.opts).blocks,
         }
     }
 
@@ -304,6 +338,11 @@ impl MarkdownStream {
         let u = self.push(more);
         blocks.truncate(u.keep);
         blocks.extend(u.blocks);
+    }
+
+    /// True when the open tail is shown settled ([`MarkdownOptions::settle_tail`]).
+    pub fn settles(&self) -> bool {
+        self.opts.settle_tail
     }
 
     /// Blocks that are final (never replaced by later pushes).
@@ -324,6 +363,93 @@ impl MarkdownStream {
     pub fn is_empty(&self) -> bool {
         self.total == 0
     }
+}
+
+/// The open tail as it is about to become (see
+/// [`MarkdownOptions::settle_tail`]). Pure; the source is not changed.
+pub fn settle(tail: &str) -> String {
+    // Inside an open code fence nothing is inline Markdown.
+    let fences = tail.lines().filter(|l| {
+        let t = l.trim_start();
+        t.starts_with("```") || t.starts_with("~~~")
+    });
+    if fences.count() % 2 == 1 {
+        return tail.to_string();
+    }
+    let mut out = tail.to_string();
+    // A `|` line that is not yet part of a table waits.
+    if let Some(start) = out.rfind('\n').map(|i| i + 1).or(Some(0)) {
+        let last = &out[start..];
+        if last.trim_start().starts_with('|') {
+            let prev = out[..start].trim_end_matches('\n').rsplit('\n').next().unwrap_or("");
+            if !prev.trim_start().starts_with('|') {
+                out.truncate(start);
+            }
+        }
+    }
+    // A trailing run of markers waits for the next character.
+    let trimmed = out.trim_end_matches(['*', '_', '~', '`', '[']);
+    if trimmed.len() < out.len() && trimmed.ends_with(|c: char| c.is_whitespace() || c == '(') {
+        out.truncate(trimmed.len());
+    }
+    // Close what the paragraph being written left open.
+    let para_start = out.rfind("\n\n").map_or(0, |i| i + 2);
+    let para = &out[para_start..];
+    let mut closers = String::new();
+    // Inline code first: inside it nothing else counts.
+    let ticks = para.matches('`').count();
+    let outside: String = if ticks % 2 == 1 {
+        closers.push('`');
+        para[..para.rfind('`').unwrap_or(0)].to_string()
+    } else {
+        para.to_string()
+    };
+    let outside = strip_code_spans(&outside);
+    // An unclosed link destination: `[text](http…`.
+    if let Some(open) = outside.rfind("](") {
+        if !outside[open..].contains(')') {
+            closers.push(')');
+        }
+    }
+    if outside.matches("~~").count() % 2 == 1 {
+        closers.push_str("~~");
+    }
+    let bold = outside.matches("**").count();
+    if bold % 2 == 1 {
+        closers.push_str("**");
+    }
+    // Single `*` emphasis, not bullets at the start of a line.
+    let singles = outside
+        .lines()
+        .map(|l| {
+            let l = l.trim_start();
+            let l = l.strip_prefix("* ").unwrap_or(l);
+            l.replace("**", "").matches('*').count()
+        })
+        .sum::<usize>();
+    if singles % 2 == 1 {
+        closers.push('*');
+    }
+    if !closers.is_empty() {
+        out.push_str(&closers);
+    }
+    out
+}
+
+/// `s` without its closed inline code spans (their content is literal).
+fn strip_code_spans(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut in_code = false;
+    for c in s.chars() {
+        if c == '`' {
+            in_code = !in_code;
+            continue;
+        }
+        if !in_code {
+            out.push(c);
+        }
+    }
+    out
 }
 
 // --------------------------------------------------------------- converter
@@ -1000,6 +1126,38 @@ pub(crate) fn find_urls(s: &str) -> Vec<(Range<usize>, String)> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn settle_tail_closes_and_holds_back() {
+        assert_eq!(settle("a **bold"), "a **bold**");
+        assert_eq!(settle("an *it"), "an *it*");
+        assert_eq!(settle("run `cargo"), "run `cargo`");
+        assert_eq!(settle("see [docs](https://exa"), "see [docs](https://exa)");
+        assert_eq!(settle("old ~~gone"), "old ~~gone~~");
+        assert_eq!(settle("and **"), "and ");
+        assert_eq!(settle("done **bold** and `x` ok"), "done **bold** and `x` ok");
+        assert_eq!(settle("text\n| a"), "text\n");
+        assert_eq!(settle("| a | b |\n|---|---|\n| 1"), "| a | b |\n|---|---|\n| 1");
+        assert_eq!(settle("```rust\nlet x = **y"), "```rust\nlet x = **y");
+        assert_eq!(settle("* item with **b"), "* item with **b**");
+        assert_eq!(settle("`a*b` then *c"), "`a*b` then *c*");
+    }
+
+    #[test]
+    fn settled_stream_shows_styles_and_finishes_exact() {
+        let opts = MarkdownOptions::plain().with_settle_tail(true);
+        let mut s = MarkdownStream::with_options(opts.clone());
+        let mut blocks = Vec::new();
+        s.push_into(&mut blocks, "Hello **wor");
+        let runs = blocks.last().unwrap().content.runs();
+        assert!(runs.iter().any(|r| r.style.bold), "the open bold is drawn bold: {:?}", blocks.last().unwrap().content.text());
+        assert!(!blocks.last().unwrap().content.text().contains('*'));
+        s.push_into(&mut blocks, "ld** done");
+        let u = s.finish();
+        blocks.truncate(u.keep);
+        blocks.extend(u.blocks);
+        assert_eq!(blocks, parse_with("Hello **world** done", &opts));
+    }
 
     #[test]
     fn math_is_text_only_when_enabled() {
