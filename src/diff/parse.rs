@@ -330,7 +330,7 @@ impl Patch {
         if above {
             hunk.old_start = (hunk.old_start as i64 - n as i64).max(1) as u32;
             hunk.new_start = first;
-            fresh.extend(hunk.lines.drain(..));
+            fresh.append(&mut hunk.lines);
             hunk.lines = fresh;
         } else {
             // A "no newline" marker on the old last line no longer applies.
@@ -439,6 +439,7 @@ impl<'a> Parser<'a> {
                 self.i += 1; // mail header, message, diffstat, signature
             }
         }
+        self.out.text.shrink_to_fit();
         Ok(self.out)
     }
 
