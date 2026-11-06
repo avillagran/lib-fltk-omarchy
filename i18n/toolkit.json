@@ -74,7 +74,17 @@
     "Fit to window": "Fit to window",
     "Copy image": "Copy image",
     "Loading image…": "Loading image…",
-    "Image could not be loaded": "Image could not be loaded"
+    "Image could not be loaded": "Image could not be loaded",
+    "Play": "Play",
+    "Mute": "Mute",
+    "Unmute": "Unmute",
+    "Playback position": "Playback position",
+    "{position} of {duration}": "{position} of {duration}",
+    "Video": "Video",
+    "Audio": "Audio",
+    "Playback needs ffmpeg and ffprobe": "Playback needs ffmpeg and ffprobe",
+    "Cannot play this file": "Cannot play this file",
+    "No audio output: playing without sound": "No audio output: playing without sound"
   },
   "es": {
     "Cancel": "Cancelar",
@@ -151,7 +161,17 @@
     "Fit to window": "Ajustar a la ventana",
     "Copy image": "Copiar imagen",
     "Loading image…": "Cargando imagen…",
-    "Image could not be loaded": "No se pudo cargar la imagen"
+    "Image could not be loaded": "No se pudo cargar la imagen",
+    "Play": "Reproducir",
+    "Mute": "Silenciar",
+    "Unmute": "Activar sonido",
+    "Playback position": "Posición de reproducción",
+    "{position} of {duration}": "{position} de {duration}",
+    "Video": "Vídeo",
+    "Audio": "Audio",
+    "Playback needs ffmpeg and ffprobe": "La reproducción necesita ffmpeg y ffprobe",
+    "Cannot play this file": "No se puede reproducir este archivo",
+    "No audio output: playing without sound": "Sin salida de audio: se reproduce sin sonido"
   },
   "pt": {
     "Cancel": "Cancelar",
@@ -228,7 +248,17 @@
     "Fit to window": "Ajustar à janela",
     "Copy image": "Copiar imagem",
     "Loading image…": "Carregando imagem…",
-    "Image could not be loaded": "Não foi possível carregar a imagem"
+    "Image could not be loaded": "Não foi possível carregar a imagem",
+    "Play": "Reproduzir",
+    "Mute": "Silenciar",
+    "Unmute": "Ativar som",
+    "Playback position": "Posição de reprodução",
+    "{position} of {duration}": "{position} de {duration}",
+    "Video": "Vídeo",
+    "Audio": "Áudio",
+    "Playback needs ffmpeg and ffprobe": "A reprodução precisa de ffmpeg e ffprobe",
+    "Cannot play this file": "Não é possível reproduzir este arquivo",
+    "No audio output: playing without sound": "Sem saída de áudio: reproduzindo sem som"
   },
   "fr": {
     "Cancel": "Annuler",
@@ -305,7 +335,17 @@
     "Fit to window": "Ajuster à la fenêtre",
     "Copy image": "Copier l’image",
     "Loading image…": "Chargement de l’image…",
-    "Image could not be loaded": "Impossible de charger l’image"
+    "Image could not be loaded": "Impossible de charger l’image",
+    "Play": "Lire",
+    "Mute": "Couper le son",
+    "Unmute": "Rétablir le son",
+    "Playback position": "Position de lecture",
+    "{position} of {duration}": "{position} sur {duration}",
+    "Video": "Vidéo",
+    "Audio": "Audio",
+    "Playback needs ffmpeg and ffprobe": "La lecture nécessite ffmpeg et ffprobe",
+    "Cannot play this file": "Impossible de lire ce fichier",
+    "No audio output: playing without sound": "Aucune sortie audio : lecture sans son"
   },
   "de": {
     "Cancel": "Abbrechen",
@@ -382,7 +422,17 @@
     "Fit to window": "An Fenster anpassen",
     "Copy image": "Bild kopieren",
     "Loading image…": "Bild wird geladen…",
-    "Image could not be loaded": "Bild konnte nicht geladen werden"
+    "Image could not be loaded": "Bild konnte nicht geladen werden",
+    "Play": "Abspielen",
+    "Mute": "Stummschalten",
+    "Unmute": "Ton einschalten",
+    "Playback position": "Wiedergabeposition",
+    "{position} of {duration}": "{position} von {duration}",
+    "Video": "Video",
+    "Audio": "Audio",
+    "Playback needs ffmpeg and ffprobe": "Die Wiedergabe benötigt ffmpeg und ffprobe",
+    "Cannot play this file": "Diese Datei kann nicht abgespielt werden",
+    "No audio output: playing without sound": "Keine Audioausgabe: Wiedergabe ohne Ton"
   },
   "it": {
     "Cancel": "Annulla",
@@ -459,7 +509,17 @@
     "Fit to window": "Adatta alla finestra",
     "Copy image": "Copia immagine",
     "Loading image…": "Caricamento immagine…",
-    "Image could not be loaded": "Impossibile caricare l’immagine"
+    "Image could not be loaded": "Impossibile caricare l’immagine",
+    "Play": "Riproduci",
+    "Mute": "Disattiva audio",
+    "Unmute": "Riattiva audio",
+    "Playback position": "Posizione di riproduzione",
+    "{position} of {duration}": "{position} di {duration}",
+    "Video": "Video",
+    "Audio": "Audio",
+    "Playback needs ffmpeg and ffprobe": "La riproduzione richiede ffmpeg e ffprobe",
+    "Cannot play this file": "Impossibile riprodurre questo file",
+    "No audio output: playing without sound": "Nessuna uscita audio: riproduzione senza suono"
   },
   "nl": {
     "Cancel": "Annuleren",
@@ -536,7 +596,17 @@
     "Fit to window": "Aanpassen aan venster",
     "Copy image": "Afbeelding kopiëren",
     "Loading image…": "Afbeelding laden…",
-    "Image could not be loaded": "Afbeelding kon niet worden geladen"
+    "Image could not be loaded": "Afbeelding kon niet worden geladen",
+    "Play": "Afspelen",
+    "Mute": "Dempen",
+    "Unmute": "Dempen opheffen",
+    "Playback position": "Afspeelpositie",
+    "{position} of {duration}": "{position} van {duration}",
+    "Video": "Video",
+    "Audio": "Audio",
+    "Playback needs ffmpeg and ffprobe": "Afspelen vereist ffmpeg en ffprobe",
+    "Cannot play this file": "Dit bestand kan niet worden afgespeeld",
+    "No audio output: playing without sound": "Geen audio-uitvoer: afspelen zonder geluid"
   },
   "pl": {
     "Cancel": "Anuluj",
@@ -615,7 +685,17 @@
     "Fit to window": "Dopasuj do okna",
     "Copy image": "Kopiuj obraz",
     "Loading image…": "Wczytywanie obrazu…",
-    "Image could not be loaded": "Nie można wczytać obrazu"
+    "Image could not be loaded": "Nie można wczytać obrazu",
+    "Play": "Odtwórz",
+    "Mute": "Wycisz",
+    "Unmute": "Wyłącz wyciszenie",
+    "Playback position": "Pozycja odtwarzania",
+    "{position} of {duration}": "{position} z {duration}",
+    "Video": "Wideo",
+    "Audio": "Dźwięk",
+    "Playback needs ffmpeg and ffprobe": "Odtwarzanie wymaga ffmpeg i ffprobe",
+    "Cannot play this file": "Nie można odtworzyć tego pliku",
+    "No audio output: playing without sound": "Brak wyjścia audio: odtwarzanie bez dźwięku"
   },
   "ru": {
     "Cancel": "Отмена",
@@ -694,7 +774,17 @@
     "Fit to window": "По размеру окна",
     "Copy image": "Копировать изображение",
     "Loading image…": "Загрузка изображения…",
-    "Image could not be loaded": "Не удалось загрузить изображение"
+    "Image could not be loaded": "Не удалось загрузить изображение",
+    "Play": "Воспроизвести",
+    "Mute": "Выключить звук",
+    "Unmute": "Включить звук",
+    "Playback position": "Позиция воспроизведения",
+    "{position} of {duration}": "{position} из {duration}",
+    "Video": "Видео",
+    "Audio": "Аудио",
+    "Playback needs ffmpeg and ffprobe": "Для воспроизведения нужны ffmpeg и ffprobe",
+    "Cannot play this file": "Не удаётся воспроизвести этот файл",
+    "No audio output: playing without sound": "Нет аудиовыхода: воспроизведение без звука"
   },
   "uk": {
     "Cancel": "Скасувати",
@@ -773,7 +863,17 @@
     "Fit to window": "За розміром вікна",
     "Copy image": "Копіювати зображення",
     "Loading image…": "Завантаження зображення…",
-    "Image could not be loaded": "Не вдалося завантажити зображення"
+    "Image could not be loaded": "Не вдалося завантажити зображення",
+    "Play": "Відтворити",
+    "Mute": "Вимкнути звук",
+    "Unmute": "Увімкнути звук",
+    "Playback position": "Позиція відтворення",
+    "{position} of {duration}": "{position} з {duration}",
+    "Video": "Відео",
+    "Audio": "Аудіо",
+    "Playback needs ffmpeg and ffprobe": "Для відтворення потрібні ffmpeg і ffprobe",
+    "Cannot play this file": "Не вдається відтворити цей файл",
+    "No audio output: playing without sound": "Немає аудіовиходу: відтворення без звуку"
   },
   "ja": {
     "Cancel": "キャンセル",
@@ -849,7 +949,17 @@
     "Fit to window": "ウィンドウに合わせる",
     "Copy image": "画像をコピー",
     "Loading image…": "画像を読み込み中…",
-    "Image could not be loaded": "画像を読み込めませんでした"
+    "Image could not be loaded": "画像を読み込めませんでした",
+    "Play": "再生",
+    "Mute": "ミュート",
+    "Unmute": "ミュート解除",
+    "Playback position": "再生位置",
+    "{position} of {duration}": "{position} / {duration}",
+    "Video": "動画",
+    "Audio": "音声",
+    "Playback needs ffmpeg and ffprobe": "再生には ffmpeg と ffprobe が必要です",
+    "Cannot play this file": "このファイルは再生できません",
+    "No audio output: playing without sound": "音声出力がありません：音声なしで再生します"
   },
   "ko": {
     "Cancel": "취소",
@@ -925,7 +1035,17 @@
     "Fit to window": "창에 맞추기",
     "Copy image": "이미지 복사",
     "Loading image…": "이미지 불러오는 중…",
-    "Image could not be loaded": "이미지를 불러올 수 없습니다"
+    "Image could not be loaded": "이미지를 불러올 수 없습니다",
+    "Play": "재생",
+    "Mute": "음소거",
+    "Unmute": "음소거 해제",
+    "Playback position": "재생 위치",
+    "{position} of {duration}": "{duration} 중 {position}",
+    "Video": "동영상",
+    "Audio": "오디오",
+    "Playback needs ffmpeg and ffprobe": "재생하려면 ffmpeg와 ffprobe가 필요합니다",
+    "Cannot play this file": "이 파일을 재생할 수 없습니다",
+    "No audio output: playing without sound": "오디오 출력 없음: 소리 없이 재생합니다"
   },
   "zh": {
     "Cancel": "取消",
@@ -1001,7 +1121,17 @@
     "Fit to window": "适合窗口",
     "Copy image": "复制图片",
     "Loading image…": "正在加载图片…",
-    "Image could not be loaded": "无法加载图片"
+    "Image could not be loaded": "无法加载图片",
+    "Play": "播放",
+    "Mute": "静音",
+    "Unmute": "取消静音",
+    "Playback position": "播放位置",
+    "{position} of {duration}": "{position} / {duration}",
+    "Video": "视频",
+    "Audio": "音频",
+    "Playback needs ffmpeg and ffprobe": "播放需要 ffmpeg 和 ffprobe",
+    "Cannot play this file": "无法播放此文件",
+    "No audio output: playing without sound": "没有音频输出：无声播放"
   },
   "ar": {
     "Cancel": "إلغاء",
@@ -1082,7 +1212,17 @@
     "Fit to window": "ملاءمة النافذة",
     "Copy image": "نسخ الصورة",
     "Loading image…": "جارٍ تحميل الصورة…",
-    "Image could not be loaded": "تعذّر تحميل الصورة"
+    "Image could not be loaded": "تعذّر تحميل الصورة",
+    "Play": "تشغيل",
+    "Mute": "كتم الصوت",
+    "Unmute": "إلغاء كتم الصوت",
+    "Playback position": "موضع التشغيل",
+    "{position} of {duration}": "{position} من {duration}",
+    "Video": "فيديو",
+    "Audio": "صوت",
+    "Playback needs ffmpeg and ffprobe": "يتطلب التشغيل ffmpeg و ffprobe",
+    "Cannot play this file": "تعذّر تشغيل هذا الملف",
+    "No audio output: playing without sound": "لا يوجد مخرج صوت: التشغيل بدون صوت"
   },
   "tr": {
     "Cancel": "İptal",
@@ -1159,7 +1299,17 @@
     "Fit to window": "Pencereye sığdır",
     "Copy image": "Görseli kopyala",
     "Loading image…": "Görsel yükleniyor…",
-    "Image could not be loaded": "Görsel yüklenemedi"
+    "Image could not be loaded": "Görsel yüklenemedi",
+    "Play": "Oynat",
+    "Mute": "Sesi kapat",
+    "Unmute": "Sesi aç",
+    "Playback position": "Oynatma konumu",
+    "{position} of {duration}": "{position} / {duration}",
+    "Video": "Video",
+    "Audio": "Ses",
+    "Playback needs ffmpeg and ffprobe": "Oynatma için ffmpeg ve ffprobe gerekir",
+    "Cannot play this file": "Bu dosya oynatılamıyor",
+    "No audio output: playing without sound": "Ses çıkışı yok: sessiz oynatılıyor"
   },
   "sv": {
     "Cancel": "Avbryt",
@@ -1236,7 +1386,17 @@
     "Fit to window": "Anpassa till fönstret",
     "Copy image": "Kopiera bild",
     "Loading image…": "Läser in bild…",
-    "Image could not be loaded": "Bilden kunde inte läsas in"
+    "Image could not be loaded": "Bilden kunde inte läsas in",
+    "Play": "Spela upp",
+    "Mute": "Ljud av",
+    "Unmute": "Ljud på",
+    "Playback position": "Uppspelningsposition",
+    "{position} of {duration}": "{position} av {duration}",
+    "Video": "Video",
+    "Audio": "Ljud",
+    "Playback needs ffmpeg and ffprobe": "Uppspelning kräver ffmpeg och ffprobe",
+    "Cannot play this file": "Filen kan inte spelas upp",
+    "No audio output: playing without sound": "Ingen ljudutgång: spelar upp utan ljud"
   },
   "da": {
     "Cancel": "Annuller",
@@ -1313,7 +1473,17 @@
     "Fit to window": "Tilpas til vinduet",
     "Copy image": "Kopiér billede",
     "Loading image…": "Indlæser billede…",
-    "Image could not be loaded": "Billedet kunne ikke indlæses"
+    "Image could not be loaded": "Billedet kunne ikke indlæses",
+    "Play": "Afspil",
+    "Mute": "Slå lyd fra",
+    "Unmute": "Slå lyd til",
+    "Playback position": "Afspilningsposition",
+    "{position} of {duration}": "{position} af {duration}",
+    "Video": "Video",
+    "Audio": "Lyd",
+    "Playback needs ffmpeg and ffprobe": "Afspilning kræver ffmpeg og ffprobe",
+    "Cannot play this file": "Filen kan ikke afspilles",
+    "No audio output: playing without sound": "Ingen lydudgang: afspiller uden lyd"
   },
   "no": {
     "Cancel": "Avbryt",
@@ -1390,7 +1560,17 @@
     "Fit to window": "Tilpass til vinduet",
     "Copy image": "Kopier bilde",
     "Loading image…": "Laster inn bilde…",
-    "Image could not be loaded": "Bildet kunne ikke lastes inn"
+    "Image could not be loaded": "Bildet kunne ikke lastes inn",
+    "Play": "Spill av",
+    "Mute": "Demp",
+    "Unmute": "Slå på lyd",
+    "Playback position": "Avspillingsposisjon",
+    "{position} of {duration}": "{position} av {duration}",
+    "Video": "Video",
+    "Audio": "Lyd",
+    "Playback needs ffmpeg and ffprobe": "Avspilling krever ffmpeg og ffprobe",
+    "Cannot play this file": "Kan ikke spille av denne filen",
+    "No audio output: playing without sound": "Ingen lydutgang: spiller av uten lyd"
   },
   "fi": {
     "Cancel": "Peruuta",
@@ -1467,7 +1647,17 @@
     "Fit to window": "Sovita ikkunaan",
     "Copy image": "Kopioi kuva",
     "Loading image…": "Ladataan kuvaa…",
-    "Image could not be loaded": "Kuvaa ei voitu ladata"
+    "Image could not be loaded": "Kuvaa ei voitu ladata",
+    "Play": "Toista",
+    "Mute": "Mykistä",
+    "Unmute": "Poista mykistys",
+    "Playback position": "Toistokohta",
+    "{position} of {duration}": "{position} / {duration}",
+    "Video": "Video",
+    "Audio": "Ääni",
+    "Playback needs ffmpeg and ffprobe": "Toisto vaatii ffmpegin ja ffproben",
+    "Cannot play this file": "Tätä tiedostoa ei voi toistaa",
+    "No audio output: playing without sound": "Ei äänilähtöä: toistetaan ilman ääntä"
   },
   "cs": {
     "Cancel": "Zrušit",
@@ -1545,6 +1735,16 @@
     "Fit to window": "Přizpůsobit oknu",
     "Copy image": "Kopírovat obrázek",
     "Loading image…": "Načítání obrázku…",
-    "Image could not be loaded": "Obrázek se nepodařilo načíst"
+    "Image could not be loaded": "Obrázek se nepodařilo načíst",
+    "Play": "Přehrát",
+    "Mute": "Ztlumit",
+    "Unmute": "Zrušit ztlumení",
+    "Playback position": "Pozice přehrávání",
+    "{position} of {duration}": "{position} z {duration}",
+    "Video": "Video",
+    "Audio": "Zvuk",
+    "Playback needs ffmpeg and ffprobe": "Přehrávání vyžaduje ffmpeg a ffprobe",
+    "Cannot play this file": "Tento soubor nelze přehrát",
+    "No audio output: playing without sound": "Žádný zvukový výstup: přehrává se bez zvuku"
   }
 }
