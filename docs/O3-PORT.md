@@ -241,15 +241,21 @@ on the GPU backend than on the CPU backend; idle stays 0 %; total PSS
 
 | Item | State |
 |---|---|
-| P0 1–3 transcript in `RichText` (embeds, keyed messages, anchors, actions, find) | in progress |
-| P0 4 Composer additions | done on its branch, to merge |
-| P0 5–6 `media::Image`, SVG icons | in progress |
-| P0 7 single instance and app IPC (`instance`) | merged (Windows/macOS not type-checked locally) |
-| P0 8 NavTree rows like o3 | done on its branch, to merge |
+| P0 1–3 transcript in `RichText` (keyed messages, `bind_model`, embeds, images, scroll anchors, follow-end, bottom inset, code and table actions, selection and find API) | merged |
+| P0 4 Composer: prompt history, expanded keys, attach button, bottom-row slots | merged |
+| P0 5 `media::Image` / `ImageViewer` (feature `images`: PNG, JPEG, GIF, WebP) | merged; HEIC/AVIF not decoded |
+| P0 6 SVG icons (`icon`, Lucide subset, theme tint, raster cache) | merged |
+| P0 7 single instance and app IPC (`instance`) | merged |
+| P0 8 NavTree o3 rows: cards, trailing actions, tree guides, hover preview, `ShelfResizer` | merged |
 | P1 12 splitter (`split::Split`) | merged |
 | P1 13 reorder in plain lists (`List::reorderable`) | merged |
-| P1 14 nested scroll hand-off (`Scroll::passes`; List, Table, Tree) | merged; RichText and NavTree after their merges |
+| P1 14 nested scroll hand-off (`Scroll::passes`) | merged for List, Table, Tree; RichText and NavTree pending |
 | P1 17 keys: command tables, record, repeat, suspend | merged |
 | P1 18 font weights, letter spacing, named and terminal colors, project colors | merged |
 | P1 19 charts (`chart`), QR codes (`qr`, feature), masked input (`TextField::mask`) | merged |
-| P1 9–11, 15, 16, 20 | not started |
+| P1 9 native diff viewer, 10 `FrameView`, 11 video/audio, 15 paced animation clock, 16 layer rendering, 20 math | not started |
+| Section 4 GPU scene | not started |
+
+Verified locally on the merged branch: unit, doc and UI tests on X11
+(default, `a11y`, `images`, `qr`), CI clippy, platform rustfmt,
+Windows/macOS type checks, MSRV builds (1.80 default, 1.85 `a11y`).
