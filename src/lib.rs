@@ -23,6 +23,7 @@ pub mod panel;
 pub mod png;
 pub mod popups;
 pub mod scroll;
+pub mod shortcuts;
 pub mod sidebar;
 pub mod split;
 pub mod state;

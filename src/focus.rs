@@ -64,6 +64,14 @@ fn dispatch(ev: Event, win: app::WindowPtr) -> bool {
     if matches!(ev, Event::Shortcut | Event::KeyDown | Event::KeyUp) {
         forget_stale_belowmouse();
     }
+    if matches!(ev, Event::KeyDown | Event::KeyUp) {
+        crate::keys::note(ev, app::event_key());
+    }
+    // A key-recording field (keys::record) takes the next key before
+    // controls and app shortcuts.
+    if ev == Event::KeyDown && crate::keys::record_key(app::event_key(), app::event_state()) {
+        return true;
+    }
     let used = if ev == Event::KeyDown { route_key(win) } else { None };
     // SAFETY: `win` comes from fltk for this very event.
     let used = used.unwrap_or_else(|| unsafe { app::handle_raw(ev, win) });
@@ -690,7 +698,17 @@ pub fn press(spec: &str) -> bool {
     let used = dispatch(Event::KeyDown, window as app::WindowPtr);
     // SAFETY: as above.
     unsafe { FL_E_STATE = 0 };
+    // No key release follows: the next press of this key is a new press.
+    crate::keys::release_all();
     used
+}
+
+/// Like [`press`], as the automatic repeat of a held key
+/// ([`keys::is_repeat`](crate::keys::is_repeat) is true for it).
+pub fn press_repeat(spec: &str) -> bool {
+    let keys = crate::keys::parse(spec).unwrap_or_else(|e| panic!("{e}"));
+    crate::keys::hold(keys.key);
+    press(spec)
 }
 
 thread_local! {

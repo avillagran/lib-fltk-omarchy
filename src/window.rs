@@ -56,6 +56,7 @@ pub struct AppWindow {
     size: (i32, i32),
     min: Rc<Cell<(i32, i32)>>,
     shortcuts: Rc<RefCell<Vec<(crate::keys::Keys, Box<dyn FnMut()>)>>>,
+    table: crate::shortcuts::Shortcuts,
 }
 
 impl std::ops::Deref for AppWindow {
@@ -175,8 +176,11 @@ impl AppWindow {
         let mode = Rc::new(Cell::new(Mode::Normal));
         let shortcuts: Rc<RefCell<Vec<(crate::keys::Keys, Box<dyn FnMut()>)>>> = Rc::default();
         let min = Rc::new(Cell::new(((width / 2).max(200), (height / 2).max(150))));
+        let table = crate::shortcuts::Shortcuts::new();
         let (m2, sc, mn) = (mode.clone(), shortcuts.clone(), min.clone());
+        let table2 = table.clone();
         win.handle(move |w, ev| {
+            let table = &table2;
             let floating = m2.get() == Mode::Floating;
             match ev {
                 Event::Push if floating && app::event_y() >= w.h() - GRIP => {
@@ -195,14 +199,21 @@ impl AppWindow {
                 Event::Drag if DRAG.with(|d| d.borrow().as_ref().is_some_and(|d| d.corner > 0)) => { drag_update(); true }
                 Event::Released if DRAG.with(|d| d.borrow().is_some()) => { drag_end(); true }
                 Event::Shortcut | Event::KeyDown => {
-                    let mut list = sc.borrow_mut();
-                    for (k, f) in list.iter_mut() {
-                        if k.matches_event() {
-                            f();
-                            return true;
-                        }
+                    if crate::keys::suspended() {
+                        return false;
                     }
-                    false
+                    // Take the callback out while it runs: it may add
+                    // shortcuts or open a window that handles keys.
+                    let hit = sc.borrow().iter().position(|(k, _)| k.matches_event());
+                    if let Some(i) = hit {
+                        let mut f = std::mem::replace(&mut sc.borrow_mut()[i].1, Box::new(|| {}));
+                        f();
+                        if let Some(slot) = sc.borrow_mut().get_mut(i) {
+                            slot.1 = f;
+                        }
+                        return true;
+                    }
+                    table.dispatch()
                 }
                 _ => false,
             }
@@ -235,7 +246,7 @@ impl AppWindow {
             let mut w = win.clone();
             move |t| { w.set_color(t.palette.background.fl()); w.redraw(); }
         });
-        AppWindow { win, header, body, mode, size: (width, height), min, shortcuts }
+        AppWindow { win, header, body, mode, size: (width, height), min, shortcuts, table }
     }
 
     /// Closes the body column (and the window group). Every `Flex` row
@@ -309,6 +320,13 @@ impl AppWindow {
     }
 
     /// Keyboard shortcut for the whole window: `win.shortcut("Ctrl+Q", || app::quit())`.
+    /// The window's command shortcut table: keys bound to command ids with
+    /// conditions, rebound at run time ([`crate::shortcuts`]). Keys from
+    /// [`AppWindow::shortcut`] are tried first.
+    pub fn shortcuts(&self) -> crate::shortcuts::Shortcuts {
+        self.table.clone()
+    }
+
     pub fn shortcut(&mut self, spec: &str, f: impl FnMut() + 'static) {
         let keys = crate::keys::parse(spec).unwrap_or_else(|e| panic!("{e}"));
         self.shortcuts.borrow_mut().push((keys, Box::new(f)));
