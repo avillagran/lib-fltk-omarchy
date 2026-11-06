@@ -1,0 +1,351 @@
+{
+  "scope": "One run per condition, RTX3080Ti/Wayland, hidden no-focus. Draw-call counts show grouping; CPU/PSS results do not prove an improvement over another checkpoint. No presentation/power/4K claim.",
+  "planner_blob": "3a86b91063d47a2ad4a92011e7292e6851833af3",
+  "runs": [
+    {
+      "case": "normal",
+      "report": {
+        "animation": {
+          "cpu_percent_one_core": 1.787832186105451,
+          "fps": 64.3354607569045,
+          "frames": 193,
+          "gpu_draw_calls": 1381,
+          "gpu_primitives": 2210,
+          "instance_bytes": 864,
+          "instance_upload_bytes": 88992,
+          "overlay_captures": 0,
+          "overlay_texture_bytes": 47120,
+          "overlay_uploads": 0,
+          "parent_draws": 8,
+          "preparations": 0,
+          "scene_builds": 0,
+          "scene_uploads": 0,
+          "seconds": 2.999900797
+        },
+        "backend": "Gpu",
+        "flight_finished": true,
+        "idle": {
+          "cpu_percent_one_core": 0.01144593327607232,
+          "fps": 0.0,
+          "frames": 0,
+          "gpu_draw_calls": 0,
+          "gpu_primitives": 0,
+          "instance_bytes": 864,
+          "instance_upload_bytes": 0,
+          "overlay_captures": 0,
+          "overlay_texture_bytes": 47120,
+          "overlay_uploads": 0,
+          "parent_draws": 0,
+          "preparations": 0,
+          "scene_builds": 0,
+          "scene_uploads": 0,
+          "seconds": 2.000972699
+        },
+        "idle_again": {
+          "cpu_percent_one_core": 0.012391454586015756,
+          "fps": 0.0,
+          "frames": 0,
+          "gpu_draw_calls": 0,
+          "gpu_primitives": 0,
+          "instance_bytes": 768,
+          "instance_upload_bytes": 0,
+          "overlay_captures": 0,
+          "overlay_texture_bytes": 47120,
+          "overlay_uploads": 0,
+          "parent_draws": 0,
+          "preparations": 0,
+          "scene_builds": 0,
+          "scene_uploads": 0,
+          "seconds": 2.000435044
+        },
+        "overlay": true,
+        "remaining_keys": [
+          3,
+          4,
+          5,
+          1
+        ],
+        "renderer": "NVIDIA GeForce RTX 3080 Ti/PCIe/SSE2",
+        "scope": "five-card lava controller; 350 ms reorder cycles, then 5-to-4 deletion; GPU pulses, CPU static lava; no physical input, power, 5000-message or 4K/120 claim",
+        "surface_size": [
+          720,
+          639
+        ],
+        "texture_bytes": 1537520
+      },
+      "metadata": {
+        "focus_change_events": 0,
+        "focus_unchanged_at_end": true,
+        "spawn_no_focus": true,
+        "workspace": "special:omarchy-scene-bench-1487290",
+        "shader_disk_cache_disabled": false,
+        "overlay_requested": true,
+        "memory": [
+          {
+            "phase": "idle",
+            "pss_kib": 154890,
+            "pss_anon_kib": 82720,
+            "pss_file_kib": 69360,
+            "pss_shmem_kib": 2809,
+            "private_kib": 147304
+          },
+          {
+            "phase": "animation",
+            "pss_kib": 156938,
+            "pss_anon_kib": 82720,
+            "pss_file_kib": 71408,
+            "pss_shmem_kib": 2809,
+            "private_kib": 149352
+          },
+          {
+            "phase": "idle_again",
+            "pss_kib": 161914,
+            "pss_anon_kib": 82720,
+            "pss_file_kib": 76384,
+            "pss_shmem_kib": 2809,
+            "private_kib": 154328
+          }
+        ],
+        "protocol": "Wayland",
+        "report_exists": true
+      }
+    },
+    {
+      "case": "warm",
+      "report": {
+        "animation": {
+          "cpu_percent_one_core": 2.1827617063493614,
+          "fps": 64.33678307164163,
+          "frames": 193,
+          "gpu_draw_calls": 1380,
+          "gpu_primitives": 2210,
+          "instance_bytes": 864,
+          "instance_upload_bytes": 88992,
+          "overlay_captures": 0,
+          "overlay_texture_bytes": 47120,
+          "overlay_uploads": 0,
+          "parent_draws": 8,
+          "preparations": 0,
+          "scene_builds": 0,
+          "scene_uploads": 0,
+          "seconds": 2.9998391399999997
+        },
+        "backend": "Gpu",
+        "flight_finished": true,
+        "idle": {
+          "cpu_percent_one_core": 0.011935144657918367,
+          "fps": 0.0,
+          "frames": 0,
+          "gpu_draw_calls": 0,
+          "gpu_primitives": 0,
+          "instance_bytes": 864,
+          "instance_upload_bytes": 0,
+          "overlay_captures": 0,
+          "overlay_texture_bytes": 47120,
+          "overlay_uploads": 0,
+          "parent_draws": 0,
+          "preparations": 0,
+          "scene_builds": 0,
+          "scene_uploads": 0,
+          "seconds": 2.000922543
+        },
+        "idle_again": {
+          "cpu_percent_one_core": 0.011286299558146716,
+          "fps": 0.0,
+          "frames": 0,
+          "gpu_draw_calls": 0,
+          "gpu_primitives": 0,
+          "instance_bytes": 768,
+          "instance_upload_bytes": 0,
+          "overlay_captures": 0,
+          "overlay_texture_bytes": 47120,
+          "overlay_uploads": 0,
+          "parent_draws": 0,
+          "preparations": 0,
+          "scene_builds": 0,
+          "scene_uploads": 0,
+          "seconds": 2.000434233
+        },
+        "overlay": true,
+        "remaining_keys": [
+          3,
+          4,
+          5,
+          1
+        ],
+        "renderer": "NVIDIA GeForce RTX 3080 Ti/PCIe/SSE2",
+        "scope": "five-card lava controller; 350 ms reorder cycles, then 5-to-4 deletion; GPU pulses, CPU static lava; no physical input, power, 5000-message or 4K/120 claim",
+        "surface_size": [
+          720,
+          639
+        ],
+        "texture_bytes": 1537520
+      },
+      "metadata": {
+        "focus_change_events": 0,
+        "focus_unchanged_at_end": true,
+        "spawn_no_focus": true,
+        "workspace": "special:omarchy-scene-bench-1489137",
+        "shader_disk_cache_disabled": false,
+        "overlay_requested": true,
+        "memory": [
+          {
+            "phase": "idle",
+            "pss_kib": 96914,
+            "pss_anon_kib": 32544,
+            "pss_file_kib": 61560,
+            "pss_shmem_kib": 2809,
+            "private_kib": 89328
+          },
+          {
+            "phase": "animation",
+            "pss_kib": 98962,
+            "pss_anon_kib": 32544,
+            "pss_file_kib": 63608,
+            "pss_shmem_kib": 2809,
+            "private_kib": 91376
+          },
+          {
+            "phase": "idle_again",
+            "pss_kib": 103938,
+            "pss_anon_kib": 32544,
+            "pss_file_kib": 68584,
+            "pss_shmem_kib": 2809,
+            "private_kib": 96352
+          }
+        ],
+        "protocol": "Wayland",
+        "report_exists": true
+      }
+    },
+    {
+      "case": "cold",
+      "report": {
+        "animation": {
+          "cpu_percent_one_core": 1.9795323973960801,
+          "fps": 64.33584987299167,
+          "frames": 193,
+          "gpu_draw_calls": 1380,
+          "gpu_primitives": 2210,
+          "instance_bytes": 864,
+          "instance_upload_bytes": 88992,
+          "overlay_captures": 0,
+          "overlay_texture_bytes": 47120,
+          "overlay_uploads": 0,
+          "parent_draws": 8,
+          "preparations": 0,
+          "scene_builds": 0,
+          "scene_uploads": 0,
+          "seconds": 2.9998826530000002
+        },
+        "backend": "Gpu",
+        "flight_finished": true,
+        "idle": {
+          "cpu_percent_one_core": 0.01146079561565825,
+          "fps": 0.0,
+          "frames": 0,
+          "gpu_draw_calls": 0,
+          "gpu_primitives": 0,
+          "instance_bytes": 864,
+          "instance_upload_bytes": 0,
+          "overlay_captures": 0,
+          "overlay_texture_bytes": 47120,
+          "overlay_uploads": 0,
+          "parent_draws": 0,
+          "preparations": 0,
+          "scene_builds": 0,
+          "scene_uploads": 0,
+          "seconds": 2.000393408
+        },
+        "idle_again": {
+          "cpu_percent_one_core": 0.010632678905489317,
+          "fps": 0.0,
+          "frames": 0,
+          "gpu_draw_calls": 0,
+          "gpu_primitives": 0,
+          "instance_bytes": 768,
+          "instance_upload_bytes": 0,
+          "overlay_captures": 0,
+          "overlay_texture_bytes": 47120,
+          "overlay_uploads": 0,
+          "parent_draws": 0,
+          "preparations": 0,
+          "scene_builds": 0,
+          "scene_uploads": 0,
+          "seconds": 1.9996747940000001
+        },
+        "overlay": true,
+        "remaining_keys": [
+          3,
+          4,
+          5,
+          1
+        ],
+        "renderer": "NVIDIA GeForce RTX 3080 Ti/PCIe/SSE2",
+        "scope": "five-card lava controller; 350 ms reorder cycles, then 5-to-4 deletion; GPU pulses, CPU static lava; no physical input, power, 5000-message or 4K/120 claim",
+        "surface_size": [
+          720,
+          639
+        ],
+        "texture_bytes": 1537520
+      },
+      "metadata": {
+        "focus_change_events": 0,
+        "focus_unchanged_at_end": true,
+        "spawn_no_focus": true,
+        "workspace": "special:omarchy-scene-bench-1491541",
+        "shader_disk_cache_disabled": true,
+        "overlay_requested": true,
+        "memory": [
+          {
+            "phase": "idle",
+            "pss_kib": 142544,
+            "pss_anon_kib": 70340,
+            "pss_file_kib": 69394,
+            "pss_shmem_kib": 2809,
+            "private_kib": 134992
+          },
+          {
+            "phase": "animation",
+            "pss_kib": 144563,
+            "pss_anon_kib": 70340,
+            "pss_file_kib": 71413,
+            "pss_shmem_kib": 2809,
+            "private_kib": 136984
+          },
+          {
+            "phase": "idle_again",
+            "pss_kib": 150032,
+            "pss_anon_kib": 70828,
+            "pss_file_kib": 76394,
+            "pss_shmem_kib": 2809,
+            "private_kib": 142448
+          }
+        ],
+        "protocol": "Wayland",
+        "report_exists": true
+      }
+    }
+  ],
+  "benchmarked_renderer_blob": "916dde2bced5a3ff03229263b3e70f2993cbd1cf",
+  "renderer_blob": "7ca055b43f64f8c2eaf4f5af3da888644bb1c513",
+  "post_measurement_change": "An early reserved-instance-budget rejection was added after the runs; these small workloads do not reach that rejection.",
+  "submission_checks": {
+    "nvidia": {
+      "draw_calls": 2,
+      "frames": 1,
+      "instance_bytes": 3984,
+      "primitives": 82,
+      "renderer": "NVIDIA GeForce RTX 3070 Ti/PCIe/SSE2",
+      "texture_bytes": 92160
+    },
+    "software": {
+      "draw_calls": 2,
+      "frames": 1,
+      "instance_bytes": 3984,
+      "primitives": 82,
+      "renderer": "llvmpipe (LLVM 23.1.3, 256 bits)",
+      "texture_bytes": 92160
+    }
+  }
+}

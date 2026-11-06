@@ -373,7 +373,8 @@ Continue section 4 without changing the CPU default:
    Consecutive compatible quads now use retained instanced attributes and
    ordered batches; shader-only frames reuse the instance buffer. Zero-area
    regions suspend GL and release resources, recovering on positive size.
-   Next: full-window widget rendering, glyph/image atlases and
+   A bounded per-renderer image page now groups different fallback images.
+   Next: full-window widget rendering, glyph atlases, residency across scenes and
    native isolated shader layers.
 4. A live version of the interaction now runs in `examples/lava.rs`.
    [Measurements](SCENE.md#interactive-lava-example) cover the actual

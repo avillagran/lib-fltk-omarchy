@@ -463,7 +463,7 @@ with their programs. A zero-width/height surface unmaps its native child
 and releases its textures outside drawing; restoring positive dimensions
 recovers the GPU without an application invalidation or backend error.
 Consecutive solid/image quads with the same texture and clip use instanced
-batches. Per-instance rectangles and colors use a retained 32-byte record
+batches. Per-instance rectangles and colors use a retained 48-byte record (rectangle, color and UV region)
 per prepared primitive, plus one reserved overlay record. CPU storage is
 allocated once per renderer; the matching GPU store is allocated lazily
 when a batch first needs it and updated only after instance properties/order
@@ -496,8 +496,7 @@ premultiplied RGB instead of unpremultiplying and premultiplying it again;
 that round trip otherwise loses color precision at overlapping edges.
 Public `Image` and isolated-layer resources remain straight RGBA. GL
 textures use premultiplied colors before filtering, which avoids halos from
-transparent texels. This is not a glyph/image
-atlas or native GPU layer rendering. A shader inside an
+transparent texels. The image page does not provide a glyph atlas or native GPU layer rendering. A shader inside an
 isolated CPU layer is flattened at preparation time; draw-time animation
 currently affects only top-level shader commands. Rebuild preparation when
 layout/theme/language/fonts/scale change. CPU fallbacks are at logical 1×.
@@ -665,7 +664,7 @@ mapped GL child, mapped snapshots, hide/show context recovery, backend
 switches, motion-off/hidden clock stopping and motion-on resume. A GPU clock
 check asserts frames advance without parent draws or scene rebuilds.
 
-## Ordered batch validation (2026-11-06)
+## Ordered batch validation (49f013e, 2026-11-06)
 
 The ordered solid/image workload submits 310 visible quads in 8 GL draw
 calls, with a 9,952-byte instance store, on NVIDIA RTX 3070 Ti and Mesa
@@ -677,7 +676,7 @@ size recovers GL. The low-level FBO check starts with a shader before any
 instanced draw: initial/keyed/deferred maximum differences are 1/2/2 and
 GL error is zero on both drivers.
 
-The real lava controller is a different workload: its card textures are
+At checkpoint `49f013e`, the real lava controller was a different workload: its card textures are
 distinct, so it currently gains no batching. It takes the singleton uniform
 path with zero instance-store allocation/uploads. A matched release control
 from `81ca273` uses the same controller and overlay at 720×639 on Wayland,
@@ -705,3 +704,34 @@ isolated layers, full-window integration and the real o3/high-refresh/power
 gates remain. [Raw controls and submission counts](scene-batching-2026-11-06.json)
 include the exploratory variants without claiming their results for the
 retained renderer.
+
+
+## Bounded image page
+
+The renderer can pack distinct retained fallback/image resources into one
+page of at most 2048×2048 (also limited by the driver's maximum texture
+size). A deterministic shelf plan chooses the smallest fitting candidate;
+allocation including padding must remain within twice the packed source
+bytes plus 4 KiB, and the combined 64 MiB resource budget. A single resource,
+images too large for the page, a non-fitting set or a budget conflict use
+individual textures. This is a per-renderer page, not a residency cache
+across scene revisions or a glyph atlas.
+
+Each tile has a one-pixel extruded gutter with premultiplied edge colors.
+The page receives individual padded tile uploads, without a full-size CPU
+page allocation. Normalized UV rectangles are retained with each draw and
+instance. Different images on the same page can batch while preserving
+paint order, clips, opacity, raising and independent overlay updates.
+Current filters are linear with no mipmaps. Context recovery rebuilds the
+page and closing/hiding releases it with the renderer.
+
+The real lava reorder interval now submits 2,210 primitives in 1,380–1,381
+GL calls, versus 2,210 calls in the earlier non-atlas observations. Its
+logical texture allocation is 1,537,520 bytes and the active instance store
+is 864 bytes. No scene preparation, texture/overlay upload or CPU parent
+rebuild is added during that interval (the existing controller still draws
+its parent eight times). Warm/first-normal/cache-disabled runs measured
+2.18/1.79/1.98% of one core and 96.6/153.3/141.2 MiB active PSS, respectively.
+These are one observation per condition, not proof of a CPU/PSS saving.
+Idle phases submit zero frames or instance uploads and all runs keep focus
+unchanged. Cold memory still exceeds the budget. [Raw atlas observations](scene-atlas-2026-11-06.json).

@@ -13,6 +13,30 @@ use fltk_omarchy::{
 };
 
 pub fn checks(run: &mut dyn FnMut(&str, Check)) {
+    run("scene atlas GPU: distinct filtered images share a batch without edge bleed", &|shots| {
+        let mut win = AppWindow::new("Image page", 340, 280);
+        let mut body = win.body();
+        body.set_margin(0);
+        let images: Vec<_> = (0..80u8).map(|i| scene::Image::rgba(2, 2, vec![
+            255,i*3,0,128, 0,255,i*2,255, i*2,0,255,0, 255,255,i*3,190,
+        ]).unwrap()).collect();
+        let view = Surface::new(340,240).backend(Backend::Gpu).paint(move |r,t| {
+            paint::fill(0,0,r.w,r.h,0,t.palette.background);
+            for (i,image) in images.iter().enumerate() {
+                image.draw(Rect::new(4+(i%20) as i32*16, 8+(i/20) as i32*18,14,16));
+            }
+            images[0].draw(Rect::new(22,100,14,16));
+        });
+        body.add(&*view); win.end(); win.show();
+        check(wait(||view.stats().gpu_frames>0), &format!("atlas ready: {:?}",view.backend_error()))?;
+        let before=view.stats();
+        parity(&mut win,&view,shots,"scene-atlas-images")?;
+        let after=view.stats();let frames=after.gpu_frames-before.gpu_frames;
+        check(frames>0 && after.gpu_draw_calls-before.gpu_draw_calls<=frames*2,"81 distinct/reused image draws share one ordered image batch")?;
+        check(after.instance_bytes>0,"image page uses retained UV instance records")?;
+        std::fs::write(shots.join("scene-atlas-report.json"),serde_json::json!({"frames":frames,"primitives":after.gpu_primitives-before.gpu_primitives,"draw_calls":after.gpu_draw_calls-before.gpu_draw_calls,"instance_bytes":after.instance_bytes,"texture_bytes":after.texture_bytes,"renderer":view.renderer_name()}).to_string()).map_err(|e|e.to_string())?;
+        fltk::window::DoubleWindow::delete((*win).clone());Ok(())
+    });
     run("scene batching GPU: ordered solids/images, clip and shader barriers, retained keyed updates", &|shots| {
         let mut win = AppWindow::new("Ordered batches", 340, 300);
         let mut body = win.body();

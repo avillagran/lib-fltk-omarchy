@@ -12,13 +12,15 @@ use std::{cell::{Cell, RefCell}, collections::{HashMap, HashSet}, rc::Rc, sync::
 
 // Rectangles and colors are retained instance attributes, avoiding
 // dynamically indexed uniform arrays in driver shader compilation.
-const INSTANCE_FLOATS: usize = 8;
+mod atlas;
+const INSTANCE_FLOATS: usize = 12;
 const INSTANCE_STRIDE: usize = INSTANCE_FLOATS * std::mem::size_of::<f32>();
 const BASIC_VERTEX: &str = r#"#version 330 core
 uniform vec2 u_view;
 layout(location = 0) in vec4 instance_rect;
 layout(location = 1) in vec4 instance_color;
-uniform vec4 u_rect, u_color;
+layout(location = 2) in vec4 instance_region;
+uniform vec4 u_rect, u_color, u_region;
 uniform int u_instanced;
 out vec2 uv;
 out vec4 tint;
@@ -28,6 +30,8 @@ void main() {
     vec4 rect = u_instanced == 1 ? instance_rect : u_rect;
     tint = u_instanced == 1 ? instance_color : u_color;
     vec2 v = (rect.xy + uv * rect.zw) / u_view;
+    vec4 region = u_instanced == 1 ? instance_region : u_region;
+    uv = region.xy + uv * region.zw;
     gl_Position = vec4(v.x * 2.0 - 1.0, 1.0 - v.y * 2.0, 0, 1);
 }"#;
 
@@ -181,6 +185,7 @@ struct Locations {
     rect: Option<glow::UniformLocation>,
     image: Option<glow::UniformLocation>,
     color: Option<glow::UniformLocation>,
+    region: Option<glow::UniformLocation>,
     instanced: Option<glow::UniformLocation>,
     tex: Option<glow::UniformLocation>,
     time: Option<glow::UniformLocation>,
@@ -193,13 +198,13 @@ impl Locations {
         let loc = |name| gl.get_uniform_location(program, name);
         Rc::new(Self {
             view: loc("u_view"), rect: loc("u_rect"), image: loc("u_image"),
-            tex: loc("u_tex"), color: loc("u_color"), instanced: loc("u_instanced"), time: loc("u_time"),
+            tex: loc("u_tex"), region: loc("u_region"), color: loc("u_color"), instanced: loc("u_instanced"), time: loc("u_time"),
             size: loc("u_size"), pointer: loc("u_pointer"),
             theme: ["u_background", "u_foreground", "u_accent", "u_urgent", "u_params"].map(loc),
         })
     }
 }
-struct Draw { rect: Rect, clip: Rect, texture: Option<glow::Texture>, program: glow::Program, locations: Rc<Locations>, color: Color, uniforms: Option<Uniforms>, order: super::node::Order }
+struct Draw { region: [f32; 4], rect: Rect, clip: Rect, texture: Option<glow::Texture>, program: glow::Program, locations: Rc<Locations>, color: Color, uniforms: Option<Uniforms>, order: super::node::Order }
 struct Overlay { rect: Rect, texture: glow::Texture, bytes: usize }
 
 /// Actual GL commands from the most recent draw, including the overlay.
@@ -239,20 +244,57 @@ impl Renderer {
     /// `gl` must be the current OpenGL 3.3 context for construction, every
     /// draw and destruction of this renderer. Never move it across threads.
     /// Preparation must run before this call; it uses FLTK CPU surfaces.
-    pub unsafe fn new(gl: Rc<glow::Context>, scene: PreparedScene) -> Result<Self, String> {
+    pub unsafe fn new(gl: Rc<glow::Context>, mut scene: PreparedScene) -> Result<Self, String> {
         let basic = link(&gl, BASIC_VERTEX, FRAGMENT)?;
         let vao = match gl.create_vertex_array() { Ok(v) => v, Err(e) => { gl.delete_program(basic); return Err(e); } };
         let instance_buffer = match gl.create_buffer() { Ok(b) => b, Err(e) => { gl.delete_vertex_array(vao); gl.delete_program(basic); return Err(e); } };
         let basic_locations = Locations::new(&gl, basic);
-        let mut renderer = Self { gl, basic, basic_locations, vao, textures: Vec::new(), programs: Vec::new(), draws: Vec::new(), texture_bytes: 0, context_alive: true, nodes: scene.nodes, overlay: None, frame: Cell::default(), instance_buffer, instances: RefCell::default(), instances_dirty: Cell::new(true), instances_uploaded: Cell::new(false), instanced_mode: Cell::new(false) };
+        let mut renderer = Self { gl, basic, basic_locations, vao, textures: Vec::new(), programs: Vec::new(), draws: Vec::new(), texture_bytes: 0, context_alive: true, nodes: std::mem::take(&mut scene.nodes), overlay: None, frame: Cell::default(), instance_buffer, instances: RefCell::default(), instances_dirty: Cell::new(true), instances_uploaded: Cell::new(false), instanced_mode: Cell::new(false) };
+        let reserved = scene.items.len().checked_add(1).and_then(|n|n.checked_mul(INSTANCE_STRIDE)).ok_or("scene instance bytes overflow")?;
+        if reserved > MAX_IMAGE_BYTES { return Err("scene instance budget exceeded (64 MiB)".into()); }
+        let max = renderer.gl.get_parameter_i32(glow::MAX_TEXTURE_SIZE) as u32;
+        let mut plan = atlas::Plan::new(&scene, max);
+        if let Some(p) = &plan {
+            let mut unique = HashSet::new();
+            let unpaged: usize = scene.items.iter().filter_map(|item| match &item.paint {
+                Paint::Image(image, _) if !p.slots.contains_key(&(image.pixels().as_ptr() as usize)) && unique.insert(image.pixels().as_ptr() as usize) => Some(image.pixels().len()),
+                _ => None,
+            }).sum();
+            if unpaged.checked_add(p.width as usize * p.height as usize * 4).and_then(|n|n.checked_add(reserved)).map_or(true, |n|n>MAX_IMAGE_BYTES) { plan = None; }
+        }
+        let page = if let Some(plan) = plan {
+            let texture = renderer.gl.create_texture()?;
+            renderer.textures.push(texture);
+            renderer.gl.active_texture(glow::TEXTURE0);
+            renderer.gl.bind_texture(glow::TEXTURE_2D, Some(texture));
+            renderer.gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MIN_FILTER, glow::LINEAR as i32);
+            renderer.gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MAG_FILTER, glow::LINEAR as i32);
+            renderer.gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_WRAP_S, glow::CLAMP_TO_EDGE as i32);
+            renderer.gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_WRAP_T, glow::CLAMP_TO_EDGE as i32);
+            renderer.gl.tex_image_2d(glow::TEXTURE_2D, 0, glow::RGBA8 as i32, plan.width as i32, plan.height as i32, 0, glow::RGBA, glow::UNSIGNED_BYTE, glow::PixelUnpackData::Slice(None));
+            renderer.texture_bytes = plan.width as usize * plan.height as usize * 4;
+            Some((plan, texture))
+        } else { None };
         let mut textures = HashMap::new();
         let mut programs: HashMap<String, (glow::Program, Rc<Locations>)> = HashMap::new();
         for item in scene.items {
+            let mut region = [0.0, 0.0, 1.0, 1.0];
             let (texture, program, locations, color, uniforms) = match item.paint {
                 Paint::Solid(c) => (None, basic, renderer.basic_locations.clone(), c, None),
                 Paint::Image(image, opacity) => {
                     let key = image.pixels().as_ptr() as usize;
-                    let texture = if let Some(t) = textures.get(&key) { *t } else {
+                    let slot = page.as_ref().and_then(|(p,t)| p.slots.get(&key).map(|&(x,y)| (p,*t,x,y)));
+                    if let Some((p,_,x,y)) = slot { region = [x as f32 / p.width as f32, y as f32 / p.height as f32, image.width() as f32 / p.width as f32, image.height() as f32 / p.height as f32]; }
+                    let texture = if let Some(t) = textures.get(&key) { *t } else if let Some((_,t,x,y)) = slot {
+                        let padded = atlas::padded(&image);
+                        renderer.gl.active_texture(glow::TEXTURE0);
+                        renderer.gl.bind_texture(glow::TEXTURE_2D, Some(t));
+                        renderer.gl.pixel_store_i32(glow::UNPACK_ALIGNMENT, 1);
+                        renderer.gl.pixel_store_i32(glow::UNPACK_ROW_LENGTH, 0);
+                        renderer.gl.tex_sub_image_2d(glow::TEXTURE_2D, 0, x as i32-1, y as i32-1, image.width() as i32+2, image.height() as i32+2, glow::RGBA, glow::UNSIGNED_BYTE, glow::PixelUnpackData::Slice(Some(&padded)));
+                        textures.insert(key,t);
+                        t
+                    } else {
                         if renderer.texture_bytes + image.pixels().len() > MAX_IMAGE_BYTES { return Err("scene texture budget exceeded (64 MiB)".into()); }
                         let max = renderer.gl.get_parameter_i32(glow::MAX_TEXTURE_SIZE) as u32;
                         if image.width() > max || image.height() > max { return Err("scene image exceeds GL texture size".into()); }
@@ -299,7 +341,7 @@ impl Renderer {
                 }
             };
             debug_assert!(item.id.map_or(true, |id| renderer.nodes.get(&id) == Some(&renderer.draws.len())));
-            renderer.draws.push(Draw { rect: item.rect, clip: item.clip, texture, program, locations, color, uniforms, order: item.order });
+            renderer.draws.push(Draw { region, rect: item.rect, clip: item.clip, texture, program, locations, color, uniforms, order: item.order });
         }
         let count = renderer.draws.len().checked_add(1).ok_or("scene instance count overflow")?;
         let bytes = count.checked_mul(INSTANCE_STRIDE).ok_or("scene instance bytes overflow")?;
@@ -309,7 +351,7 @@ impl Renderer {
         renderer.instances = RefCell::new(vec![0.0; count * INSTANCE_FLOATS]);
         renderer.gl.bind_vertex_array(Some(renderer.vao));
         renderer.gl.bind_buffer(glow::ARRAY_BUFFER, Some(renderer.instance_buffer));
-        for attribute in 0..2 {
+        for attribute in 0..3 {
             renderer.gl.vertex_attrib_divisor(attribute, 1);
             renderer.gl.vertex_attrib_pointer_f32(attribute, 4, glow::FLOAT, false, INSTANCE_STRIDE as i32, attribute as i32 * 16);
         }
@@ -480,14 +522,14 @@ impl Renderer {
                     frame.instance_upload_bytes += self.upload_instances() as u64;
                     instance_data_bound = true;
                 }
-                self.draw_batch(logical, d.texture, start, count, d.rect, d.color);
+                self.draw_batch(logical, d.texture, start, count, d.rect, d.color, d.region);
                 frame.primitives += count as u64;
             }
             frame.draw_calls += 1;
         }
         if let Some(o) = &self.overlay {
             gl.scissor(0, 0, pixels.0, pixels.1);
-            self.draw_batch(logical, Some(o.texture), self.draws.len(), 1, o.rect, Color::rgba(1.0, 1.0, 1.0, 1.0));
+            self.draw_batch(logical, Some(o.texture), self.draws.len(), 1, o.rect, Color::rgba(1.0, 1.0, 1.0, 1.0), [0.0, 0.0, 1.0, 1.0]);
             frame.primitives += 1;
             frame.draw_calls += 1;
         }
@@ -504,11 +546,11 @@ impl Renderer {
         let mut data = self.instances.borrow_mut();
         for (draw, instance) in self.draws.iter().zip(data.chunks_exact_mut(INSTANCE_FLOATS)) {
             instance.copy_from_slice(&[draw.rect.x as f32, draw.rect.y as f32, draw.rect.w as f32, draw.rect.h as f32,
-                draw.color.r, draw.color.g, draw.color.b, draw.color.a]);
+                draw.color.r, draw.color.g, draw.color.b, draw.color.a, draw.region[0], draw.region[1], draw.region[2], draw.region[3]]);
         }
         if let Some(overlay) = &self.overlay {
             let rect = overlay.rect;
-            data[self.draws.len() * INSTANCE_FLOATS..].copy_from_slice(&[rect.x as f32, rect.y as f32, rect.w as f32, rect.h as f32, 1.0, 1.0, 1.0, 1.0]);
+            data[self.draws.len() * INSTANCE_FLOATS..].copy_from_slice(&[rect.x as f32, rect.y as f32, rect.w as f32, rect.h as f32, 1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0]);
         }
         // SAFETY: f32 storage is initialized, contiguous and has no padding;
         // new checked the byte count and draw count before allocation.
@@ -520,7 +562,7 @@ impl Renderer {
         }
         bytes.len()
     }
-    unsafe fn draw_batch(&self, logical: (i32, i32), texture: Option<glow::Texture>, start: usize, count: usize, rect: Rect, color: Color) {
+    unsafe fn draw_batch(&self, logical: (i32, i32), texture: Option<glow::Texture>, start: usize, count: usize, rect: Rect, color: Color, region: [f32;4]) {
         let gl = &self.gl;
         let loc = &self.basic_locations;
         gl.use_program(Some(self.basic));
@@ -528,7 +570,7 @@ impl Renderer {
         let instanced = count > 1;
         if self.instanced_mode.replace(instanced) != instanced {
             gl.uniform_1_i32(loc.instanced.as_ref(), i32::from(instanced));
-            for attribute in 0..2 {
+            for attribute in 0..3 {
                 if instanced { gl.enable_vertex_attrib_array(attribute); }
                 else { gl.disable_vertex_attrib_array(attribute); }
             }
@@ -537,9 +579,11 @@ impl Renderer {
             let offset = (start * INSTANCE_STRIDE) as i32;
             gl.vertex_attrib_pointer_f32(0, 4, glow::FLOAT, false, INSTANCE_STRIDE as i32, offset);
             gl.vertex_attrib_pointer_f32(1, 4, glow::FLOAT, false, INSTANCE_STRIDE as i32, offset + 16);
+            gl.vertex_attrib_pointer_f32(2, 4, glow::FLOAT, false, INSTANCE_STRIDE as i32, offset + 32);
         } else {
             gl.uniform_4_f32(loc.rect.as_ref(), rect.x as f32, rect.y as f32, rect.w as f32, rect.h as f32);
             gl.uniform_4_f32(loc.color.as_ref(), color.r, color.g, color.b, color.a);
+            gl.uniform_4_f32(loc.region.as_ref(), region[0], region[1], region[2], region[3]);
         }
         gl.uniform_1_i32(loc.image.as_ref(), i32::from(texture.is_some()));
         gl.uniform_1_i32(loc.tex.as_ref(), 0);
