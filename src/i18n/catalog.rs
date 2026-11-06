@@ -68,6 +68,41 @@ impl Catalog {
         Ok(c)
     }
 
+    /// One language of an Omarchy app catalog (`i18n/da.json`): a flat
+    /// object from English source text to its translation; a counted
+    /// string maps to an object of CLDR plural forms (`{"one": "%n klip",
+    /// "other": "%n klip"}`), stored as this crate's `key|category` entries
+    /// (`other` is the key itself).
+    pub fn from_omarchy_json(lang: &str, json: &str) -> Result<Catalog, CatalogError> {
+        let v: Value = serde_json::from_str(json).map_err(|e| CatalogError(e.to_string()))?;
+        let Value::Object(root) = v else {
+            return Err(CatalogError(format!("{lang}: the root must be an object of strings")));
+        };
+        if locale::normalize(lang).is_empty() {
+            return Err(CatalogError(format!("\"{lang}\" is not a locale")));
+        }
+        let mut c = Catalog::new();
+        for (k, val) in root {
+            match val {
+                Value::String(s) => c.insert(lang, &k, &s),
+                Value::Object(forms) => {
+                    for (cat, form) in forms {
+                        let Value::String(form) = form else {
+                            return Err(CatalogError(format!("{lang} / \"{k}\" / {cat} must be a string")));
+                        };
+                        if cat == "other" {
+                            c.insert(lang, &k, &form);
+                        } else {
+                            c.insert(lang, &format!("{k}|{cat}"), &form);
+                        }
+                    }
+                }
+                _ => return Err(CatalogError(format!("{lang} / \"{k}\" must be a string or plural forms"))),
+            }
+        }
+        Ok(c)
+    }
+
     /// Reads and parses a catalog file.
     pub fn from_file(path: impl AsRef<std::path::Path>) -> Result<Catalog, CatalogError> {
         let p = path.as_ref();

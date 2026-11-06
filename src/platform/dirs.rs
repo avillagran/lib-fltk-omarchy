@@ -132,6 +132,31 @@ pub(crate) fn omarchy_current() -> PathBuf {
     }
 }
 
+/// The language picked under Omarchy's Setup > Language (`~/.config/
+/// omarchy/language`, one registry code such as `da` or `pt-BR`); None
+/// where Omarchy has no such file (macOS, Windows).
+pub(crate) fn omarchy_language_file() -> Option<PathBuf> {
+    match OS {
+        Os::Linux => Some(omarchy_config().join("language")),
+        _ => None,
+    }
+}
+
+/// Omarchy's registry of languages (`$OMARCHY_PATH/default/i18n/locales.json`:
+/// names, direction, decimal separator, digits); None without Omarchy.
+pub(crate) fn omarchy_locales_registry() -> Option<PathBuf> {
+    match OS {
+        Os::Linux => {
+            let root = std::env::var_os("OMARCHY_PATH")
+                .filter(|v| !v.is_empty())
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from("/usr/share/omarchy"));
+            Some(root.join("default/i18n/locales.json"))
+        }
+        _ => None,
+    }
+}
+
 /// Omarchy's user configuration directory (`shell.toml`).
 pub(crate) fn omarchy_config() -> PathBuf {
     match OS {

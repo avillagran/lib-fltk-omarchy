@@ -301,3 +301,12 @@ These tests found three bugs, now fixed:
 Pointer warps over IPC (`hl.dsp.cursor.move`) were not reliable for
 aiming on this two-monitor, mixed-scale setup; the real-mouse evidence
 comes from the hand test.
+
+## Omarchy app keys
+
+Omarchy's apps share a few keys (its `omarchy-app` agent skill):
+`AppWindow::help_overlay(title, sections)` makes `?` (and F1) open the
+shortcut overlay, and `AppWindow::quit_key(unsaved)` makes `Q` quit, asking
+first when `unsaved()` is true. Both only take keys the focused control did
+not use, so typing `q` or `?` in a field types it. Space as the main action
+and Mod+Z / Mod+Shift+Z for undo and redo are the app's (`AppWindow::shortcut`).

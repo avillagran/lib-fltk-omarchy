@@ -188,14 +188,40 @@ pub fn locale() -> State<String> {
 /// Switches the language (`"es"`, `"pt_BR.UTF-8"`, `"fr-CA:en"`). Bound
 /// texts re-translate and windows repaint. UI thread.
 pub fn set_locale(tag: &str) {
+    FOLLOW.store(false, std::sync::atomic::Ordering::Relaxed);
     let v = requested_or_en(tag);
     LOCALE.with(|s| s.set(v));
 }
 
-/// Back to the user's system languages.
+/// Back to the user's system languages (on Omarchy, the language picked
+/// under Setup > Language, followed live).
 pub fn follow_system() {
-    set_locale(&locale::system().join(":"));
+    let v = requested_or_en(&locale::system().join(":"));
+    LOCALE.with(|s| s.set(v));
+    FOLLOW.store(true, std::sync::atomic::Ordering::Relaxed);
 }
+
+/// The system language may have changed (Omarchy's language file): switch
+/// to it unless the app chose a language with [`set_locale`]. UI thread.
+pub(crate) fn system_changed() {
+    refresh_system_language();
+}
+
+/// Re-reads the system language (on Omarchy, `~/.config/omarchy/language`)
+/// and switches to it unless the app picked a language with
+/// [`set_locale`]. The toolkit calls it when Omarchy's files change. UI thread.
+pub fn refresh_system_language() {
+    if !FOLLOW.load(std::sync::atomic::Ordering::Relaxed) {
+        return;
+    }
+    let v = requested_or_en(&locale::system().join(":"));
+    if v != current() {
+        LOCALE.with(|s| s.set(v));
+    }
+}
+
+/// True until the app picks a language itself.
+static FOLLOW: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
 
 /// The OS preferred languages, best first (`["es-cl", "en-us"]`; empty when
 /// the system has none, e.g. `LANG=C`).
@@ -241,6 +267,99 @@ pub fn is_rtl() -> bool {
 pub fn load(json: &str) -> Result<(), CatalogError> {
     add(Catalog::from_json(json)?);
     Ok(())
+}
+
+/// Adds one language of an Omarchy-style app catalog (`i18n/da.json`:
+/// English source → translation, plural forms as objects), as Omarchy's
+/// own apps ship them. See [`Catalog::from_omarchy_json`].
+pub fn load_omarchy_catalog(lang: &str, json: &str) -> Result<(), CatalogError> {
+    add(Catalog::from_omarchy_json(lang, json)?);
+    Ok(())
+}
+
+/// [`load_omarchy_catalog`] for every `<code>.json` in `dir` (`da.json`,
+/// `pt-BR.json`); returns how many languages were loaded.
+pub fn load_omarchy_dir(dir: impl AsRef<std::path::Path>) -> Result<usize, CatalogError> {
+    let dir = dir.as_ref();
+    let rd = std::fs::read_dir(dir).map_err(|e| CatalogError(format!("{}: {e}", dir.display())))?;
+    let mut n = 0;
+    let mut files: Vec<_> = rd.flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "json")).collect();
+    files.sort();
+    for p in files {
+        let Some(code) = p.file_stem().and_then(|s| s.to_str()).map(str::to_string) else { continue };
+        let s = std::fs::read_to_string(&p).map_err(|e| CatalogError(format!("{}: {e}", p.display())))?;
+        load_omarchy_catalog(&code, &s).map_err(|e| CatalogError(format!("{}: {}", p.display(), e.0)))?;
+        n += 1;
+    }
+    Ok(n)
+}
+
+/// One of Omarchy's languages, from its registry
+/// (`$OMARCHY_PATH/default/i18n/locales.json`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LanguageInfo {
+    /// Registry code (`da`, `pt-BR`).
+    pub code: String,
+    /// The language's own name (`Dansk`).
+    pub name: String,
+    pub english_name: String,
+    pub rtl: bool,
+    /// Decimal separator (`,`).
+    pub decimal: char,
+    /// The digit zero the language writes numbers with (`۰` in Persian).
+    pub zero_digit: char,
+}
+
+/// Omarchy's languages (empty without Omarchy), for a language picker.
+pub fn languages() -> Vec<LanguageInfo> {
+    let Some(path) = crate::platform::dirs::omarchy_locales_registry() else { return Vec::new() };
+    let Ok(text) = std::fs::read_to_string(path) else { return Vec::new() };
+    let Ok(serde_json::Value::Object(root)) = serde_json::from_str::<serde_json::Value>(&text) else { return Vec::new() };
+    root.into_iter()
+        .filter_map(|(code, v)| {
+            let s = |k: &str| v.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string();
+            let ch = |k: &str, d: char| v.get(k).and_then(|x| x.as_str()).and_then(|x| x.chars().next()).unwrap_or(d);
+            Some(LanguageInfo {
+                name: s("name"),
+                english_name: s("englishName"),
+                rtl: s("direction") == "rtl",
+                decimal: ch("decimal", '.'),
+                zero_digit: ch("zeroDigit", '0'),
+                code,
+            })
+        })
+        .collect()
+}
+
+/// The registry entry of `code` (`pt-BR`, or its base language `pt`).
+pub fn language_info(code: &str) -> Option<LanguageInfo> {
+    let want = locale::normalize(code);
+    let all = languages();
+    all.iter()
+        .find(|l| locale::normalize(&l.code) == want)
+        .or_else(|| all.iter().find(|l| locale::normalize(&l.code) == locale::language(&want)))
+        .cloned()
+}
+
+/// `value` with `decimals` decimals in the language in use: its decimal
+/// separator and digits from Omarchy's registry (`3,5` in Danish, `۳٫۵` in
+/// Persian); `.` and ASCII digits without Omarchy.
+pub fn format_number(value: f64, decimals: usize) -> String {
+    let info = language_info(&resolved());
+    let (dec, zero) = info.map_or(('.', '0'), |i| (i.decimal, i.zero_digit));
+    format_number_with(value, decimals, dec, zero)
+}
+
+/// [`format_number`] with an explicit decimal separator and zero digit.
+pub fn format_number_with(value: f64, decimals: usize, dec: char, zero: char) -> String {
+    let s = format!("{value:.decimals$}");
+    s.chars()
+        .map(|c| match c {
+            '.' => dec,
+            '0'..='9' => char::from_u32(zero as u32 + (c as u32 - '0' as u32)).unwrap_or(c),
+            other => other,
+        })
+        .collect()
 }
 
 /// [`load`] from a file.
@@ -388,6 +507,21 @@ macro_rules! trn {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn omarchy_catalogs_and_number_formats() {
+        let c = Catalog::from_omarchy_json("da", r#"{"Save": "Gem", "%n clips": {"one": "%n klip", "other": "%n klip!"}}"#).unwrap();
+        let mut probe = Catalog::new();
+        probe.merge(&c);
+        assert_eq!(probe.get("da", "Save"), Some("Gem"));
+        assert_eq!(probe.get("da", "%n clips|one"), Some("%n klip"));
+        assert_eq!(probe.get("da", "%n clips"), Some("%n klip!"));
+        assert!(Catalog::from_omarchy_json("da", "[1]").is_err());
+        assert!(Catalog::from_omarchy_json("da", r#"{"x": 3}"#).is_err());
+        assert_eq!(format_number_with(3.5, 1, ',', '0'), "3,5");
+        assert_eq!(format_number_with(-12.25, 2, '\u{066b}', '\u{06f0}'), "-\u{06f1}\u{06f2}\u{066b}\u{06f2}\u{06f5}");
+        assert_eq!(format_number_with(7.0, 0, '.', '0'), "7");
+    }
+
     use super::*;
 
     #[test]

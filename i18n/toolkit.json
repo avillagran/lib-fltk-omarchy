@@ -106,7 +106,8 @@
     "Audio": "Audio",
     "Playback needs ffmpeg and ffprobe": "Playback needs ffmpeg and ffprobe",
     "Cannot play this file": "Cannot play this file",
-    "No audio output: playing without sound": "No audio output: playing without sound"
+    "No audio output: playing without sound": "No audio output: playing without sound",
+    "Quit without saving?": "Quit without saving?"
   },
   "es": {
     "Cancel": "Cancelar",
@@ -215,7 +216,10 @@
     "Audio": "Audio",
     "Playback needs ffmpeg and ffprobe": "La reproducción necesita ffmpeg y ffprobe",
     "Cannot play this file": "No se puede reproducir este archivo",
-    "No audio output: playing without sound": "Sin salida de audio: se reproduce sin sonido"
+    "No audio output: playing without sound": "Sin salida de audio: se reproduce sin sonido",
+    "{count} hidden lines|many": "{count} líneas ocultas",
+    "{count} items|many": "{count} elementos",
+    "Quit without saving?": "¿Salir sin guardar?"
   },
   "pt": {
     "Cancel": "Cancelar",
@@ -324,7 +328,10 @@
     "Audio": "Áudio",
     "Playback needs ffmpeg and ffprobe": "A reprodução precisa de ffmpeg e ffprobe",
     "Cannot play this file": "Não é possível reproduzir este arquivo",
-    "No audio output: playing without sound": "Sem saída de áudio: reproduzindo sem som"
+    "No audio output: playing without sound": "Sem saída de áudio: reproduzindo sem som",
+    "{count} hidden lines|many": "{count} linhas ocultas",
+    "{count} items|many": "{count} itens",
+    "Quit without saving?": "Sair sem guardar?"
   },
   "fr": {
     "Cancel": "Annuler",
@@ -433,7 +440,10 @@
     "Audio": "Audio",
     "Playback needs ffmpeg and ffprobe": "La lecture nécessite ffmpeg et ffprobe",
     "Cannot play this file": "Impossible de lire ce fichier",
-    "No audio output: playing without sound": "Aucune sortie audio : lecture sans son"
+    "No audio output: playing without sound": "Aucune sortie audio : lecture sans son",
+    "{count} hidden lines|many": "{count} lignes masquées",
+    "{count} items|many": "{count} éléments",
+    "Quit without saving?": "Quitter sans enregistrer ?"
   },
   "de": {
     "Cancel": "Abbrechen",
@@ -542,7 +552,8 @@
     "Audio": "Audio",
     "Playback needs ffmpeg and ffprobe": "Die Wiedergabe benötigt ffmpeg und ffprobe",
     "Cannot play this file": "Diese Datei kann nicht abgespielt werden",
-    "No audio output: playing without sound": "Keine Audioausgabe: Wiedergabe ohne Ton"
+    "No audio output: playing without sound": "Keine Audioausgabe: Wiedergabe ohne Ton",
+    "Quit without saving?": "Ohne Speichern beenden?"
   },
   "it": {
     "Cancel": "Annulla",
@@ -651,7 +662,10 @@
     "Audio": "Audio",
     "Playback needs ffmpeg and ffprobe": "La riproduzione richiede ffmpeg e ffprobe",
     "Cannot play this file": "Impossibile riprodurre questo file",
-    "No audio output: playing without sound": "Nessuna uscita audio: riproduzione senza suono"
+    "No audio output: playing without sound": "Nessuna uscita audio: riproduzione senza suono",
+    "{count} hidden lines|many": "{count} righe nascoste",
+    "{count} items|many": "{count} elementi",
+    "Quit without saving?": "Uscire senza salvare?"
   },
   "nl": {
     "Cancel": "Annuleren",
@@ -760,7 +774,8 @@
     "Audio": "Audio",
     "Playback needs ffmpeg and ffprobe": "Afspelen vereist ffmpeg en ffprobe",
     "Cannot play this file": "Dit bestand kan niet worden afgespeeld",
-    "No audio output: playing without sound": "Geen audio-uitvoer: afspelen zonder geluid"
+    "No audio output: playing without sound": "Geen audio-uitvoer: afspelen zonder geluid",
+    "Quit without saving?": "Afsluiten zonder opslaan?"
   },
   "pl": {
     "Cancel": "Anuluj",
@@ -873,7 +888,8 @@
     "Audio": "Dźwięk",
     "Playback needs ffmpeg and ffprobe": "Odtwarzanie wymaga ffmpeg i ffprobe",
     "Cannot play this file": "Nie można odtworzyć tego pliku",
-    "No audio output: playing without sound": "Brak wyjścia audio: odtwarzanie bez dźwięku"
+    "No audio output: playing without sound": "Brak wyjścia audio: odtwarzanie bez dźwięku",
+    "Quit without saving?": "Zakończyć bez zapisywania?"
   },
   "ru": {
     "Cancel": "Отмена",
@@ -986,7 +1002,8 @@
     "Audio": "Аудио",
     "Playback needs ffmpeg and ffprobe": "Для воспроизведения нужны ffmpeg и ffprobe",
     "Cannot play this file": "Не удаётся воспроизвести этот файл",
-    "No audio output: playing without sound": "Нет аудиовыхода: воспроизведение без звука"
+    "No audio output: playing without sound": "Нет аудиовыхода: воспроизведение без звука",
+    "Quit without saving?": "Выйти без сохранения?"
   },
   "uk": {
     "Cancel": "Скасувати",
@@ -1099,7 +1116,8 @@
     "Audio": "Аудіо",
     "Playback needs ffmpeg and ffprobe": "Для відтворення потрібні ffmpeg і ffprobe",
     "Cannot play this file": "Не вдається відтворити цей файл",
-    "No audio output: playing without sound": "Немає аудіовиходу: відтворення без звуку"
+    "No audio output: playing without sound": "Немає аудіовиходу: відтворення без звуку",
+    "Quit without saving?": "Вийти без збереження?"
   },
   "ja": {
     "Cancel": "キャンセル",
@@ -1206,7 +1224,8 @@
     "Audio": "音声",
     "Playback needs ffmpeg and ffprobe": "再生には ffmpeg と ffprobe が必要です",
     "Cannot play this file": "このファイルは再生できません",
-    "No audio output: playing without sound": "音声出力がありません：音声なしで再生します"
+    "No audio output: playing without sound": "音声出力がありません：音声なしで再生します",
+    "Quit without saving?": "保存せずに終了しますか？"
   },
   "ko": {
     "Cancel": "취소",
@@ -1313,7 +1332,8 @@
     "Audio": "오디오",
     "Playback needs ffmpeg and ffprobe": "재생하려면 ffmpeg와 ffprobe가 필요합니다",
     "Cannot play this file": "이 파일을 재생할 수 없습니다",
-    "No audio output: playing without sound": "오디오 출력 없음: 소리 없이 재생합니다"
+    "No audio output: playing without sound": "오디오 출력 없음: 소리 없이 재생합니다",
+    "Quit without saving?": "저장하지 않고 종료할까요?"
   },
   "zh": {
     "Cancel": "取消",
@@ -1420,7 +1440,8 @@
     "Audio": "音频",
     "Playback needs ffmpeg and ffprobe": "播放需要 ffmpeg 和 ffprobe",
     "Cannot play this file": "无法播放此文件",
-    "No audio output: playing without sound": "没有音频输出：无声播放"
+    "No audio output: playing without sound": "没有音频输出：无声播放",
+    "Quit without saving?": "不保存就退出吗？"
   },
   "ar": {
     "Cancel": "إلغاء",
@@ -1537,7 +1558,8 @@
     "Audio": "صوت",
     "Playback needs ffmpeg and ffprobe": "يتطلب التشغيل ffmpeg و ffprobe",
     "Cannot play this file": "تعذّر تشغيل هذا الملف",
-    "No audio output: playing without sound": "لا يوجد مخرج صوت: التشغيل بدون صوت"
+    "No audio output: playing without sound": "لا يوجد مخرج صوت: التشغيل بدون صوت",
+    "Quit without saving?": "الخروج دون حفظ؟"
   },
   "tr": {
     "Cancel": "İptal",
@@ -1646,7 +1668,8 @@
     "Audio": "Ses",
     "Playback needs ffmpeg and ffprobe": "Oynatma için ffmpeg ve ffprobe gerekir",
     "Cannot play this file": "Bu dosya oynatılamıyor",
-    "No audio output: playing without sound": "Ses çıkışı yok: sessiz oynatılıyor"
+    "No audio output: playing without sound": "Ses çıkışı yok: sessiz oynatılıyor",
+    "Quit without saving?": "Kaydetmeden çıkılsın mı?"
   },
   "sv": {
     "Cancel": "Avbryt",
@@ -1755,7 +1778,8 @@
     "Audio": "Ljud",
     "Playback needs ffmpeg and ffprobe": "Uppspelning kräver ffmpeg och ffprobe",
     "Cannot play this file": "Filen kan inte spelas upp",
-    "No audio output: playing without sound": "Ingen ljudutgång: spelar upp utan ljud"
+    "No audio output: playing without sound": "Ingen ljudutgång: spelar upp utan ljud",
+    "Quit without saving?": "Avsluta utan att spara?"
   },
   "da": {
     "Cancel": "Annuller",
@@ -1864,7 +1888,8 @@
     "Audio": "Lyd",
     "Playback needs ffmpeg and ffprobe": "Afspilning kræver ffmpeg og ffprobe",
     "Cannot play this file": "Filen kan ikke afspilles",
-    "No audio output: playing without sound": "Ingen lydudgang: afspiller uden lyd"
+    "No audio output: playing without sound": "Ingen lydudgang: afspiller uden lyd",
+    "Quit without saving?": "Afslut uden at gemme?"
   },
   "no": {
     "Cancel": "Avbryt",
@@ -1973,7 +1998,8 @@
     "Audio": "Lyd",
     "Playback needs ffmpeg and ffprobe": "Avspilling krever ffmpeg og ffprobe",
     "Cannot play this file": "Kan ikke spille av denne filen",
-    "No audio output: playing without sound": "Ingen lydutgang: spiller av uten lyd"
+    "No audio output: playing without sound": "Ingen lydutgang: spiller av uten lyd",
+    "Quit without saving?": "Avslutte uten å lagre?"
   },
   "fi": {
     "Cancel": "Peruuta",
@@ -2082,7 +2108,8 @@
     "Audio": "Ääni",
     "Playback needs ffmpeg and ffprobe": "Toisto vaatii ffmpegin ja ffproben",
     "Cannot play this file": "Tätä tiedostoa ei voi toistaa",
-    "No audio output: playing without sound": "Ei äänilähtöä: toistetaan ilman ääntä"
+    "No audio output: playing without sound": "Ei äänilähtöä: toistetaan ilman ääntä",
+    "Quit without saving?": "Lopetetaanko tallentamatta?"
   },
   "cs": {
     "Cancel": "Zrušit",
@@ -2193,6 +2220,7 @@
     "Audio": "Zvuk",
     "Playback needs ffmpeg and ffprobe": "Přehrávání vyžaduje ffmpeg a ffprobe",
     "Cannot play this file": "Tento soubor nelze přehrát",
-    "No audio output: playing without sound": "Žádný zvukový výstup: přehrává se bez zvuku"
+    "No audio output: playing without sound": "Žádný zvukový výstup: přehrává se bez zvuku",
+    "Quit without saving?": "Ukončit bez uložení?"
   }
 }

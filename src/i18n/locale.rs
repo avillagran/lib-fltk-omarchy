@@ -125,8 +125,38 @@ fn env(k: &str) -> Option<String> {
 }
 
 /// The user's preferred languages, best first (may be empty).
+/// The language picked under Omarchy's Setup > Language: one registry code
+/// on the file's first line (`da`, `pt-BR`); None without the file or with
+/// anything else in it.
+pub fn omarchy_language() -> Option<String> {
+    let path = crate::platform::dirs::omarchy_language_file()?;
+    let first = std::fs::read_to_string(path).ok()?.lines().next()?.trim().to_string();
+    valid_omarchy_code(&first).then(|| normalize(&first))
+}
+
+/// `^[a-z]{2,3}(-[A-Za-z]{2})?$`, as Omarchy writes its codes.
+fn valid_omarchy_code(code: &str) -> bool {
+    let (lang, region) = match code.split_once('-') {
+        Some((l, r)) => (l, Some(r)),
+        None => (code, None),
+    };
+    (2..=3).contains(&lang.len())
+        && lang.bytes().all(|b| b.is_ascii_lowercase())
+        && region.map_or(true, |r| r.len() == 2 && r.bytes().all(|b| b.is_ascii_alphabetic()))
+}
+
 pub fn system() -> Vec<String> {
     use crate::platform::{Os, OS};
+    // On Omarchy the desktop's own language choice comes first.
+    if let Some(l) = omarchy_language() {
+        let mut out = vec![l];
+        for e in from_env_with(env) {
+            if !out.contains(&e) {
+                out.push(e);
+            }
+        }
+        return out;
+    }
     match OS {
         Os::MacOs => {
             // An explicit choice in the environment; LANG alone is not one.
@@ -162,6 +192,12 @@ mod tests {
             .map(|(k, v)| (k.to_string(), v.to_string()))
             .collect();
         move |k| m.get(k).cloned()
+    }
+
+    #[test]
+    fn omarchy_codes() {
+        assert!(valid_omarchy_code("da") && valid_omarchy_code("pt-BR") && valid_omarchy_code("fil"));
+        assert!(!valid_omarchy_code("Da") && !valid_omarchy_code("pt_BR") && !valid_omarchy_code("english") && !valid_omarchy_code(""));
     }
 
     #[test]

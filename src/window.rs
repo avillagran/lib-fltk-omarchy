@@ -57,6 +57,7 @@ pub struct AppWindow {
     min: Rc<Cell<(i32, i32)>>,
     shortcuts: Rc<RefCell<Vec<(crate::keys::Keys, Box<dyn FnMut()>)>>>,
     table: crate::shortcuts::Shortcuts,
+    conventions: Rc<RefCell<Conventions>>,
 }
 
 impl std::ops::Deref for AppWindow {
@@ -177,6 +178,8 @@ impl AppWindow {
         let shortcuts: Rc<RefCell<Vec<(crate::keys::Keys, Box<dyn FnMut()>)>>> = Rc::default();
         let min = Rc::new(Cell::new(((width / 2).max(200), (height / 2).max(150))));
         let table = crate::shortcuts::Shortcuts::new();
+        let conventions: Rc<RefCell<Conventions>> = Rc::default();
+        let conv = conventions.clone();
         let (m2, sc, mn) = (mode.clone(), shortcuts.clone(), min.clone());
         let table2 = table.clone();
         win.handle(move |w, ev| {
@@ -213,7 +216,10 @@ impl AppWindow {
                         }
                         return true;
                     }
-                    table.dispatch()
+                    if table.dispatch() {
+                        return true;
+                    }
+                    omarchy_key(w, &conv)
                 }
                 _ => false,
             }
@@ -256,7 +262,7 @@ impl AppWindow {
             move |t| { w.set_color(t.palette.background.fl()); w.redraw(); }
         });
         crate::testkit::note_window(&win);
-        AppWindow { win, header, body, mode, size: (width, height), min, shortcuts, table }
+        AppWindow { win, header, body, mode, size: (width, height), min, shortcuts, table, conventions }
     }
 
     /// Closes the body column (and the window group). Every `Flex` row
@@ -330,6 +336,19 @@ impl AppWindow {
     }
 
     /// Keyboard shortcut for the whole window: `win.shortcut("Ctrl+Q", || app::quit())`.
+    /// Omarchy's help key: `?` and F1 open the shortcut overlay titled
+    /// `title` with the sections `sections()` returns (built on each open, so
+    /// they follow the language). Keys a focused control uses are not taken.
+    pub fn help_overlay(&self, title: &str, sections: impl Fn() -> Vec<(String, Vec<(String, String)>)> + 'static) {
+        self.conventions.borrow_mut().help = Some((title.to_string(), Rc::new(sections)));
+    }
+
+    /// Omarchy's quit key: `Q` quits the app, asking first when
+    /// `unsaved()` says there is work that would be lost.
+    pub fn quit_key(&self, unsaved: impl Fn() -> bool + 'static) {
+        self.conventions.borrow_mut().quit = Some(Rc::new(unsaved));
+    }
+
     /// The window's command shortcut table: keys bound to command ids with
     /// conditions, rebound at run time ([`crate::shortcuts`]). Keys from
     /// [`AppWindow::shortcut`] are tried first.
@@ -599,6 +618,44 @@ fn scroll_only(g: &impl GroupExt) -> bool {
     plan(&root, &mut p)
         && !p.scrolled.is_empty()
         && !p.others.iter().any(|o| p.scrolled.iter().any(|s| overlaps(*o, *s)))
+}
+
+/// Omarchy's app keys (see [`AppWindow::help_overlay`], [`AppWindow::quit_key`]).
+#[derive(Default)]
+struct Conventions {
+    #[allow(clippy::type_complexity)]
+    help: Option<(String, Rc<dyn Fn() -> Vec<(String, Vec<(String, String)>)>>)>,
+    quit: Option<Rc<dyn Fn() -> bool>>,
+}
+
+/// `?` / F1 open the shortcut overlay, `Q` quits: keys the focused control
+/// did not use (typing `q` in a field types it).
+fn omarchy_key(w: &DoubleWindow, conv: &Rc<RefCell<Conventions>>) -> bool {
+    let mods = app::event_state() & (Shortcut::Ctrl | Shortcut::Alt | Shortcut::Meta);
+    if !mods.is_empty() || app::event() != Event::KeyDown && app::event() != Event::Shortcut {
+        return false;
+    }
+    let text = app::event_text();
+    let key = app::event_key();
+    let help = conv.borrow().help.clone();
+    if let Some((title, sections)) = help.filter(|_| text == "?" || key == Key::F1) {
+        crate::popups::ShortcutHelp::open(w, &title, sections());
+        return true;
+    }
+    let quit = conv.borrow().quit.clone();
+    if let Some(unsaved) = quit.filter(|_| key == Key::from_char('q') && !app::event_state().contains(Shortcut::Shift)) {
+        if unsaved() {
+            crate::overlay::ConfirmDialog::open(w, &crate::tr!("Quit without saving?"), &crate::tr!("Quit"), true, |yes| {
+                if yes {
+                    crate::app::App::quit();
+                }
+            });
+        } else {
+            crate::app::App::quit();
+        }
+        return true;
+    }
+    false
 }
 
 /// Draws the window's children over a freshly painted background.
