@@ -28,6 +28,7 @@ it behaves exactly as before the platform layer.
 | Single instance + app IPC (`instance`) | Unix socket in `$XDG_RUNTIME_DIR`, `flock`, `SO_PEERCRED` | same | Unix socket in `$TMPDIR`, `flock`, `getpeereid` | named pipe, first-instance flag, owner check |
 | Raise a window from the background (`AppWindow::raise`) | Hyprland `focuswindow` on our own window; other compositors: none (FLTK has no xdg-activation) | FLTK `_NET_ACTIVE_WINDOW` (EWMH) | `NSApp activateIgnoringOtherApps:` | `SetForegroundWindow` (the caller grants `AllowSetForegroundWindow`) |
 | Animations on/off (`platform::animations`, `anim`) | Hyprland `animations:enabled` (live: event socket), else GNOME `enable-animations` (`gsettings`) | same | `NSWorkspace.accessibilityDisplayShouldReduceMotion` | `SPI_GETCLIENTAREAANIMATION` |
+| External frames (`frame`) | `memfd` + pipes (inherited), POSIX shm + FIFOs (named), mapped file + 8 ms polling | same | `shm_open` + pipes or FIFOs, mapped file | named file mapping + events, mapped file |
 
 "FLTK moves/resizes the window" is the portable fallback in `AppWindow`:
 the header drag sets the window position from the pointer's root
@@ -126,6 +127,27 @@ app.run();
 endpoint, for tests and sandboxes. Requests wait while the UI thread runs a
 nested event loop of its own (they are drained by `App::run`), up to the
 handler timeout.
+
+### External frames
+
+`fltk_omarchy::frame` (`FrameView`, `Producer`, `Consumer`) shares frames
+and input with another process. The OS part is in `src/platform/frame/`:
+it maps memory and moves wake-ups; the layout (header, three slots, two
+rings) is portable. Guide and wire format: [FRAMES.md](FRAMES.md).
+
+| | Linux | macOS, BSDs | Windows | Everywhere |
+|---|---|---|---|---|
+| `Transport::Inherit` (default) | `memfd_create`, pipes, descriptors inherited by the child (close-on-exec cleared only in that child) | `shm_open` + `shm_unlink`, pipes | falls back to `Named` | falls back to `Named`, then `File` |
+| `Transport::Named` | `shm_open("/ofrm-<id>")`, FIFOs in `<runtime>/fltk-omarchy-frames-<uid>` (0700, `lstat` checked, owner checked, `O_NOFOLLOW`) | same (names fit macOS's 31-byte limit) | `Local\fltk-omarchy-<id>` mapping and auto-reset events (default DACL: this user) | |
+| `Transport::File` | | | | 0600 file in the private dir, mapped; the waiting side polls every 8 ms |
+| Producer gone | pipe hang-up or `closed` bit | same | `closed` bit | `closed` bit |
+
+The creator removes only its own names (shm name, two FIFOs, frame file).
+Frame files (`show_file`, `watch_file`: PNG with `images`, BMP always)
+work on every OS without shared memory. Linux is run-tested (unit tests,
+a second process per transport in `tests/frame.rs`, `tests/frame_ui`,
+`script/frame-bench` on X11 and on Hyprland); macOS and Windows are
+type-checked.
 
 ### Theme
 

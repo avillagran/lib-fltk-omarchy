@@ -43,6 +43,7 @@ mod scroll_ui;
 mod media_ui;
 mod transcript_ui;
 mod diff_ui;
+mod frame_ui;
 
 const COLORS_A: &str = "accent = \"#e68e0d\"\nbackground = \"#121212\"\nforeground = \"#bebebe\"\nred = \"#d35f5f\"\n";
 const COLORS_B: &str = "accent = \"#33ccff\"\nbackground = \"#1a1b26\"\nforeground = \"#c0caf5\"\nred = \"#f7768e\"\n";
@@ -2018,6 +2019,7 @@ fn main() {
     media_ui::checks(&mut run);
     transcript_ui::checks(&mut run);
     diff_ui::checks(&mut run);
+    frame_ui::checks(&mut run);
     #[cfg(feature = "a11y")]
     a11y_checks(&mut run);
     #[cfg(feature = "a11y")]
@@ -2036,6 +2038,8 @@ fn main() {
     transcript_ui::a11y_checks(&mut run);
     #[cfg(feature = "a11y")]
     diff_ui::a11y_checks(&mut run);
+    #[cfg(feature = "a11y")]
+    frame_ui::a11y_checks(&mut run);
     drop(app);
     println!("{}", if failed == 0 { "all ui checks passed" } else { "ui checks FAILED" });
     if failed > 0 && !strict {

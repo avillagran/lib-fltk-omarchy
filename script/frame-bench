@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# FrameView costs: shared memory vs the PNG/BMP file path, 1280x800 at
+# 30 fps, page-like and photo-like content. Each run prints one JSON line
+# (latency present -> drawn, CPU of both processes, PSS) into
+# build/frame-bench.jsonl.
+#   script/frame-bench            X11 inside its own Xvfb display
+#   script/frame-bench hyprland   real Wayland window on the hidden
+#                                 workspace special:omarchy-fltk-test (silent)
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+OUT="$ROOT/build/frame-bench.jsonl"; mkdir -p "$ROOT/build"; rm -f "$OUT"
+cargo build --release --features images --example frame_view --example frame_producer --manifest-path "$ROOT/Cargo.toml" >&2
+BIN="$ROOT/target/release/examples/frame_view"
+SECS="${SECS:-10}"
+for pattern in page photo; do
+  for mode in shm png bmp; do
+    args=(--bench "$SECS" --size 1280x800 --fps 30 --pattern "$pattern" --json "$OUT")
+    [[ "$mode" != shm ]] && args+=(--files "$mode")
+    if [[ "${1:-}" == hyprland ]]; then
+      n=$(wc -l < "$OUT" 2>/dev/null || echo 0)
+      hyprctl dispatch "hl.dsp.exec_cmd(\"$BIN ${args[*]}\", { workspace = \"special:omarchy-fltk-test silent\" })" >/dev/null
+      for _ in $(seq 1 $(( (SECS + 10) * 10 ))); do
+        [[ $(wc -l < "$OUT" 2>/dev/null || echo 0) -gt $n ]] && break; sleep 0.1
+      done
+    else
+      (unset WAYLAND_DISPLAY; xvfb-run -a -s "-screen 0 1920x1080x24" "$BIN" "${args[@]}" >/dev/null 2>&1)
+    fi
+  done
+done
+cat "$OUT"

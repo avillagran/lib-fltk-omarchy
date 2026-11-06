@@ -5,6 +5,7 @@ pub mod chart;
 pub mod diff;
 pub mod edit;
 pub mod focus;
+pub mod frame;
 pub mod gfx;
 pub mod glass;
 pub mod hyprland;
