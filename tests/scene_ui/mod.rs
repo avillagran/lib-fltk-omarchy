@@ -146,6 +146,19 @@ pub fn checks(run: &mut dyn FnMut(&str, Check)) {
         check(view.stats().surface_draws==before.surface_draws,"GL shader frames do not redraw the CPU parent surface")?;
         check(view.stats().scene_builds==before.scene_builds,"GL clock retains CPU painter/resources")?;
         view.clone().animate(None);
+        let (oversized,())=Scene::record(||{
+            // Reject before allocating a fallback texture (>64 MiB).
+            paint::fill(0,0,8193,8193,10,theme::current().palette.accent);
+        });
+        let cpu_frames=view.stats().cpu_frames;
+        view.set_scene(oversized);
+        check(wait(&mut ||view.stats().cpu_frames>cpu_frames && view.backend_error().is_some()),"preparation failure returns to CPU")?;
+        check(view.child(0).is_some_and(|child|!child.visible()),"failed preparation hides the previous GL child")?;
+        check(view.stats().texture_bytes==0,"failed preparation releases previous GL textures")?;
+        let (recovered,())=Scene::record(||paint::fill(0,0,340,240,0,theme::current().palette.accent));
+        let frames=view.stats().gpu_frames;
+        view.set_scene(recovered);
+        check(wait(&mut ||view.stats().gpu_frames>frames),"valid scene recovers GL after preparation failure")?;
         fltk::window::DoubleWindow::delete((*win).clone());
         drop(view);fltk_omarchy::App::pump();
         Ok(())

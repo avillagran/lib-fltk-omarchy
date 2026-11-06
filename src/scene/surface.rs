@@ -343,7 +343,7 @@ fn draw(g: &mut Group, st: &Rc<RefCell<State>>) {
     let gpu = false;
     #[cfg(feature = "gpu")]
     if !offscreen {
-        if st.borrow().backend != Backend::Gpu {
+        if st.borrow().backend != Backend::Gpu || st.borrow().error.is_some() {
             native::hide(st);
         } else if st.borrow().error.is_none() {
             let win = {
