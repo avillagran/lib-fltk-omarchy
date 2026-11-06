@@ -2927,7 +2927,7 @@ fn key(w: &mut Widget, inn: &Rc<RefCell<Inner>>, hooks: &Hooks) -> bool {
     if i.find.as_ref().is_some_and(|f| !f.matches.is_empty())
         && ((k == Key::F3 && !command && !alt) || (command && !alt && k == Key::from_char('g')))
     {
-        i.find_step(if shift { -1 } else { 1 });
+        i.find_step(if shift { -1 } else { 1 }, &mut FltkMetrics::default());
         drop(i);
         w.redraw();
         return true;

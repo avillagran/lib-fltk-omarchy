@@ -9,7 +9,7 @@ use std::hash::Hash;
 
 impl Inner {
     /// Moves the current find match by `step` and scrolls it into view.
-    pub(super) fn find_step(&mut self, step: i64) -> Option<usize> {
+    pub(super) fn find_step(&mut self, step: i64, m: &mut dyn Metrics) -> Option<usize> {
         let f = self.find.as_mut()?;
         let n = f.matches.len();
         if n == 0 {
@@ -23,19 +23,18 @@ impl Inner {
         };
         f.current = Some(c);
         let (k, r) = f.matches[c].clone();
-        self.reveal_range(k, r);
+        self.reveal_range(k, r, m);
         Some(c)
     }
 
     /// Scrolls so bytes `r` of block `k` are in view (centered when they
     /// were out of view).
-    pub(super) fn reveal_range(&mut self, k: usize, r: Range<usize>) {
+    pub(super) fn reveal_range(&mut self, k: usize, r: Range<usize>, m: &mut dyn Metrics) {
         if k >= self.store.len() {
             return;
         }
-        let mut m = FltkMetrics::default();
         if self.width > 0 {
-            self.ensure_layout(k, &mut m);
+            self.ensure_layout(k, m);
         }
         let (y, h) = match self.laid(k) {
             Some((_, l)) => l
@@ -391,7 +390,7 @@ impl RichText {
 
     /// Scrolls so position `p` is in view.
     pub fn scroll_to_pos(&self, p: TextPos) {
-        self.with(|i| i.reveal_range(p.block, p.offset..p.offset))
+        self.with(|i| i.reveal_range(p.block, p.offset..p.offset, &mut FltkMetrics::default()))
     }
 
     /// Scrolls message `key` to the top of the view.
@@ -660,7 +659,11 @@ impl RichText {
                 current: None,
             });
             if let Some(c) = first {
-                i.find_step(c as i64);
+                let (k, r) = i.find.as_ref().map(|f| f.matches[c].clone()).unwrap_or_default();
+                if let Some(f) = i.find.as_mut() {
+                    f.current = Some(c);
+                }
+                i.reveal_range(k, r, &mut FltkMetrics::default());
             }
             n
         })
@@ -668,12 +671,12 @@ impl RichText {
 
     /// Next match (wraps); its index.
     pub fn find_next(&self) -> Option<usize> {
-        self.with(|i| i.find_step(1))
+        self.with(|i| i.find_step(1, &mut FltkMetrics::default()))
     }
 
     /// Previous match (wraps); its index.
     pub fn find_prev(&self) -> Option<usize> {
-        self.with(|i| i.find_step(-1))
+        self.with(|i| i.find_step(-1, &mut FltkMetrics::default()))
     }
 
     pub fn find_count(&self) -> usize {
@@ -766,4 +769,197 @@ where
     }
     drop(i);
     rt.changed();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::text::layout::FakeMetrics;
+
+    fn view() -> Inner {
+        let mut i = Inner::new();
+        i.width = 400;
+        i.view_h = 200;
+        i.measured_avg = true;
+        i
+    }
+
+    fn lay(i: &mut Inner) {
+        i.ensure_visible(&mut FakeMetrics);
+    }
+
+    fn md(i: &mut Inner, key: &str, text: &str) {
+        let j = match i.key_index(key) {
+            Some(j) => j,
+            None => {
+                let j = i.msgs.len();
+                i.insert_msg(j, Arc::from(key), Vec::new(), None);
+                j
+            }
+        };
+        set_content(i, j, Message::markdown(text));
+    }
+
+    /// Heights equal the sum of each block's gap and body, counts the
+    /// messages' blocks, keys their index.
+    fn consistent(i: &mut Inner) {
+        let n = i.store.len();
+        assert_eq!(i.heights.len(), n);
+        for k in 0..n {
+            let want = (i.gap(k) + i.body_h(k)) as i64;
+            assert_eq!(i.heights.get(k), want, "height of block {k}");
+        }
+        assert_eq!(i.counts.prefix(i.counts.len()) as usize, n, "counts");
+        for j in 0..i.msgs.len() {
+            let key = i.msgs[j].key.clone();
+            assert_eq!(i.key_index(&key), Some(j));
+        }
+    }
+
+    fn texts(i: &Inner, key: &str) -> Vec<String> {
+        let j = i.msgs.iter().position(|m| &*m.key == key).unwrap();
+        let s = i.msg_start(j);
+        (s..s + i.msg_len(j)).map(|k| i.store.text(k).to_string()).collect()
+    }
+
+    #[test]
+    fn keyed_messages_insert_replace_move_remove() {
+        let mut i = view();
+        md(&mut i, "a", "# A\n\nfirst");
+        md(&mut i, "b", "second **b**");
+        insert(&mut i, 0, "z", Message::markdown("oldest"));
+        insert(&mut i, 2, "card", Message::embed("card-1", 90, "Ran 3 commands"));
+        lay(&mut i);
+        let keys: Vec<&str> = i.msgs.iter().map(|m| &*m.key).collect();
+        assert_eq!(keys, ["z", "a", "card", "b"]);
+        consistent(&mut i);
+        // Replace in the middle: only that message's blocks change.
+        md(&mut i, "a", "only one paragraph");
+        assert_eq!(texts(&i, "a"), ["only one paragraph"]);
+        assert_eq!(texts(&i, "b"), ["second b"]);
+        consistent(&mut i);
+        // Move and remove.
+        let j = i.key_index("card").unwrap();
+        i.remove_msg(j);
+        insert(&mut i, 0, "card", Message::embed("card-1", 90, "Ran 3 commands"));
+        assert_eq!(i.msgs[0].key.as_ref(), "card");
+        assert_eq!(i.embed_blocks("card-1"), vec![0]);
+        let j = i.key_index("z").unwrap();
+        i.remove_msg(j);
+        assert!(i.key_index("z").is_none());
+        assert_eq!(i.embed_blocks("card-1"), vec![0]);
+        lay(&mut i);
+        consistent(&mut i);
+    }
+
+    #[test]
+    fn set_message_streams_when_the_text_extends() {
+        let mut i = view();
+        md(&mut i, "a", "intro");
+        let full = "Hello **world**.\n\n- one\n- two\n\n```rust\nfn main() {}\n```\n\nMore text";
+        let mut at = 0;
+        while at < full.len() {
+            at = (at + 7).min(full.len());
+            while !full.is_char_boundary(at) {
+                at += 1;
+            }
+            md(&mut i, "b", &full[..at]);
+        }
+        assert!(i.msgs[1].stream.as_ref().is_some_and(|s| s.committed() > 0), "streamed, not re-parsed");
+        let want: Vec<String> = crate::text::markdown::parse(full).iter().map(|b| b.text().to_string()).collect();
+        assert_eq!(texts(&i, "b"), want);
+        assert_eq!(texts(&i, "a"), ["intro"]);
+        // A value that does not extend re-parses.
+        md(&mut i, "b", "replaced");
+        assert_eq!(texts(&i, "b"), ["replaced"]);
+        lay(&mut i);
+        consistent(&mut i);
+    }
+
+    #[test]
+    fn prepend_and_embed_growth_keep_the_view_still() {
+        let mut i = view();
+        for n in 0..40 {
+            md(&mut i, &format!("m{n}"), &format!("Message {n} with a few words in it.\n\nSecond paragraph of {n}."));
+        }
+        lay(&mut i);
+        i.set_top(600);
+        lay(&mut i);
+        let (k, off) = i.locate(i.top);
+        let text = i.store.text(k).to_string();
+        let screen = |i: &Inner, k: usize| i.heights.prefix(k) - i.top;
+        let before = screen(&i, k);
+        // Older history above.
+        for n in 0..5 {
+            insert(&mut i, n, &format!("old{n}"), Message::markdown("An older message\n\nwith two paragraphs"));
+        }
+        i.reanchor();
+        lay(&mut i);
+        let k2 = (0..i.store.len()).find(|&x| i.store.text(x) == text).unwrap();
+        assert_eq!(k2, k + 10);
+        assert_eq!(screen(&i, k2), before, "prepend moved the view");
+        assert_eq!(i.locate(i.top), (k2, off));
+        // A card above the view grows.
+        insert(&mut i, 1, "card", Message::embed("c", 40, "card"));
+        i.reanchor();
+        lay(&mut i);
+        let k3 = k2 + 1;
+        let at = screen(&i, k3);
+        let b = i.embed_blocks("c")[0];
+        i.store.set_embed_height(b, 400);
+        i.invalidate(b);
+        i.reanchor();
+        lay(&mut i);
+        assert_eq!(screen(&i, k3), at, "embed growth above moved the view");
+        consistent(&mut i);
+        // Following the end: growth keeps the end in view.
+        i.stuck = true;
+        lay(&mut i);
+        md(&mut i, "tail", "a new message at the end\n\nwith more");
+        lay(&mut i);
+        assert!(i.at_bottom());
+    }
+
+    #[test]
+    fn find_follows_new_content() {
+        let mut i = view();
+        md(&mut i, "a", "Alpha beta ALPHA\n\nnothing");
+        md(&mut i, "b", "alpha again");
+        let mut matches = Vec::new();
+        for k in 0..i.store.len() {
+            for r in find_in(i.store.text(k), "alpha") {
+                matches.push((k, r));
+            }
+        }
+        i.find = Some(Find {
+            query: "alpha".into(),
+            matches,
+            current: None,
+        });
+        assert_eq!(i.find.as_ref().unwrap().matches.len(), 3);
+        md(&mut i, "c", "the last alpha");
+        assert_eq!(i.find.as_ref().unwrap().matches.len(), 4);
+        let j = i.key_index("a").unwrap();
+        i.remove_msg(j);
+        let f = i.find.as_ref().unwrap();
+        assert_eq!(f.matches.len(), 2);
+        assert!(f.matches.iter().all(|(k, r)| i.store.text(*k)[r.clone()].eq_ignore_ascii_case("alpha")));
+        assert_eq!(i.find_step(1, &mut FakeMetrics), Some(0));
+        assert_eq!(i.find_step(1, &mut FakeMetrics), Some(1));
+        assert_eq!(i.find_step(1, &mut FakeMetrics), Some(0), "wraps");
+        assert_eq!(i.find_step(-1, &mut FakeMetrics), Some(1));
+        assert_eq!(find_in("Ünïcode ÜNÏ", "ünï"), vec![0..5, 10..15]);
+        assert!(find_in("abc", "").is_empty());
+    }
+
+    #[test]
+    fn positions_and_offsets_round_trip() {
+        let mut i = view();
+        md(&mut i, "a", "one\n\ntwo");
+        md(&mut i, "b", "three");
+        for off in 0..=13 {
+            assert_eq!(i.offset_of(i.pos_of(off)), off.min(13));
+        }
+        assert_eq!(i.pos_of(4), TextPos { block: 1, offset: 0 });
+    }
 }
