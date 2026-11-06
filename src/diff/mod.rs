@@ -10,5 +10,10 @@
 
 mod parse;
 mod rows;
+mod files;
+mod view;
+
+pub use files::DiffFiles;
+pub use view::{DiffView, ExpandRequest};
 
 pub use parse::{parse, parse_with, unquote, DiffError, FileDiff, FileStatus, Hunk, Line, LineKind, Limits, Patch};
