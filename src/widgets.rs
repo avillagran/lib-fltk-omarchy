@@ -268,9 +268,10 @@ impl Button {
         self
     }
 
+    #[track_caller]
     pub fn on_click(self, f: impl FnMut() + 'static) -> Self {
-        let mut f = f;
-        *self.click.borrow_mut() = Some(Box::new(move |_| f()));
+        let (site, mut f) = (std::panic::Location::caller(), f);
+        *self.click.borrow_mut() = Some(Box::new(move |_| crate::testkit::frames::watch(site, &mut f)));
         self
     }
 
@@ -474,9 +475,10 @@ impl ActionButton {
         self
     }
 
+    #[track_caller]
     pub fn on_click(self, f: impl FnMut() + 'static) -> Self {
-        let mut f = f;
-        *self.click.borrow_mut() = Some(Box::new(move |_| f()));
+        let (site, mut f) = (std::panic::Location::caller(), f);
+        *self.click.borrow_mut() = Some(Box::new(move |_| crate::testkit::frames::watch(site, &mut f)));
         self
     }
 
@@ -1640,9 +1642,10 @@ impl Row {
         self.inner.redraw();
     }
 
+    #[track_caller]
     pub fn on_click(self, f: impl FnMut() + 'static) -> Self {
-        let mut f = f;
-        *self.click.borrow_mut() = Some(Box::new(move |_| f()));
+        let (site, mut f) = (std::panic::Location::caller(), f);
+        *self.click.borrow_mut() = Some(Box::new(move |_| crate::testkit::frames::watch(site, &mut f)));
         self
     }
 

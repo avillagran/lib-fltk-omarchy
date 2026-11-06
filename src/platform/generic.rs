@@ -47,6 +47,23 @@ pub(crate) fn process_cpu_time() -> Option<Duration> {
     None
 }
 
+/// `CLOCK_THREAD_CPUTIME_ID` (Linux, macOS ≥ 10.12, BSDs).
+#[cfg(unix)]
+pub(crate) fn thread_cpu_time() -> Option<Duration> {
+    let mut ts = libc::timespec {
+        tv_sec: 0,
+        tv_nsec: 0,
+    };
+    // SAFETY: valid out pointer.
+    let rc = unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut ts) };
+    (rc == 0).then(|| Duration::new(ts.tv_sec as u64, ts.tv_nsec as u32))
+}
+
+#[cfg(not(any(unix, windows)))]
+pub(crate) fn thread_cpu_time() -> Option<Duration> {
+    None
+}
+
 pub(crate) fn watch_theme(stop: Arc<AtomicBool>, changed: &dyn Fn()) {
     super::poll::watch(stop, changed)
 }

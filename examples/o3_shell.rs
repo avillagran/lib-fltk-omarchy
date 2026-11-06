@@ -14,6 +14,7 @@
 //! script/richtext-bench).
 
 use fltk::{app, prelude::*};
+use fltk_omarchy::anim::Pace;
 use fltk_omarchy::edit::Composer;
 use fltk_omarchy::layout::{self, FlexExt};
 use fltk_omarchy::model::ListModel;
@@ -92,7 +93,9 @@ fn main() {
     row.fixed(&*tree, 320);
     let mut col = layout::column();
     col.set_margin(0);
-    let view = RichText::new().stick_to_bottom(true).bottom_inset(0);
+    // Streamed replies paint at 30 fps (pushes in between join one frame).
+    let pace = if std::env::var("O3_SHELL_PACE").as_deref() == Ok("normal") { Pace::Normal } else { Pace::Low };
+    let view = RichText::new().stick_to_bottom(true).bottom_inset(0).stream_pace(pace);
     col.add(&*view);
     let draft = State::new(String::new());
     let composer = Composer::new().placeholder("Ask anything").bind(&draft);

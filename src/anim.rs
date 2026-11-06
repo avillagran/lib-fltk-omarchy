@@ -728,6 +728,11 @@ pub fn request_scroll_frame<W: WidgetExt>(w: &W) {
     request(w, Pace::Normal, true);
 }
 
+/// [`request_scroll_frame`] at `pace` (a streaming view paced at 30 fps).
+pub fn request_scroll_frame_at<W: WidgetExt>(w: &W, pace: Pace) {
+    request(w, pace, true);
+}
+
 fn request<W: WidgetExt>(w: &W, pace: Pace, scroll_only: bool) {
     // SAFETY: `w` is a live widget; the copy only tracks its deletion.
     let w = unsafe { <Widget as WidgetBase>::from_widget_ptr(w.as_widget_ptr()) };

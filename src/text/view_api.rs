@@ -187,18 +187,22 @@ impl RichText {
 
     /// Streams Markdown into message `key` (appended if missing).
     pub fn push_message_markdown(&self, key: &str, more: &str) {
-        self.with(|i| {
-            let j = match i.key_index(key) {
-                Some(j) => j,
+        let tail = {
+            let mut i = self.inner.borrow_mut();
+            let (j, new) = match i.key_index(key) {
+                Some(j) => (j, false),
                 None => {
                     let j = i.msgs.len();
                     i.insert_msg(j, key, Vec::new(), None);
-                    j
+                    (j, true)
                 }
             };
             i.push_msg(j, more);
             i.msgs[j].src = None;
-        })
+            (!new && i.tail_push(j)).then_some(i.stream_pace)
+        };
+        // Growing the last message while following the end moves pixels.
+        damage_push(&mut self.widget.clone(), tail);
     }
 
     /// Closes the stream of message `key` (frees its parser state; a later
@@ -233,6 +237,22 @@ impl RichText {
         let j = i.key_index(key)?;
         let s = i.msg_start(j);
         Some(s..s + i.msg_len(j))
+    }
+
+    /// Window rectangle `(x, y, w, h)` of message `key` (all its blocks,
+    /// not clipped) while some of it is in view; None when it is out of
+    /// view or unknown. Scroll glides included (tests, the motion gate).
+    pub fn message_rect(&self, key: &str) -> Option<(i32, i32, i32, i32)> {
+        let r = self.message_blocks(key).filter(|r| !r.is_empty())?;
+        let i = self.inner.borrow();
+        let wy = self.widget.y();
+        let top = i.screen_y(r.start, wy);
+        let bottom = (wy as i64 + i.pad as i64 + i.heights.prefix(r.end) - i.top) as i32;
+        let view_h = if i.view_h > 0 { i.view_h } else { self.widget.h() };
+        if bottom <= wy || top >= wy + view_h {
+            return None;
+        }
+        Some((self.widget.x(), top, self.widget.w(), bottom - top))
     }
 
     /// Key of the message that holds block `block`.
@@ -403,10 +423,57 @@ impl RichText {
     /// Changes the bottom inset (the composer grew): the end stays at the
     /// end, otherwise the view stays still.
     pub fn set_bottom_inset(&self, px: i32) {
-        self.with(|i| {
-            i.inset = px.max(0);
+        let px = px.max(0);
+        let keep = self.with(|i| {
+            let old = i.inset;
+            // Shrinking while following: keep the room (the rows do not dip
+            // after a send); growing uses up kept room first.
+            if px < old && i.stuck {
+                i.slack += (old - px) as i64;
+            } else if px > old {
+                i.slack = (i.slack - (px - old) as i64).max(0);
+            }
+            i.inset = px;
             i.reanchor();
-        })
+            i.slack > 0
+        });
+        if keep {
+            self.release_slack_later();
+        }
+    }
+
+    /// Releases the kept room 120 ms after the content stopped growing,
+    /// gliding to the new end.
+    fn release_slack_later(&self) {
+        const WAIT: f64 = 0.12;
+        let (inn, w) = (Rc::downgrade(&self.inner), self.widget.clone());
+        app::add_timeout3(WAIT, move |h| {
+            let Some(inn) = inn.upgrade() else { return };
+            if w.was_deleted() {
+                return;
+            }
+            let mut i = inn.borrow_mut();
+            if i.slack == 0 {
+                return;
+            }
+            if let Some(t) = i.grown.1 {
+                let left = WAIT - t.elapsed().as_secs_f64();
+                if left > 0.0 {
+                    app::repeat_timeout3(left, h);
+                    return;
+                }
+            }
+            i.slack = 0;
+            let max = i.max_top();
+            if i.stuck && i.top > max {
+                let top = i.top;
+                i.motion.wheel(top, (max - top) as f64, max);
+            } else {
+                i.reanchor();
+            }
+            drop(i);
+            w.clone().redraw();
+        });
     }
 
     /// Scrolls so position `p` is in view.
@@ -832,6 +899,23 @@ where
     rt.changed();
 }
 
+/// Without the `a11y` feature: messages near the view as rows for
+/// `testkit::tree` (kept only while the kit is armed).
+#[cfg(not(feature = "a11y"))]
+pub(super) fn testkit_rows(rt: &RichText) {
+    let v = rt.clone();
+    crate::a11y::describe(&rt.widget.clone(), move |n| {
+        n.role(crate::a11y::Role::Document);
+        for (j, key) in v.message_keys().iter().enumerate() {
+            if let Some((x, y, w, h)) = v.message_rect(key) {
+                n.child(j as u64, |c| {
+                    c.role(crate::a11y::Role::Group).name(key).bounds(x, y, w, h);
+                });
+            }
+        }
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1024,3 +1108,4 @@ mod tests {
         assert_eq!(i.pos_of(4), TextPos { block: 1, offset: 0 });
     }
 }
+

@@ -46,6 +46,7 @@ mod playback_ui;
 mod transcript_ui;
 mod diff_ui;
 mod frame_ui;
+mod testkit_ui;
 #[cfg(feature = "mermaid")]
 mod mermaid_ui;
 
@@ -2026,6 +2027,7 @@ fn main() {
     transcript_ui::checks(&mut run);
     diff_ui::checks(&mut run);
     frame_ui::checks(&mut run);
+    testkit_ui::checks(&mut run);
     #[cfg(feature = "mermaid")]
     mermaid_ui::checks(&mut run);
     #[cfg(feature = "a11y")]

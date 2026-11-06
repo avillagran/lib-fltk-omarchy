@@ -377,6 +377,18 @@ pub(super) struct Inner {
     chrome_only: bool,
     /// Frames drawn by moving pixels (`fl_scroll`) instead of repainting.
     blits: u64,
+    /// First block changed since the last frame by a streamed append (a
+    /// frame that only grew the last message moves pixels up and repaints
+    /// from here down).
+    changed_from: Option<usize>,
+    /// Frame rate of streamed appends (`stream_pace`); None: at once.
+    stream_pace: Option<crate::anim::Pace>,
+    /// Room kept under the last block after the bottom inset shrank while
+    /// following (Rune's slack): new content fills it; what is left goes
+    /// 120 ms after the content stopped growing.
+    slack: i64,
+    /// Content height at the last frame and when it last grew.
+    grown: (i64, Option<Instant>),
     host: Option<fltk::group::Group>,
     pub(super) find: Option<Find>,
     notes: Vec<Note>,
@@ -445,6 +457,10 @@ impl Inner {
             hold_motion: false,
             chrome_only: false,
             blits: 0,
+            changed_from: None,
+            stream_pace: None,
+            slack: 0,
+            grown: (0, None),
             host: None,
             find: None,
             notes: Vec::new(),
@@ -547,7 +563,17 @@ impl Inner {
     }
 
     fn content_h(&self) -> i64 {
-        self.heights.prefix(self.heights.len()) + 2 * self.pad as i64 + self.inset as i64
+        self.heights.prefix(self.heights.len()) + 2 * self.pad as i64 + self.inset as i64 + self.slack
+    }
+
+    /// New content uses up the slack; notes when the content last grew.
+    fn track_growth(&mut self) {
+        let h = self.heights.prefix(self.heights.len());
+        if h > self.grown.0 && self.grown.0 > 0 {
+            self.slack = (self.slack - (h - self.grown.0)).max(0);
+            self.grown.1 = Some(Instant::now());
+        }
+        self.grown.0 = h;
     }
 
     fn max_top(&self) -> i64 {
@@ -925,6 +951,8 @@ impl Inner {
         let keep = keep.min(len);
         let n = keep + blocks.len();
         self.splice(start + keep, len - keep, blocks);
+        let from = start + keep;
+        self.changed_from = Some(self.changed_from.map_or(from, |c| c.min(from)));
         let d = n as i64 - len as i64;
         if d != 0 {
             self.counts.add(j, d);
@@ -963,6 +991,12 @@ impl Inner {
         for b in done {
             self.invalidate(b);
         }
+    }
+
+    /// True when a push into message `j` can be painted by moving pixels:
+    /// following the end, `j` is the last message, no fade in progress.
+    pub(super) fn tail_push(&self, j: usize) -> bool {
+        self.stuck && self.reveal.is_none() && j + 1 == self.msgs.len()
     }
 
     fn remove_msg(&mut self, j: usize) {
@@ -1800,6 +1834,10 @@ impl RichText {
         });
         #[cfg(feature = "a11y")]
         access::install(self);
+        #[cfg(not(feature = "a11y"))]
+        if crate::testkit::armed() {
+            api::testkit_rows(self);
+        }
     }
 
     // ------------------------------------------------------------ builders
@@ -1902,8 +1940,12 @@ impl RichText {
         if more.is_empty() {
             return;
         }
-        self.inner.borrow_mut().push_markdown(more);
-        self.changed();
+        let tail = {
+            let mut i = self.inner.borrow_mut();
+            i.push_markdown(more);
+            open_is_tail(&mut i)
+        };
+        damage_push(&mut self.widget.clone(), tail);
     }
 
     /// Closes the open section (frees its parser state).
@@ -1942,6 +1984,14 @@ impl RichText {
 
     fn changed(&self) {
         self.widget.clone().redraw();
+    }
+
+    /// Frames for text streamed into the last message while following the
+    /// end come at `pace` (e.g. [`Pace::Low`](crate::anim::Pace::Low), 30
+    /// fps) instead of one per push: pushes in between are drawn together.
+    pub fn stream_pace(self, pace: crate::anim::Pace) -> Self {
+        self.inner.borrow_mut().stream_pace = Some(pace);
+        self
     }
 
     /// Text from [`RichText::sender`] waits for the end of its last word
@@ -2248,14 +2298,15 @@ fn deliver(id: u64, buf: &Arc<Mutex<Pending>>) {
     };
     let Some((mut w, inn)) = target else { return };
     let Some(inn) = inn.upgrade() else { return };
-    {
+    let tail = {
         let mut i = inn.borrow_mut();
         i.push_markdown(&text);
         if finish {
             i.close_open();
         }
-    }
-    w.redraw();
+        if finish { None } else { open_is_tail(&mut i) }
+    };
+    damage_push(&mut w, tail);
 }
 
 /// Delivers everything pending, a held word included.
@@ -2277,14 +2328,33 @@ fn deliver_all(id: u64, buf: &Arc<Mutex<Pending>>) {
     });
     let Some((mut w, inn)) = target else { return };
     let Some(inn) = inn.upgrade() else { return };
-    {
+    let tail = {
         let mut i = inn.borrow_mut();
         i.push_markdown(&text);
         if finish {
             i.close_open();
         }
+        if finish { None } else { open_is_tail(&mut i) }
+    };
+    damage_push(&mut w, tail);
+}
+
+/// After a push: a frame that only grew the last message while following
+/// the end moves pixels (`Damage::Scroll`); anything else repaints.
+pub(super) fn damage_push(w: &mut Widget, tail: Option<Option<crate::anim::Pace>>) {
+    match tail {
+        // Paced: the frame comes on the shared clock (pushes in between
+        // join it); else at once.
+        Some(Some(p)) => crate::anim::request_scroll_frame_at(w, p),
+        Some(None) => w.set_damage_type(w.damage_type() | Damage::Scroll),
+        None => w.redraw(),
     }
-    w.redraw();
+}
+
+/// Whether the open section is the last message and the view follows it.
+fn open_is_tail(i: &mut Inner) -> Option<Option<crate::anim::Pace>> {
+    let j = i.open.clone().and_then(|k| i.index_of(&k));
+    j.is_some_and(|j| i.tail_push(j)).then_some(i.stream_pace)
 }
 
 const FNV0: u64 = 0xcbf2_9ce4_8422_2325;
@@ -2337,6 +2407,7 @@ fn draw_view(w: &mut Widget, i: &mut Inner, t: &Theme) {
         }
     }
     i.ensure_visible(&mut m);
+    i.track_growth();
     if i.motion.running() && !i.hold_motion {
         // Wheel glide: frames that only move the content.
         crate::anim::request_scroll_frame(w);
@@ -2554,6 +2625,9 @@ fn draw_view(w: &mut Widget, i: &mut Inner, t: &Theme) {
         );
     }
     i.drawn = Some((i.top, w.x(), w.y(), w.w(), w.h(), i.width));
+    if !i.hold_motion && !i.chrome_only {
+        i.changed_from = None;
+    }
 }
 
 /// Whether scroll-only frames move pixels (`OMARCHY_FLTK_SCROLL_BLIT=on|off`,
@@ -2585,6 +2659,13 @@ fn blit_scroll(w: &mut Widget, i: &mut Inner, t: &Theme) -> bool {
     if i.hosted.iter().any(|(_, h)| !h.was_deleted() && h.visible()) {
         return false;
     }
+    // A streamed append: lay out the changed blocks first (their heights
+    // grow, and the view follows the end), then move what is above them.
+    let changed = i.changed_from;
+    if changed.is_some() {
+        let mut m = FltkMetrics::default();
+        i.ensure_visible(&mut m);
+    }
     let max = i.max_top();
     let moved = i.motion.position(i.top, max);
     if moved != i.top {
@@ -2600,10 +2681,22 @@ fn blit_scroll(w: &mut Widget, i: &mut Inner, t: &Theme) -> bool {
     // ring), above the bottom inset (a composer drawn over the view).
     let (cx, cy) = (w.x(), w.y() + 2);
     let (cw, ch) = (w.w() - BAR - 2, w.h() - 4 - i.inset);
-    if dy == 0 {
+    // Where the changed blocks start on screen after the move.
+    let repaint_from = match changed {
+        Some(k) if k < i.store.len() => {
+            let y = i.screen_y(k, w.y()) - 4;
+            if y < cy {
+                return false; // the change starts above the view: repaint all
+            }
+            Some(y)
+        }
+        Some(_) => Some(cy + ch),
+        None => None,
+    };
+    if dy == 0 && repaint_from.is_none() {
         return true;
     }
-    if cw <= 0 || ch <= 8 || dy.abs() >= (ch - 8) as i64 {
+    if cw <= 0 || ch <= 8 || dy.abs() >= (ch - 8) as i64 || dy < 0 && repaint_from.is_some() {
         return false;
     }
     i.hold_motion = true;
@@ -2618,8 +2711,11 @@ fn blit_scroll(w: &mut Widget, i: &mut Inner, t: &Theme) -> bool {
         draw_view(&mut w2, i, t);
         draw::pop_clip();
     };
-    let moved_pixels = crate::platform::fl_abi::scroll_pixels(cx, cy, cw, ch, 0, -(dy as i32), &mut strip);
+    let moved_pixels = if dy == 0 { true } else { crate::platform::fl_abi::scroll_pixels(cx, cy, cw, ch, 0, -(dy as i32), &mut strip) };
     if moved_pixels {
+        if let Some(y) = repaint_from {
+            strip(cx, y, cw, cy + ch - y);
+        }
         // Around the moved area: the ring rows, the inset, and the
         // scrollbar column (background, thumb and ring only).
         strip(w.x(), w.y(), w.w(), 2);
@@ -2632,6 +2728,7 @@ fn blit_scroll(w: &mut Widget, i: &mut Inner, t: &Theme) -> bool {
         i.chrome_only = false;
     }
     i.hold_motion = false;
+    i.changed_from = None;
     if moved_pixels {
         i.blits += 1;
         i.drawn = Some((i.top, w.x(), w.y(), w.w(), w.h(), i.width));
@@ -3008,7 +3105,11 @@ pub(super) fn draw_block(
             if st.code && !b.is_code() {
                 paint::fill(x - 2, ly + 1, fw + 4, ln.h - 2, 3, surface);
             }
-            let link = st.link.is_some();
+            if st.chip {
+                // The Composer's chip: accent-tinted pill, no underline.
+                paint::fill(x - 4, ly + 1, fw + 8, ln.h - 2, (ln.h - 2) / 2, p.accent.over(c.under, 0.16));
+            }
+            let link = st.link.is_some() && !st.chip;
             let color = match st.color {
                 Some(role) => role.rgb(t),
                 None if link => p.accent,

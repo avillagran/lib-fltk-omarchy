@@ -65,7 +65,17 @@ pub struct MarkdownOptions {
     /// it is part of a table. Committed blocks and the final result
     /// ([`MarkdownStream::finish`]) are always the exact parse.
     pub settle_tail: bool,
+    /// Links whose target this rule accepts are drawn as chips (mentions:
+    /// `[@notes.md](file:notes.md)`), still activatable with `on_link`.
+    pub chip_links: Option<ChipLink>,
+    /// An ordered item (`4. `) on the line after paragraph text continues a
+    /// list, as models write lists (CommonMark only lets `1.` interrupt a
+    /// paragraph). Rune's rule; applied the same when streaming.
+    pub model_lists: bool,
 }
+
+/// Rule for [`MarkdownOptions::chip_links`].
+pub type ChipLink = Arc<dyn Fn(&str) -> bool + Send + Sync>;
 
 impl Default for MarkdownOptions {
     fn default() -> Self {
@@ -75,6 +85,8 @@ impl Default for MarkdownOptions {
             code_links: None,
             math: false,
             settle_tail: false,
+            chip_links: None,
+            model_lists: false,
         }
     }
 }
@@ -98,6 +110,18 @@ impl MarkdownOptions {
     /// ([`file_path_link`]).
     pub fn with_path_links(mut self) -> Self {
         self.code_links = Some(Arc::new(file_path_link));
+        self
+    }
+
+    /// See [`MarkdownOptions::model_lists`].
+    pub fn with_model_lists(mut self, on: bool) -> Self {
+        self.model_lists = on;
+        self
+    }
+
+    /// Links accepted by `f` are drawn as chips (see [`MarkdownOptions::chip_links`]).
+    pub fn with_chip_links(mut self, f: impl Fn(&str) -> bool + Send + Sync + 'static) -> Self {
+        self.chip_links = Some(Arc::new(f));
         self
     }
 
@@ -128,6 +152,8 @@ impl fmt::Debug for MarkdownOptions {
             .field("code_links", &self.code_links.is_some())
             .field("math", &self.math)
             .field("settle_tail", &self.settle_tail)
+            .field("chip_links", &self.chip_links.is_some())
+            .field("model_lists", &self.model_lists)
             .finish()
     }
 }
@@ -284,6 +310,11 @@ impl MarkdownStream {
     /// Appends `more` and re-parses the open tail.
     pub fn push(&mut self, more: &str) -> StreamUpdate {
         self.tail.push_str(more);
+        if self.opts.model_lists {
+            if let Some(t) = loosen_lists(&self.tail) {
+                self.tail = t;
+            }
+        }
         self.total += more.len();
         let parsed = convert(&self.tail, &self.defs, self.cont, &self.opts);
         let keep = self.committed;
@@ -363,6 +394,54 @@ impl MarkdownStream {
     pub fn is_empty(&self) -> bool {
         self.total == 0
     }
+}
+
+/// An ordered list line (`  12. ` / `3) `).
+fn is_ordered_item(line: &str) -> bool {
+    let t = line.strip_prefix("   ").or_else(|| line.strip_prefix("  ")).or_else(|| line.strip_prefix(' ')).unwrap_or(line);
+    let digits = t.bytes().take_while(u8::is_ascii_digit).count();
+    (1..=9).contains(&digits) && matches!(t.as_bytes().get(digits), Some(b'.' | b')')) && matches!(t.as_bytes().get(digits + 1), Some(b' ' | b'\t'))
+}
+
+fn is_list_or_special(line: &str) -> bool {
+    let t = line.trim_start();
+    t.is_empty() || is_ordered_item(line) || t.starts_with("- ") || t.starts_with("* ") || t.starts_with("+ ") || t.starts_with('|') || t.starts_with('#') || t.starts_with('>')
+}
+
+/// Inserts a blank line before an ordered item that follows paragraph text
+/// (see [`MarkdownOptions::model_lists`]); None when nothing changes.
+/// Idempotent; code fences are left alone.
+pub fn loosen_lists(src: &str) -> Option<String> {
+    let mut out = String::with_capacity(src.len() + 8);
+    let mut changed = false;
+    let mut fence = false;
+    let mut prev: Option<&str> = None;
+    // Inside a list (since its first item, until a blank line) a following
+    // item is already part of it.
+    let mut in_list = false;
+    for line in src.split_inclusive('\n') {
+        let t = line.trim_start();
+        if t.starts_with("```") || t.starts_with("~~~") {
+            fence = !fence;
+        }
+        let item = !fence && is_ordered_item(line);
+        if item && !in_list {
+            if let Some(p) = prev {
+                if !is_list_or_special(p.trim_end_matches(['\n', '\r'])) {
+                    out.push('\n');
+                    changed = true;
+                }
+            }
+        }
+        if t.trim().is_empty() {
+            in_list = false;
+        } else if item || t.starts_with("- ") || t.starts_with("* ") || t.starts_with("+ ") {
+            in_list = true;
+        }
+        out.push_str(line);
+        prev = Some(line);
+    }
+    changed.then_some(out)
 }
 
 /// The open tail as it is about to become (see
@@ -582,6 +661,7 @@ impl<'s> Conv<'s> {
             code: false,
             link: self.links.last().cloned(),
             color: None,
+            chip: self.links.last().is_some_and(|u| self.opts.chip_links.as_ref().is_some_and(|f| f(u))),
         }
     }
 
@@ -1126,6 +1206,41 @@ pub(crate) fn find_urls(s: &str) -> Vec<(Range<usize>, String)> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn model_lists_continue_after_paragraph_text() {
+        let src = "Steps:\n1. first\n\nThen more text\n2. second\n3. third";
+        let plain = parse_with(src, &MarkdownOptions::plain());
+        assert!(plain.iter().any(|b| b.content.text().contains("Then more text 2. second")), "CommonMark keeps it in the paragraph");
+        let opts = MarkdownOptions::plain().with_model_lists(true);
+        let b = parse_with(src, &opts);
+        assert!(b.iter().any(|x| x.content.text() == "second" && x.marker.is_some()), "{:?}", b.iter().map(|x| x.content.text().to_string()).collect::<Vec<_>>());
+        // Streamed == one-shot, cut anywhere.
+        for cut in 1..src.len() {
+            if !src.is_char_boundary(cut) { continue; }
+            let mut s = MarkdownStream::with_options(opts.clone());
+            let mut out = Vec::new();
+            s.push_into(&mut out, &src[..cut]);
+            s.push_into(&mut out, &src[cut..]);
+            assert_eq!(out, b, "cut {cut}");
+        }
+        // Inside a list a continuation line is left alone; idempotent.
+        assert_eq!(loosen_lists("1. a\ncontinued\n2. b"), None);
+        let once = loosen_lists("text\n4. x").unwrap();
+        assert_eq!(loosen_lists(&once), None);
+        assert_eq!(loosen_lists("```\ncode\n4. x\n```"), None);
+    }
+
+    #[test]
+    fn chip_links_are_chips() {
+        let opts = MarkdownOptions::plain().with_chip_links(|u| u.starts_with("file:"));
+        let b = parse_with("See [@notes.md](file:notes.md) and [site](https://x.dev).", &opts);
+        let runs = b[0].content.runs();
+        let chip = runs.iter().find(|r| r.style.chip).expect("a chip run");
+        assert_eq!(&b[0].content.text()[chip.range.clone()], "@notes.md");
+        assert_eq!(chip.style.link.as_deref(), Some("file:notes.md"));
+        assert!(runs.iter().any(|r| r.style.link.as_deref() == Some("https://x.dev") && !r.style.chip));
+    }
 
     #[test]
     fn settle_tail_closes_and_holds_back() {

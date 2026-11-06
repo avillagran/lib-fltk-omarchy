@@ -116,7 +116,23 @@ enum Comments {
 
 /// Highlights `code` written in `lang` (the fence info word). Unknown or
 /// empty languages get no colors.
+/// Colouring stops after this many bytes of a block (untrusted input: a
+/// huge pasted file stays plain past it, as Rune's highlighter does).
+pub const MAX_BYTES: usize = 32 * 1024;
+/// At most this many coloured ranges per block.
+pub const MAX_RANGES: usize = 8192;
+
 pub fn basic(lang: &str, code: &str) -> Vec<(Range<usize>, ColorRole)> {
+    let mut end = code.len().min(MAX_BYTES);
+    while !code.is_char_boundary(end) {
+        end -= 1;
+    }
+    let mut out = basic_all(lang, &code[..end]);
+    out.truncate(MAX_RANGES);
+    out
+}
+
+fn basic_all(lang: &str, code: &str) -> Vec<(Range<usize>, ColorRole)> {
     let lang = lang.to_ascii_lowercase();
     if matches!(lang.as_str(), "diff" | "patch") {
         return diff(code);
@@ -260,6 +276,17 @@ fn lex(
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn huge_blocks_are_capped() {
+        let line = "let x = \"s\"; // c\n";
+        let code = line.repeat(10_000);
+        let r = super::basic("rust", &code);
+        assert!(r.len() <= super::MAX_RANGES);
+        assert!(r.iter().all(|(range, _)| range.end <= super::MAX_BYTES));
+        let multibyte = "é".repeat(super::MAX_BYTES);
+        let _ = super::basic("rust", &multibyte);
+    }
     use super::*;
 
     #[test]

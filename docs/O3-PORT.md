@@ -23,9 +23,11 @@ streaming loads.
 Composer; a reply streaming at 60 Hz while the sidebar gets a snapshot
 every 1.5 s). Measured 2026-11-06 on NODE, Wayland, 1896×1030, release, two
 runs: build 37–39 ms, PSS 26.6–26.9 MB, idle 0.0 % CPU, streaming 12.5–14.7 %
-CPU (each pushed chunk repaints the window; moving the pixels when the
-growing message is stuck to the bottom is the next optimization), idle
-again 0.0 %. The UI process alone, without the backend.
+CPU, idle again 0.0 %. Streaming then dropped to 7.5 % by moving the
+pixels when the growing message is the last one and the view follows the
+end (repaint from the changed block down), and to **4.0 %** with
+`RichText::stream_pace(Pace::Low)` (streamed frames at 30 fps; pushes in
+between join one frame). Same PSS (27–28 MB). The UI process alone, without the backend.
 
 The two biggest costs are not the renderer: they are (1) full snapshots
 re-serialized and re-parsed many times per second, and (2) QtWebEngine
@@ -305,17 +307,17 @@ for o3's chat views. What to adopt, in order:
 | # | Idea | Rune source | Effort | Fits CPU/FLTK |
 |---|---|---|---|---|
 | 1 | **Done** (`MarkdownOptions::with_settle_tail`). Streaming tail settling: draw an open `**`, `` ` ``, `~~`, `[link](` already closed in a display copy of the tail; hold back a trailing run of markers and an unconfirmed `\|` line; keep table column widths while the last row is still arriving | `rune-kit/src/markdown/stream.rs` | S–M | yes |
-| 2 | A `4. ` line inside a paragraph continues the list (models write lists that way) | `markdown/interrupt.rs` | S | yes |
+| 2 | **Done** (`MarkdownOptions::with_model_lists`). A `4. ` line inside a paragraph continues the list (models write lists that way) | `markdown/interrupt.rs` | S | yes |
 | 3 | **Done** (`RichText::on_far_from_bottom`, `follow_end` cuts then glides). `on_far_from_bottom(min_px)` for the jump-to-latest button, separate from following; a long jump to the end cuts to two viewports above it, then glides | `runtime/scroll/bottom.rs` | S | yes |
-| 4 | Bottom slack: when the composer shrinks after a send, keep the freed room under the last block until growth stops (~120 ms) | `bottom.rs` | S–M | yes |
+| 4 | **Done** (`set_bottom_inset` keeps the room while following). Bottom slack: when the composer shrinks after a send, keep the freed room under the last block until growth stops (~120 ms) | `bottom.rs` | S–M | yes |
 | 5 | **Done, partly** (`RichText::pace_words`: a trailing partial word from a sender waits ≤ 80 ms; big backlogs are not split into extra frames). Stream pacing at word boundaries: backlogs under 512 chars at once, else ~24 ms chunks cut at words; hold back a trailing partial word | `research/18` | S | yes (fewer reflows) |
 | 6 | **Done** (`mermaid`, feature `mermaid`: `render`, `MermaidView`, `RichText::native_mermaid`; docs/MERMAID.md). Native Mermaid (flowchart, sequence, state) as polygons/polylines + labels drawn with `gfx` under the code header, instead of a 150–240 MB helper | `crates/rune-mermaid` (layered layout, cubic routing) | L | yes |
-| 7 | Diff annotations under lines and line comments (`on_comment(range)`), selection by (side, line) | `rune-kit/src/diff` | M | yes |
+| 7 | **Done** (`DiffView::on_comment`, `set_annotations`, `selected_range`; [DIFF.md](DIFF.md#review-line-ranges-comments-annotations)). Diff annotations under lines (painted or hosting a widget, variable heights, view anchored) and line comments (`on_comment(range)`), selection by (file, side, line) that survives fold/expand/split/wrap | `rune-kit/src/diff` | M | yes |
 | 8 | **Done** (`Composer::page_keys_to`). A composer that fits passes PageUp/PageDown/Home/End to the transcript | rune README | S | yes |
-| 9 | Chips in read-only text, matching the composer's | `el/pills.rs` | S–M | yes |
+| 9 | **Done** (`Style::chip`, `MarkdownOptions::with_chip_links`). Chips in read-only text, matching the composer's | `el/pills.rs` | S–M | yes |
 | 10 | **Done** (`task::Latest`). `task::Latest<T>`: latest-wins background requests with debounce (`@` search) | `latest.rs` | S | yes |
-| 11 | Frame log (paint / wall / CPU per frame) and a warning when a UI callback blocks | `RUNE_FRAME_LOG` | S | yes |
-| 12 | Scripted agent harness (input by accessible name, element dump with rects) and a motion gate (no jumps on prepend/stream/follow) | `--script`, `--tree`, `motion_gate` | M | yes |
+| 11 | **Done** (`OMARCHY_FLTK_FRAME_LOG`, `testkit::frames`; docs/TESTKIT.md). Frame log (paint / wall / CPU per frame) and a warning when a UI callback blocks | `RUNE_FRAME_LOG` | S | yes |
+| 12 | **Done** (`testkit::{tree, run_script, Gate}`, `OMARCHY_FLTK_SCRIPT`; docs/TESTKIT.md). Scripted agent harness (input by accessible name, element dump with rects) and a motion gate (no jumps on prepend/stream/follow) | `--script`, `--tree`, `motion_gate` | M | yes |
 
 Not adopted: spring-driven growth of every row (each animation frame is a
 repaint on the CPU backend).

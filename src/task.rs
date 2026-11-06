@@ -36,8 +36,11 @@ type Job = Box<dyn FnOnce() + Send>;
 static POSTED: Mutex<VecDeque<Job>> = Mutex::new(VecDeque::new());
 
 /// Thread-safe: runs `f` on the UI thread on the next loop iteration.
+#[track_caller]
 pub fn post(f: impl FnOnce() + Send + 'static) {
-    POSTED.lock().unwrap().push_back(Box::new(f));
+    // Timed on the UI thread: debug builds warn when it blocks (testkit::frames).
+    let site = std::panic::Location::caller();
+    POSTED.lock().unwrap().push_back(Box::new(move || crate::testkit::frames::watch(site, f)));
     fltk::app::awake();
 }
 

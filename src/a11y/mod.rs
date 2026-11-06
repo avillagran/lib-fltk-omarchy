@@ -569,10 +569,9 @@ pub fn register<W: WidgetExt, A: Accessible + 'static>(widget: &W, a: A) {
         imp::set_describe(widget, std::rc::Rc::new(move |n: &mut Node| a.describe(n)));
         imp::set_action(widget, Box::new(move |r: &Request| b.act(r)));
     }
+    // Without the feature only `testkit` keeps descriptions (when armed).
     #[cfg(not(feature = "a11y"))]
-    {
-        let _ = (widget, a);
-    }
+    crate::testkit::lite::describe(widget, std::rc::Rc::new(move |n: &mut Node| a.describe(n)));
 }
 
 /// Sets the describe callback of `widget` (role, name, value, children).
@@ -582,7 +581,7 @@ pub fn describe<W: WidgetExt>(widget: &W, f: impl Fn(&mut Node) + 'static) {
     #[cfg(feature = "a11y")]
     imp::set_describe(widget, std::rc::Rc::new(f));
     #[cfg(not(feature = "a11y"))]
-    let _ = (widget, f);
+    crate::testkit::lite::describe(widget, std::rc::Rc::new(f));
 }
 
 /// Handles actions requested by the AT on `widget` or its virtual
@@ -602,7 +601,7 @@ pub fn set_name<W: WidgetExt + ?Sized>(widget: &W, name: &str) {
     #[cfg(feature = "a11y")]
     imp::set_name(widget, name);
     #[cfg(not(feature = "a11y"))]
-    let _ = (widget, name);
+    crate::testkit::lite::set_name(widget, name);
 }
 
 /// Extra help read for `widget` after its name and role.

@@ -289,4 +289,33 @@ pub fn checks(run: &mut dyn FnMut(&str, Check)) {
         check(*got.borrow() == ["abc", "new"], &format!("the older slow answer is dropped: {:?}", got.borrow()))?;
         Ok(())
     });
+
+    run("rich text: chip links draw as accent pills and still open", &|shots| {
+        use fltk_omarchy::text::{markdown::MarkdownOptions, RichText};
+        use std::cell::RefCell;
+        use std::rc::Rc;
+        let opened: Rc<RefCell<Vec<String>>> = Rc::default();
+        let o2 = opened.clone();
+        let mut win = AppWindow::new("Chips", 420, 160);
+        let rt = RichText::new()
+            .markdown_options(MarkdownOptions::default().with_chip_links(|u| u.starts_with("file:")))
+            .on_link(move |u| o2.borrow_mut().push(u.to_string()));
+        win.end();
+        win.show();
+        rt.append_markdown("Look at [@notes](file:notes.md) please");
+        let r2 = rt.clone();
+        pump_until(|| r2.w() > 0);
+        let p = shots.join("chips.png");
+        win.clone().snapshot(&p).map_err(|e| e.to_string())?;
+        let r = rt.text_rect("@notes").ok_or("chip word")?;
+        let (accent, bg) = theme::with(|t| (t.palette.accent, t.palette.background));
+        let want = accent.over(bg, 0.16);
+        let [cr, cg, cb] = pixel(&p, r.0 - 2, r.1 + r.3 / 2)?;
+        let near = |a: u8, b: u8| a.abs_diff(b) <= 3;
+        check(near(cr, want.r()) && near(cg, want.g()) && near(cb, want.b()), &format!("chip fill left of the word: {:?} vs {want:?}", (cr, cg, cb)))?;
+        fltk_omarchy::focus::click_at(&*win, r.0 + r.2 / 2, r.1 + r.3 / 2);
+        check(*opened.borrow() == ["file:notes.md"], &format!("a click opens it: {:?}", opened.borrow()))?;
+        fltk::window::DoubleWindow::delete((*win).clone());
+        Ok(())
+    });
 }

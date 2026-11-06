@@ -4,7 +4,7 @@
 //!   cargo run --example diff                       # built-in sample patch
 //!   git diff | cargo run --example diff -- -       # any patch on stdin
 //!   cargo run --example diff -- --file x.patch --split --wrap
-//!   cargo run --example diff -- --snapshot build/diff.png [--split]
+//!   cargo run --example diff -- --snapshot build/diff.png [--split] [--comment]
 //!   cargo run --release --example diff -- --bench  # 12 000 lines: open, scroll, memory
 //!
 //! Keys in the diff: arrows, PageUp/PageDown, Home/End, Shift for ranges,
@@ -12,13 +12,20 @@
 //! file, Enter/Space or Left/Right fold a hunk or file, e / Shift+E show
 //! more context, s split, w wrap, c context, Mod+C copy (Mod+Shift+C as a
 //! patch), Mod+F find, F3 / Shift+F3 next/previous match, Esc clears it.
+//!
+//! Review: click a line number (Shift+click, drag down the numbers for a
+//! range), then the "+" in the gutter or Enter to comment; a composer opens
+//! under the line (Tab reaches it, Escape goes back), and comments show as
+//! threads painted under their lines.
 use fltk::prelude::*;
-use fltk_omarchy::diff::{self, DiffFiles, DiffView, ExpandRequest, Limits};
+use fltk_omarchy::diff::{self, Annotation, DiffFiles, DiffView, ExpandRequest, LineRange, Limits, Side};
 use fltk_omarchy::layout::{self, FlexExt};
 use fltk_omarchy::split::Split;
 use fltk_omarchy::widgets::{glyph, Button, Label, TextField, Tone};
 use fltk_omarchy::{i18n, tr, App, AppWindow, State};
+use std::cell::RefCell;
 use std::io::Read;
+use std::rc::Rc;
 use std::time::Instant;
 
 const SAMPLE: &str = r#"diff --git a/src/player.rs b/src/player.rs
@@ -158,6 +165,16 @@ fn main() {
     }
     if let Some(path) = snapshot {
         view.panel().focus();
+        if flag("--comment") {
+            // Lines 15–16 selected, Enter opens the composer under them
+            // (after a first frame: the window is laid out then).
+            win.snapshot(&path).expect("snapshot");
+            view.set_selected_range(Some(LineRange { file: 0, side: Side::New, start: 15, end: 16 }));
+            fltk_omarchy::focus::press("Enter");
+            win.snapshot(&path).expect("snapshot");
+            win.snapshot(&path).expect("snapshot");
+            return;
+        }
         view.next_hunk(true);
         win.snapshot(&path).expect("snapshot");
         let _ = files;
@@ -231,6 +248,7 @@ fn review(win: &mut AppWindow, text: &str) -> (DiffView, DiffFiles, State<String
     row.add(&*view);
     row.end();
     let view = view.bind_split(&split).bind_wrap(&wrap).bind_show_context(&context);
+    review_comments(&view);
     // Mod+F focuses the find field; F3 works in the diff.
     let mut f2 = field_w.clone();
     win.shortcut("Mod+F", move || {
@@ -241,6 +259,93 @@ fn review(win: &mut AppWindow, text: &str) -> (DiffView, DiffFiles, State<String
 
 thread_local! {
     static VIEW: std::cell::RefCell<Option<DiffView>> = const { std::cell::RefCell::new(None) };
+}
+
+/// A review comment on a range of lines.
+struct Comment {
+    range: LineRange,
+    author: String,
+    text: String,
+}
+
+/// Review threads: comments painted under the last line of their range,
+/// and a composer (a hosted widget) opened by the gutter "+" or Enter.
+fn review_comments(view: &DiffView) {
+    let comments = Rc::new(RefCell::new(vec![Comment {
+        range: LineRange { file: 0, side: Side::New, start: 17, end: 18 },
+        author: "ana".into(),
+        text: "Keep `ahead` next to the queue it bounds?".into(),
+    }]));
+    let draft: Rc<RefCell<Option<LineRange>>> = Rc::default();
+    // The composer: built outside any group, hosted under the line.
+    fltk::group::Group::set_current(None::<&fltk::group::Group>);
+    let text = State::new(String::new());
+    let mut card = layout::row();
+    card.set_margin(6);
+    let field = TextField::new().placeholder(&tr!("Leave a comment")).bind(&text);
+    card.add(&*field);
+    let send = Button::new(&tr!("Comment")).primary();
+    card.fit(&*send);
+    let cancel = Button::new(&tr!("Cancel")).bordered();
+    card.fit(&*cancel);
+    card.end();
+    view.host_annotation("draft", &card);
+
+    let refresh = {
+        let (view, comments, draft) = (view.clone(), comments.clone(), draft.clone());
+        Rc::new(move || {
+            let mut notes: Vec<Annotation> = comments.borrow().iter().enumerate().map(|(i, c)| {
+                let lines = if c.range.start == c.range.end { format!("{}", c.range.end) } else { format!("{}–{}", c.range.start, c.range.end) };
+                Annotation::new(c.range.file, c.range.last(), format!("c{i}"), 52).label(format!("{} ({lines}): {}", c.author, c.text))
+            }).collect();
+            if let Some(r) = *draft.borrow() {
+                notes.push(Annotation::new(r.file, r.last(), "draft", 44));
+            }
+            view.set_annotations(notes);
+        })
+    };
+    refresh();
+    let c2 = comments.clone();
+    let view = view.clone().annotation_painter(move |a| {
+        let Some(c) = a.annotation.id.strip_prefix('c').and_then(|i| i.parse::<usize>().ok()).and_then(|i| c2.borrow().get(i).map(|c| (c.author.clone(), c.text.clone(), c.range))) else { return };
+        let t = a.theme;
+        let (x, y, w, h) = (a.x + 4, a.y + 4, a.w - 8, a.h - 8);
+        fltk_omarchy::paint::fill(x, y, w, h, t.radius, t.palette.lighter_background);
+        fltk_omarchy::paint::fill(x, y, 3, h, 0, t.palette.accent);
+        let lines = if c.2.start == c.2.end { format!("{}", c.2.end) } else { format!("{}–{}", c.2.start, c.2.end) };
+        fltk_omarchy::paint::text(&format!("{} · {lines}", c.0), x + 12, y + 2, w - 16, 18, t.font.caption, true, t.palette.dim, fltk::enums::Align::Left);
+        fltk_omarchy::paint::text(&c.1, x + 12, y + 20, w - 16, h - 22, t.font.body, false, t.palette.foreground, fltk::enums::Align::Left);
+    });
+    let (d2, r2, f2, t2, v2) = (draft.clone(), refresh.clone(), field.clone(), text.clone(), view.clone());
+    let view = view.on_comment(move |range| {
+        *d2.borrow_mut() = Some(range);
+        t2.set(String::new());
+        r2();
+        v2.reveal_annotation("draft");
+        let _ = f2.input().take_focus();
+    });
+    let submit = {
+        let (draft, comments, refresh, text, view) = (draft.clone(), comments.clone(), refresh.clone(), text.clone(), view.clone());
+        Rc::new(move || {
+            let body = text.get();
+            if let Some(range) = draft.borrow_mut().take() {
+                if !body.trim().is_empty() {
+                    comments.borrow_mut().push(Comment { range, author: "you".into(), text: body });
+                }
+            }
+            refresh();
+            view.panel().focus();
+        })
+    };
+    let s2 = submit.clone();
+    let _field = field.on_submit(move |_| s2());
+    let _send = send.on_click(move || submit());
+    let (d3, r3, v3) = (draft, refresh, view);
+    let _cancel = cancel.on_click(move || {
+        d3.borrow_mut().take();
+        r3();
+        v3.panel().focus();
+    });
 }
 
 /// A patch of `files` files with `per_file` lines each, in hunks of 60.
@@ -339,6 +444,44 @@ fn bench() {
             view.rows_drawn()
         );
     }
+    // Annotations: one 48 px painted thread per file (200), unified no-wrap.
+    view.set_split(false);
+    view.set_wrap(false);
+    view.set_scroll_offset(0);
+    fltk::app::flush();
+    let notes: Vec<Annotation> = (0..200).map(|f| Annotation::new(f, diff::LineRef::new(Side::New, 25), format!("n{f}"), 48)).collect();
+    let mut view = view.annotation_painter(|a| {
+        fltk_omarchy::paint::fill(a.x + 4, a.y + 4, a.w - 8, a.h - 8, a.theme.radius, a.theme.palette.lighter_background);
+        fltk_omarchy::paint::text(&a.annotation.id, a.x + 12, a.y + 4, a.w - 24, a.h - 8, a.theme.font.body, false, a.theme.palette.foreground, fltk::enums::Align::Left);
+    });
+    let t = Instant::now();
+    view.set_annotations(notes);
+    view.redraw();
+    fltk::app::flush();
+    let set_ms = t.elapsed().as_secs_f64() * 1e3;
+    let total = view.content_height();
+    let mut frames = Vec::new();
+    let mut y = 0;
+    while y < total.min(60_000) {
+        view.set_scroll_offset(y);
+        let t = Instant::now();
+        fltk::app::flush();
+        frames.push(t.elapsed().as_secs_f64() * 1e3);
+        y += 37;
+    }
+    frames.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let avg = frames.iter().sum::<f64>() / frames.len() as f64;
+    let p95 = frames[(frames.len() as f64 * 0.95) as usize];
+    view.set_scroll_offset(total / 2);
+    fltk::app::flush();
+    let t = Instant::now();
+    for k in 0..50 {
+        view.set_annotation_height("n100", 48 + k);
+        fltk::app::flush();
+    }
+    let grow_ms = t.elapsed().as_secs_f64() * 1e3 / 50.0;
+    println!("annotations (200 × 48 px): set + frame {set_ms:.2} ms; {} scroll frames: avg {avg:.2} ms, p95 {p95:.2} ms; height change + frame {grow_ms:.2} ms", frames.len());
+    view.set_annotations(Vec::new());
     let t = Instant::now();
     let n = view.find("changed_3");
     let find_ms = t.elapsed().as_secs_f64() * 1e3;
