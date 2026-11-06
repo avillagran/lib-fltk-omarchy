@@ -1567,7 +1567,9 @@ fn mono(size: i32, color: Rgb) {
 fn draw_code(cells: &Cells, x: i32, y: i32, w: i32, m: &Metrics, fg: Rgb, wrap: Option<usize>, hx: i32, marks: &[(usize, usize, Rgb)]) {
     let cw = m.cw;
     let cx = |c: usize| (c as f64 * cw).round() as i32;
-    draw::push_clip(x, y, w, i32::MAX / 4);
+    // The view's clip already bounds the height; GDI rejects a clip region
+    // past 16-bit coordinates (i32::MAX / 4 drew nothing on Windows).
+    draw::push_clip(x, y, w, 16_000);
     match wrap {
         Some(cols) => {
             for (k, (a, b)) in cells.wrap(cols).into_iter().enumerate() {
