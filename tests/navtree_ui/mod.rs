@@ -696,7 +696,8 @@ pub fn checks(run: &mut dyn FnMut(&str, Check)) {
         focus::hover_at(&*s.win, r1.0 + r1.2 / 2, r1.1 + r1.3 - 12);
         let p = shot(&s.win, shots, "navtree-cards-1-hover.png")?;
         let status = count_close(&p, line1, yellow, 40)?;
-        check(status == 0, &format!("hovered: no status text ({status} px)"))?;
+        // A few antialiased pixels may land near the color (Windows GDI).
+        check(status < 6, &format!("hovered: no status text ({status} px)"))?;
         let ay = r1.1 + 10 + 10;
         let ax = r1.0 + r1.2 - 12 - 11;
         focus::hover_at(&*s.win, ax, ay);

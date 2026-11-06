@@ -245,7 +245,9 @@ pub fn checks(run: &mut dyn FnMut(&str, Check)) {
         let (x, y, _, h) = rt.embed_rect("mem://chart.png").ok_or("image rect")?;
         check(h == 40, &format!("image height {h}"))?;
         let c = pixel(&p, x + 40, y + 20)?;
-        check(c == [0x20, 0xc0, 0x40], &format!("image pixels drawn: {c:?}"))?;
+        // Within 2 levels: Windows GDI rounds blitted colors by one.
+        let near = |a: u8, b: u8| a.abs_diff(b) <= 2;
+        check(near(c[0], 0x20) && near(c[1], 0xc0) && near(c[2], 0x40), &format!("image pixels drawn: {c:?}"))?;
         check(asked.borrow().len() == 1, "not requested again")?;
         delete(win);
         Ok(())
