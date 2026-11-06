@@ -1,0 +1,119 @@
+#!/usr/bin/env python3
+"""Exercise xdg-activation in an isolated rootless headless Sway container.
+
+Requires the local o3-qml-wayland-tests image and host wtype. Mounts only
+this probe, three X11 client libraries, and a new private fixture directory.
+No host display/runtime/input socket is exposed; no image is published.
+"""
+import json
+import os
+from pathlib import Path
+import subprocess
+import time
+import uuid
+
+ROOT = Path(__file__).resolve().parent.parent
+IMAGE = os.environ.get('PRESENT_WAYLAND_IMAGE', 'localhost/o3-qml-wayland-tests:local')
+
+def main():
+    suffix = uuid.uuid4().hex
+    output = ROOT/'build'/('present-wayland-'+suffix)
+    output.mkdir(parents=True, mode=0o700)
+    (output/'sway.conf').write_text('output * resolution 1280x800\nfocus_follows_mouse no\nfocus_on_window_activation urgent\nseat seat0 fallback true\nxwayland disable\n')
+    name = 'fltk-present-'+suffix
+    args = ['podman','run','--rm','-d','--name',name,'--network=none','--userns=keep-id','--user',f'{os.getuid()}:{os.getgid()}','--entrypoint','/bin/sh',
+            '-v',f'{output}:/fixture:rw','-v',f'{ROOT}/target/debug/examples/present_check:/probe:ro','-v','/usr/bin/wtype:/wtype:ro']
+    for lib in ('libXinerama.so.1','libXcursor.so.1','libXfixes.so.3'):
+        args += ['-v',f'/usr/lib/{lib}:/usr/lib/{lib}:ro']
+    args += ['-e','XDG_RUNTIME_DIR=/fixture','-e','WLR_BACKENDS=headless','-e','WLR_RENDERER=pixman','-e','WLR_LIBINPUT_NO_DEVICES=1',IMAGE,'-c',
+             'cp /usr/sbin/sway /fixture/sway && exec /fixture/sway -c /fixture/sway.conf > /fixture/sway.log 2>&1']
+    subprocess.run(args,check=True,stdout=subprocess.DEVNULL)
+    keyboard = None
+    try:
+        end = time.monotonic()+10
+        while not list(output.glob('wayland-*.lock')) or not list(output.glob('sway-ipc.*.sock')):
+            if time.monotonic()>end: raise RuntimeError('compositor startup timeout; inspect sway.log')
+            time.sleep(.05)
+        display = next(output.glob('wayland-*.lock')).name.removesuffix('.lock')
+        sock = '/fixture/'+next(output.glob('sway-ipc.*.sock')).name
+        def execute(*command):
+            return subprocess.check_output(['podman','exec','-e',f'SWAYSOCK={sock}','-e',f'WAYLAND_DISPLAY={display}',name,*command],text=True,timeout=8)
+        subprocess.run(['podman','exec','-d','-e',f'WAYLAND_DISPLAY={display}','-e','FLTK_BACKEND=wayland','-e','OMARCHY_FLTK_A11Y=off','-e','XDG_CONFIG_HOME=/fixture/config','-e','OMARCHY_FLTK_STATE_DIR=/fixture/state','-e','DESKTOP_STARTUP_ID=unchanged','-e','XDG_ACTIVATION_TOKEN=unchanged',name,'/bin/sh','-c','/probe /fixture > /fixture/application.log 2>&1'],check=True)
+        def read(filename):
+            end=time.monotonic()+8
+            while time.monotonic()<end:
+                try: return json.loads((output/filename).read_text())
+                except (FileNotFoundError,json.JSONDecodeError): time.sleep(.03)
+            raise RuntimeError(f'timeout {filename}; inspect application.log')
+        ready=read('ready.json')
+        assert ready['initial']=={'backend':'Wayland','status':'Requested'},ready
+        def nodes(node):
+            yield node
+            for key in ('nodes','floating_nodes'):
+                for child in node.get(key,[]): yield from nodes(child)
+        def focused():
+            return next((n.get('name') for n in nodes(json.loads(execute('swaymsg','-t','get_tree'))) if n.get('focused')),None)
+        execute('swaymsg','[title="^present-probe-a$"] focus')
+        assert focused()=='present-probe-a'
+        # Explicit unknown token is queued but cannot steal the private
+        # compositor's focus. The API must not claim grant or fake refusal.
+        for seq, hint in enumerate(('activation_token','startup_id'),1):
+            (output/'command.json').write_text(json.dumps({'seq':seq,hint:'private-invalid-token'}))
+            reply=read(f'reply-{seq}.json')
+            assert reply=={'result':{'backend':'Wayland','status':'Requested'},'env_unchanged':True},reply
+            time.sleep(.1)
+            assert focused()=='present-probe-a','invalid token bypassed compositor policy'
+        # A valid native gesture still obeys compositor policy: urgent
+        # mode may request attention while keeping the current window.
+        execute('/wtype','-s','300','1','-s','500')
+        events=read('events.json')
+        assert events['count']==1,events
+        assert focused()=='present-probe-a','urgent policy was bypassed'
+        views=list(nodes(json.loads(execute('swaymsg','-t','get_tree'))))
+        assert any(n.get('name')=='present-probe-b' and n.get('urgent') for n in views), 'valid gesture did not request attention'
+        execute('swaymsg','focus_on_window_activation smart')
+        keyboard=subprocess.Popen(['podman','exec','-e',f'WAYLAND_DISPLAY={display}',name,'/wtype','-s','300','1','-s','15000'])
+        end=time.monotonic()+5
+        while time.monotonic()<end and focused()!='present-probe-b': time.sleep(.05)
+        events=read('events.json')
+        assert events['count']==2 and all(e['result']=={'backend':'Wayland','status':'Requested'} for e in events['events']),events
+        assert focused()=='present-probe-b','native gesture did not activate under smart policy'
+        # Synthetic toolkit input must not reuse the preceding native
+        # serial while the real virtual keyboard/seat is still alive.
+        execute('swaymsg','[title="^present-probe-a$"] focus')
+        time.sleep(.1)
+        (output/'command.json').write_text(json.dumps({'seq':3,'synthetic':True}))
+        reply=read('reply-3.json')
+        assert reply=={'result':{'synthetic_used':True},'env_unchanged':True},reply
+        time.sleep(.1)
+        assert focused()=='present-probe-a','synthetic key borrowed a real native serial'
+        events=read('events.json')
+        assert events['count']==3 and events['events'][-1]['result']=={'backend':'Wayland','status':'Requested'},events
+        # Sway's private launcher supplies a fresh startup token to a tiny
+        # child. Forward it explicitly; never change the probe environment.
+        (output/'capture-token.sh').write_text('#!/bin/sh\nprintf "%s" "$XDG_ACTIVATION_TOKEN" > /fixture/launch-token\n')
+        for seq,hint in ((4,'activation_token'),(5,'startup_id')):
+            execute('swaymsg','[title="^present-probe-a$"] focus')
+            token_file=output/'launch-token'
+            if token_file.exists(): token_file.unlink()
+            execute('swaymsg','exec /bin/sh /fixture/capture-token.sh')
+            end=time.monotonic()+3
+            while not token_file.exists() and time.monotonic()<end: time.sleep(.03)
+            token=token_file.read_text()
+            assert token, 'private launcher did not provide startup context'
+            (output/'command.json').write_text(json.dumps({'seq':seq,hint:token}))
+            reply=read(f'reply-{seq}.json')
+            assert reply=={'result':{'backend':'Wayland','status':'Requested'},'env_unchanged':True}, 'explicit-token result mismatch'
+            end=time.monotonic()+3
+            while time.monotonic()<end and focused()!='present-probe-b': time.sleep(.05)
+            assert focused()=='present-probe-b', 'explicit startup context did not activate target'
+            token_file.unlink()
+        (output/'done').write_text('done\n')
+        print('PASS Wayland: synthetic input cannot borrow native serial; native gesture respects urgent/smart policies; valid explicit token/startup-id activates own B; invalid hints preserve A; honest Requested and unchanged environment')
+        print(output)
+    finally:
+        subprocess.run(['podman','stop','--time','3',name],stdout=subprocess.DEVNULL,check=False,timeout=8)
+        if keyboard is not None:
+            keyboard.wait(timeout=5)
+
+if __name__=='__main__': main()

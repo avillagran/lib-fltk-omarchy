@@ -1,0 +1,152 @@
+#!/usr/bin/env python3
+"""Check presentation wire messages on a private Xvfb; never use the desktop."""
+import ctypes as C
+import json
+import os
+from pathlib import Path
+import select
+import subprocess
+import time
+import uuid
+
+ROOT = Path(__file__).resolve().parent.parent
+
+def read_json(path, process=None):
+    end = time.monotonic() + 8
+    while time.monotonic() < end:
+        try:
+            return json.loads(path.read_text())
+        except (FileNotFoundError, json.JSONDecodeError):
+            if process is not None and process.poll() is not None:
+                raise RuntimeError("probe exited; inspect application.log")
+            time.sleep(.02)
+    raise RuntimeError(f"timed out waiting for {path.name}")
+
+
+def x11_check(output, env):
+    x = C.CDLL('libX11.so.6')
+    ptr, ulong, long, integer = C.c_void_p, C.c_ulong, C.c_long, C.c_int
+    class Data(C.Union):
+        _fields_ = [('bytes', C.c_ubyte * 20), ('longs', long * 5)]
+    class Message(C.Structure):
+        _fields_ = [('kind', integer), ('serial', ulong), ('sent', integer), ('display', ptr), ('window', ulong), ('type', ulong), ('format', integer), ('data', Data)]
+    class Event(C.Union):
+        _fields_ = [('message', Message), ('pad', long * 24)]
+    signatures = {
+        'XOpenDisplay': (ptr, [C.c_char_p]), 'XDefaultRootWindow': (ulong, [ptr]),
+        'XInternAtom': (ulong, [ptr, C.c_char_p, integer]),
+        'XChangeProperty': (integer, [ptr, ulong, ulong, ulong, integer, integer, ptr, integer]),
+        'XSelectInput': (integer, [ptr, ulong, long]), 'XSync': (integer, [ptr, integer]),
+        'XPending': (integer, [ptr]), 'XNextEvent': (integer, [ptr, C.POINTER(Event)]),
+        'XGetInputFocus': (integer, [ptr, C.POINTER(ulong), C.POINTER(integer)]),
+        'XGetWindowProperty': (integer, [ptr, ulong, ulong, long, long, integer, ulong, C.POINTER(ulong), C.POINTER(integer), C.POINTER(ulong), C.POINTER(ulong), C.POINTER(ptr)]),
+        'XFree': (integer, [ptr]), 'XCloseDisplay': (integer, [ptr]),
+    }
+    for name, (result, args) in signatures.items():
+        getattr(x, name).restype, getattr(x, name).argtypes = result, args
+    d = x.XOpenDisplay(env['DISPLAY'].encode())
+    assert d
+    root = x.XDefaultRootWindow(d)
+    def atom(name): return x.XInternAtom(d, name.encode(), 0)
+    active, supported = atom('_NET_ACTIVE_WINDOW'), atom('_NET_SUPPORTED')
+    begin, more = atom('_NET_STARTUP_INFO_BEGIN'), atom('_NET_STARTUP_INFO')
+    def prop(window, key, kind, values):
+        data = (ulong * len(values))(*values)
+        x.XChangeProperty(d, window, key, kind, 32, 0, data, len(values))
+        x.XSync(d, 0)
+    def focus():
+        w, revert = ulong(), integer()
+        x.XGetInputFocus(d, C.byref(w), C.byref(revert))
+        return w.value
+    def messages():
+        x.XSync(d, 0)
+        result = []
+        while x.XPending(d):
+            e = Event()
+            x.XNextEvent(d, C.byref(e))
+            if e.message.kind == 33:
+                m = e.message
+                result.append((m.window, m.type, m.format, list(m.data.longs), bytes(m.data.bytes)))
+        return result
+    x.XSelectInput(d, root, (1 << 20) | (1 << 19) | (1 << 22))
+    with (output/'application.log').open('w') as log:
+        process = subprocess.Popen([str(ROOT/'target/debug/examples/present_check'), str(output)], env=env, stdout=log, stderr=subprocess.STDOUT)
+        try:
+            ready = read_json(output/'ready.json', process)
+            assert ready['initial'] == {'backend':'X11', 'status':'Unsupported'}, ready
+            a, b = ready['a'], ready['b']
+            initial_focus = focus()
+            seq = 0
+            def request(status, **options):
+                nonlocal seq
+                seq += 1
+                (output/'command.json').write_text(json.dumps(dict(seq=seq, **options)))
+                reply = read_json(output/f'reply-{seq}.json', process)
+                assert reply['env_unchanged'], reply
+                expected = {'error':status} if status == 'InvalidHint' else {'backend':'X11','status':status}
+                assert reply['result'] == expected, reply
+                return messages()
+            prop(root, supported, 4, [active])
+            prop(root, active, 33, [a])
+            request('Granted', window='a')
+            startup = 'probe "quoted" \\ Unicode 日本語 and enough chunks_TIME123'
+            events = request('Requested', startup_id=startup)
+            wm = [e for e in events if e[1] == active]
+            assert len(wm) == 1 and wm[0][0] == b and wm[0][2] == 32 and wm[0][3][:3] == [1, 123, a], events
+            notice = [e for e in events if e[1] in (begin, more)]
+            assert notice and notice[0][1] == begin and all(e[1] == more for e in notice[1:])
+            wire = b''.join(e[4] for e in notice).split(b'\0')[0].decode()
+            assert wire == 'remove: ID="' + startup.replace('\\', '\\\\').replace('"', '\\"') + '"', wire
+            ty, fmt, count, after, data = ulong(), integer(), ulong(), ulong(), ptr()
+            assert x.XGetWindowProperty(d,b,atom('_NET_STARTUP_ID'),0,2048,0,0,C.byref(ty),C.byref(fmt),C.byref(count),C.byref(after),C.byref(data)) == 0
+            try:
+                assert ty.value == atom('UTF8_STRING') and fmt.value == 8 and C.string_at(data,count.value).decode() == startup
+            finally:
+                if data: x.XFree(data)
+            events = request('Requested', startup_id='probe_TIME3', timestamp=987)
+            assert [e for e in events if e[1] == active][0][3][1] == 987
+            assert not request('InvalidHint', startup_id='bad\0hint')
+            assert not request('InvalidHint', activation_token='x' * (60*1024+1))
+            prop(root, supported, 4, [])
+            assert not request('Unsupported')
+            # A stale/wrong-type active property cannot manufacture a grant.
+            prop(root, active, 4, [b])
+            prop(root, supported, 4, [active])
+            events = request('Requested')
+            assert [e for e in events if e[1] == active][0][3][2] == 0
+            assert focus() == initial_focus, 'presentation changed focus without a window manager'
+            print('PASS X11 unsupported/granted/requested, EWMH payload, startup UTF-8/chunks/escaping, timestamp, hint bounds, unchanged environment/focus')
+        finally:
+            (output/'done').write_text('done\n')
+            try: process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.terminate()
+                process.wait(timeout=5)
+            x.XCloseDisplay(d)
+
+
+def main():
+    output = ROOT/'build'/('present-x11-'+uuid.uuid4().hex)
+    output.mkdir(parents=True)
+    env = os.environ.copy()
+    for name in ('DISPLAY','WAYLAND_DISPLAY','XAUTHORITY','HYPRLAND_INSTANCE_SIGNATURE'):
+        env.pop(name,None)
+    env.update(FLTK_BACKEND='x11', OMARCHY_FLTK_A11Y='off', OMARCHY_FLTK_STATE_DIR=str(output/'state'), XDG_CONFIG_HOME=str(output/'config'), DESKTOP_STARTUP_ID='unchanged', XDG_ACTIVATION_TOKEN='unchanged')
+    read, write = os.pipe()
+    with (output/'xvfb.log').open('w') as log:
+        server = subprocess.Popen(['Xvfb','-displayfd',str(write),'-screen','0','1280x800x24','-nolisten','tcp','-noreset'],env=env,pass_fds=(write,),stdout=log,stderr=subprocess.STDOUT)
+        os.close(write)
+        try:
+            assert select.select([read],[],[],8)[0], 'Xvfb startup timeout'
+            number = os.read(read,32).strip()
+            assert number.isdigit() and server.poll() is None
+            env['DISPLAY'] = ':'+number.decode()
+            x11_check(output,env)
+            print(output)
+        finally:
+            os.close(read)
+            if server.poll() is None:
+                server.terminate()
+                server.wait(timeout=5)
+
+if __name__ == '__main__': main()

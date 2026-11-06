@@ -1,4 +1,7 @@
-//! Native window gestures: ask the compositor to move or resize a window
+//! Native window presentation and gestures. [`present`] requests activation
+//! with explicit startup context; see [`PresentOptions`] and [`PresentStatus`].
+//!
+//! Interactive gestures: ask the compositor to move or resize a window
 //! interactively (`xdg_toplevel.move` / `.resize` through FLTK's bundled
 //! libdecor on Wayland), with the serial of the real button press. Works on
 //! any Wayland compositor; no compositor IPC.
@@ -16,6 +19,9 @@
 use fltk::{app, enums::Event, prelude::*};
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicU32, Ordering};
+
+mod presentation;
+pub use presentation::{present, PresentBackend, PresentError, PresentOptions, PresentStatus, Presentation};
 
 static MOVES: AtomicU32 = AtomicU32::new(0);
 static RESIZES: AtomicU32 = AtomicU32::new(0);

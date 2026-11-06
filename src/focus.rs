@@ -25,6 +25,7 @@ use crate::panel::KeyboardPanel;
 type ScopeFn = Box<dyn FnMut(Key) -> bool>;
 
 thread_local! {
+    static NATIVE_DISPATCH: Cell<bool> = const { Cell::new(false) };
     static CURRENT_DISPATCH: Cell<u64> = const { Cell::new(0) };
     static NEXT_DISPATCH: Cell<u64> = const { Cell::new(1) };
     static INSTALLED: Cell<bool> = const { Cell::new(false) };
@@ -59,14 +60,23 @@ pub fn install() {
 // One native event may visit a scene group and its GL child. Keep its
 // identity across that routing (and restore it after nested dispatch).
 pub(crate) fn dispatch_serial() -> u64 { CURRENT_DISPATCH.with(Cell::get) }
-struct DispatchScope(u64);
+// Only native backends which borrow input serials need this distinction.
+#[allow(dead_code)]
+pub(crate) fn in_native_dispatch() -> bool { NATIVE_DISPATCH.with(Cell::get) }
+struct DispatchScope(u64, bool);
 impl Drop for DispatchScope {
-    fn drop(&mut self) {CURRENT_DISPATCH.with(|s|s.set(self.0));}
+    fn drop(&mut self) {CURRENT_DISPATCH.with(|s|s.set(self.0)); NATIVE_DISPATCH.with(|s|s.set(self.1));}
 }
 
 fn dispatch(ev: Event, win: app::WindowPtr) -> bool {
+    dispatch_origin(ev, win, true)
+}
+fn synthetic_dispatch(ev: Event, win: app::WindowPtr) -> bool {
+    dispatch_origin(ev, win, false)
+}
+fn dispatch_origin(ev: Event, win: app::WindowPtr, native: bool) -> bool {
     let serial=NEXT_DISPATCH.with(|s|{let n=s.get();s.set(n.wrapping_add(1).max(1));n});
-    let _scope=DispatchScope(CURRENT_DISPATCH.with(|s|s.replace(serial)));
+    let _scope=DispatchScope(CURRENT_DISPATCH.with(|s|s.replace(serial)), NATIVE_DISPATCH.with(|s|s.replace(native)));
     #[cfg(feature="gpu")]
     if let Some((top,dx,dy))=crate::overlay::native_route(ev,win){
         return crate::platform::fl_abi::with_event_offset(dx,dy,||dispatch_one(ev,top));
@@ -744,7 +754,7 @@ pub fn press(spec: &str) -> bool {
             FL_E_LENGTH = len;
         }
     });
-    let used = dispatch(Event::KeyDown, window as app::WindowPtr);
+    let used = synthetic_dispatch(Event::KeyDown, window as app::WindowPtr);
     // SAFETY: as above.
     unsafe { FL_E_STATE = 0 };
     // No key release follows: the next press of this key is a new press.
@@ -787,7 +797,7 @@ pub fn type_text(text: &str) -> bool {
             FL_E_LENGTH = text.len() as i32;
         }
     });
-    dispatch(Event::KeyDown, window as app::WindowPtr)
+    synthetic_dispatch(Event::KeyDown, window as app::WindowPtr)
 }
 
 /// True when `w` and its groups are visible inside its window (the window
@@ -839,7 +849,7 @@ pub fn hover_at<W: WindowExt>(window: &W, x: i32, y: i32) {
         FL_E_Y_ROOT = root_y;
         FL_E_STATE = 0;
     }
-    dispatch(Event::Move, win);
+    synthetic_dispatch(Event::Move, win);
 }
 
 /// Sends a left click (press + release) at window coordinates `(x, y)` of
@@ -862,10 +872,10 @@ pub fn click_at_with<W: WindowExt>(window: &W, x: i32, y: i32, mods: Shortcut) {
         FL_E_KEYSYM = Key::from_i32(0xfee8 + 1).bits(); // FL_Button + 1 (left)
         FL_E_STATE = 0x0100_0000 | mods.bits(); // FL_BUTTON1
     }
-    dispatch(Event::Push, win);
+    synthetic_dispatch(Event::Push, win);
     // SAFETY: as above.
     unsafe { FL_E_STATE = 0 };
-    dispatch(Event::Released, win);
+    synthetic_dispatch(Event::Released, win);
 }
 
 /// Sends a right click (press + release) at window coordinates `(x, y)` of
@@ -890,10 +900,10 @@ pub fn click_button_at<W: WindowExt>(window: &W, x: i32, y: i32, button: i32) {
         FL_E_KEYSYM = Key::from_i32(0xfee8 + button).bits();
         FL_E_STATE = match button { 1 => 0x0100_0000, 2 => 0x0200_0000, 3 => 0x0400_0000, _ => 0 };
     }
-    dispatch(Event::Push, win);
+    synthetic_dispatch(Event::Push, win);
     // SAFETY: as above.
     unsafe { FL_E_STATE = 0 };
-    dispatch(Event::Released, win);
+    synthetic_dispatch(Event::Released, win);
 }
 
 /// Presses the left button at `from` (window coordinates of `window`),
@@ -916,12 +926,12 @@ pub fn mouse_drag<W: WindowExt>(window: &W, from: (i32, i32), to: (i32, i32), re
         }
     };
     at(from.0, from.1, 0x0100_0000);
-    dispatch(Event::Push, win);
+    synthetic_dispatch(Event::Push, win);
     for k in 1..=4 {
         let x = from.0 + (to.0 - from.0) * k / 4;
         let y = from.1 + (to.1 - from.1) * k / 4;
         at(x, y, 0x0100_0000);
-        dispatch(Event::Drag, win);
+        synthetic_dispatch(Event::Drag, win);
     }
     if release {
         mouse_up(window, to.0, to.1);
@@ -941,7 +951,7 @@ pub fn mouse_up<W: WindowExt>(window: &W, x: i32, y: i32) {
         FL_E_KEYSYM = Key::from_i32(0xfee8 + 1).bits();
         FL_E_STATE = 0;
     }
-    dispatch(Event::Released, win);
+    synthetic_dispatch(Event::Released, win);
 }
 
 /// Turns the mouse wheel by `dy` notches (positive: down) at window
@@ -959,7 +969,7 @@ pub fn wheel_at<W: WindowExt>(window: &W, x: i32, y: i32, dy: i32) -> bool {
         FL_E_STATE = 0;
         FL_E_DY = dy;
     }
-    let used = dispatch(Event::MouseWheel, win);
+    let used = synthetic_dispatch(Event::MouseWheel, win);
     // SAFETY: as above.
     unsafe { FL_E_DY = 0 };
     used
@@ -989,14 +999,14 @@ pub fn drop_at<W: WindowExt>(window: &W, x: i32, y: i32, text: &str, release: bo
         FL_E_STATE = 0;
     }
     if DRAGGING.with(|d| !d.replace(true)) {
-        dispatch(Event::DndEnter, win);
+        synthetic_dispatch(Event::DndEnter, win);
     }
-    let over = dispatch(Event::DndDrag, win);
+    let over = synthetic_dispatch(Event::DndDrag, win);
     if !release {
         return over;
     }
     DRAGGING.with(|d| d.set(false));
-    if !dispatch(Event::DndRelease, win) {
+    if !synthetic_dispatch(Event::DndRelease, win) {
         return false;
     }
     let Some(mut target) = app::belowmouse::<Widget>() else {
@@ -1024,5 +1034,27 @@ thread_local! {
 /// The drag of [`drop_at`] (`release: false`) leaves the window.
 pub fn drag_leave<W: WindowExt>(window: &W) {
     DRAGGING.with(|d| d.set(false));
-    dispatch(Event::DndLeave, window.as_widget_ptr() as app::WindowPtr);
+    synthetic_dispatch(Event::DndLeave, window.as_widget_ptr() as app::WindowPtr);
+}
+
+
+#[cfg(test)]
+mod presentation_dispatch_tests {
+    use super::*;
+    #[test]
+    fn nested_synthetic_dispatch_never_borrows_native_permission() {
+        assert!(!in_native_dispatch());
+        let native = DispatchScope(CURRENT_DISPATCH.with(|s| s.replace(7)), NATIVE_DISPATCH.with(|s| s.replace(true)));
+        assert!(in_native_dispatch());
+        {
+            let _synthetic = DispatchScope(CURRENT_DISPATCH.with(|s| s.replace(8)), NATIVE_DISPATCH.with(|s| s.replace(false)));
+            assert!(!in_native_dispatch());
+            assert_eq!(dispatch_serial(), 8);
+        }
+        assert!(in_native_dispatch());
+        assert_eq!(dispatch_serial(), 7);
+        drop(native);
+        assert!(!in_native_dispatch());
+        assert_eq!(dispatch_serial(), 0);
+    }
 }

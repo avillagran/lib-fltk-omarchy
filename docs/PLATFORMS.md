@@ -22,6 +22,7 @@ it behaves exactly as before the platform layer.
 | `Mode::Floating` header drag / corner resize | compositor (`xdg_toplevel.move/resize` via libdecor) | Hyprland IPC, else FLTK moves/resizes the window | FLTK moves/resizes the window | FLTK moves/resizes the window |
 | `Mode::Floating` at map | Hyprland IPC | Hyprland IPC | the OS window is already floating | same |
 | Glassy windows (`glass`) | translucent surfaces, Hyprland blurs | opaque | opaque | opaque |
+| `native::present` ([guide](PRESENTATION.md)) | xdg-activation request | EWMH/startup notification | AppKit activation | SetForegroundWindow |
 | `native::pixels_per_unit` | FLTK scale × Wayland output scale | FLTK scale | FLTK's value (Retina included) | FLTK's value |
 | Config/state/cache dirs (`platform::dirs`) | XDG | XDG | `~/Library/Application Support`, `~/Library/Caches` | `%APPDATA%`, `%LOCALAPPDATA%` |
 | GPU shaders (`gpu` feature) | yes | yes | builds (OpenGL through FLTK) | builds (OpenGL through FLTK) |

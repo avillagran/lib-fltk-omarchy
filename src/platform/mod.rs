@@ -32,6 +32,8 @@ mod generic;
 pub(crate) mod instance;
 pub mod languages;
 pub mod memory;
+/// Native activation protocols for `native::present`.
+pub(crate) mod presentation;
 /// Child processes and audio outputs for `crate::media` playback.
 #[cfg(feature = "playback")]
 pub(crate) mod playback;
