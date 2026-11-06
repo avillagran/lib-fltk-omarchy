@@ -268,7 +268,7 @@ on the GPU backend than on the CPU backend; idle stays 0 %; total PSS
 | P0 6 SVG icons (`icon`, Lucide subset, theme tint, raster cache) | merged |
 | P0 7 single instance and app IPC (`instance`) | merged |
 | P0 8 NavTree o3 rows: cards, trailing actions, tree guides, hover preview, `ShelfResizer` | merged |
-| P1 9 native diff viewer (`diff`: parser, `DiffView`, `DiffFiles`; docs/DIFF.md) | done on branch, not merged |
+| P1 9 native diff viewer (`diff`: parser, `DiffView`, `DiffFiles`; docs/DIFF.md) | merged |
 | P1 12 splitter (`split::Split`) | merged |
 | P1 13 reorder in plain lists (`List::reorderable`) | merged |
 | P1 14 nested scroll hand-off (`Scroll::passes`) | merged for List, Table, Tree; RichText and NavTree pending |
