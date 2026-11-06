@@ -53,6 +53,11 @@ pub struct MarkdownOptions {
     /// drawn as code): `Some(Arc::new(file_path_link))` turns `src/lib.rs:12`
     /// into `file://src/lib.rs:12`, as T3 does.
     pub code_links: Option<CodeLink>,
+    /// `$…$` and `$$…$$` are math, shown as text ([`super::math`]): Greek
+    /// letters, operators, scripts, fractions (T3's `mathRenderingEnabled`).
+    /// Off: dollars are plain text. Apps that also get `\(…\)` / `\[…\]`
+    /// pass their Markdown through [`super::math::normalize_delimiters`].
+    pub math: bool,
 }
 
 impl Default for MarkdownOptions {
@@ -61,6 +66,7 @@ impl Default for MarkdownOptions {
             highlight: Some(Arc::new(super::highlight::basic)),
             images: false,
             code_links: None,
+            math: false,
         }
     }
 }
@@ -87,6 +93,12 @@ impl MarkdownOptions {
         self
     }
 
+    /// `$…$` / `$$…$$` as math (see [`MarkdownOptions::math`]).
+    pub fn with_math(mut self, on: bool) -> Self {
+        self.math = on;
+        self
+    }
+
     /// Inline code mapped to links by `f`.
     pub fn with_code_links(mut self, f: impl Fn(&str) -> Option<String> + Send + Sync + 'static) -> Self {
         self.code_links = Some(Arc::new(f));
@@ -100,6 +112,7 @@ impl fmt::Debug for MarkdownOptions {
             .field("highlight", &self.highlight.is_some())
             .field("images", &self.images)
             .field("code_links", &self.code_links.is_some())
+            .field("math", &self.math)
             .finish()
     }
 }
@@ -172,11 +185,12 @@ pub fn file_path_link(code: &str) -> Option<String> {
     Some(href(&c))
 }
 
-fn cmark_options() -> Options {
-    Options::ENABLE_TABLES
+fn cmark_options(math: bool) -> Options {
+    let o = Options::ENABLE_TABLES
         | Options::ENABLE_STRIKETHROUGH
         | Options::ENABLE_TASKLISTS
-        | Options::ENABLE_GFM
+        | Options::ENABLE_GFM;
+    if math { o | Options::ENABLE_MATH } else { o }
 }
 
 /// One-shot parse with the default options.
@@ -349,7 +363,7 @@ fn convert(
         defs.get(&label_key(&link.reference))
             .map(|(u, t)| (CowStr::from(u.clone()), CowStr::from(t.clone())))
     };
-    let mut it = Parser::new_with_broken_link_callback(src, cmark_options(), Some(callback))
+    let mut it = Parser::new_with_broken_link_callback(src, cmark_options(opts.math), Some(callback))
         .into_offset_iter();
     let mut c = Conv::new(src, cont, opts);
     for (ev, range) in &mut it {
@@ -565,11 +579,11 @@ impl<'s> Conv<'s> {
                 }
                 self.text(&t, &style);
             }
-            Event::Html(t)
-            | Event::InlineHtml(t)
-            | Event::InlineMath(t)
-            | Event::DisplayMath(t)
-            | Event::FootnoteReference(t) => {
+            Event::InlineMath(t) | Event::DisplayMath(t) => {
+                let style = self.style().italic();
+                self.text(&super::math::to_text(&t), &style);
+            }
+            Event::Html(t) | Event::InlineHtml(t) | Event::FootnoteReference(t) => {
                 self.text(&t, &Style::plain());
             }
             Event::SoftBreak => {
@@ -986,6 +1000,16 @@ pub(crate) fn find_urls(s: &str) -> Vec<(Range<usize>, String)> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn math_is_text_only_when_enabled() {
+        let on = MarkdownOptions::plain().with_math(true);
+        let b = parse_with("Energy $E = mc^2$ and $$\\sum_{i=1}^{n} i$$", &on);
+        let text: String = b.iter().map(|x| x.content.text().to_string()).collect();
+        assert!(text.contains("E = mc²") && text.contains("∑ᵢ₌₁ⁿ i"), "{text}");
+        let off = parse_with("costs $5 and $6", &MarkdownOptions::plain());
+        assert!(off[0].content.text().contains("$5 and $6"));
+    }
     use super::*;
 
     fn kinds(blocks: &[Block]) -> Vec<String> {

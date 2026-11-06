@@ -42,6 +42,7 @@ pub mod highlight;
 pub mod label;
 pub mod layout;
 pub mod markdown;
+pub mod math;
 pub(crate) mod store;
 pub mod transcript;
 pub mod view;

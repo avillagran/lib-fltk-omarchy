@@ -256,7 +256,7 @@ on the GPU backend than on the CPU backend; idle stays 0 %; total PSS
 | P1 15 paced animation clock (`anim::Pace`, `PaceMode`) | merged |
 | P1 16 layer rendering (`layer::Layer`, `capture`, `cross_fade`) | merged |
 | P1 9 native diff viewer, 10 `FrameView`, 11 video/audio | in progress |
-| P1 20 math | not started |
+| P1 20 math (`text::math`, `MarkdownOptions::with_math`: Unicode text like o3, no math layout engine) | merged |
 | Section 4 GPU scene | not started |
 
 Verified locally on the merged branch: unit, doc and UI tests on X11
