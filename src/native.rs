@@ -85,6 +85,13 @@ pub fn begin_resize<W: WidgetExt>(w: &W, edge: Edge) -> bool {
 /// macOS and Windows: FLTK's own `pixels_per_unit` (it includes Retina).
 pub fn pixels_per_unit<W: WidgetExt>(w: &W) -> f32 {
     let Some(win) = w.top_window() else { return 1.0 };
+    if !win.shown() {
+        // Offscreen renders and windows not shown yet: FLTK's scaling only
+        // (asking macOS's backend about a window without a native one
+        // asserts on its null handle).
+        let s = app::screen_scale(0);
+        return if s.is_finite() && s > 0.0 { s } else { 1.0 };
+    }
     let ppu = match crate::platform::output_scale(win.as_widget_ptr() as *const c_void, win.shown()) {
         Some(output) => app::screen_scale(win.screen_num()) * output as f32,
         None => {
