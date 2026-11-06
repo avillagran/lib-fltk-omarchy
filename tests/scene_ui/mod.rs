@@ -27,6 +27,8 @@ fn content(x: i32, y: i32) {
     scene::clip(Rect::new(x + 170, y + 70, 55, 50), || {
         image.draw(Rect::new(x + 160, y + 60, 80, 70));
     });
+    let uniforms = fltk_omarchy::gfx::Uniforms::from_theme(&t, (60.0, 18.0));
+    assert!(scene::shader(Rect::new(x + 20, y + 112, 60, 18), &fltk_omarchy::gfx::shaders::gradient(), &uniforms));
     let (child, ()) = Scene::record(|| paint::fill(-10, -5, 20, 20, 4, t.palette.accent));
     let child = scene::Layer::new(Rect::new(-10, -5, 20, 20), child).unwrap();
     assert!(child.draw_at(x + 235, y + 20, 0.5));

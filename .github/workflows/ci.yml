@@ -95,6 +95,14 @@ jobs:
         run: |
           cargo build --locked --all-targets --features gpu
           env -u WAYLAND_DISPLAY xvfb-run -a -s "-screen 0 1280x800x24" cargo test --locked --features gpu
+      - name: single-surface GPU scene read-back (private Xvfb)
+        run: env -u WAYLAND_DISPLAY xvfb-run -a -s "-screen 0 1280x800x24" cargo run --locked --features gpu --example scene_gpu_check
+      - name: GPU scene failure snapshots
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scene-gpu-x11
+          path: target/scene-gpu-check/
       - name: a11y feature (AccessKit; tree checks without a bus)
         run: env -u WAYLAND_DISPLAY xvfb-run -a -s "-screen 0 1280x800x24" cargo test --locked --features a11y
       - name: qr feature

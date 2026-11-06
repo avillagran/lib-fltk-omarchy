@@ -106,6 +106,63 @@ without an opaque background, but root `draw_damage` still requires one.
 `draw_at` returns false on surface/coordinate failures; recorded calls
 defer rasterization until replay. Check the return when drawing directly.
 
+## Single-surface GL compositor spike
+
+With feature `gpu`, `scene::gpu::{PreparedScene, Renderer}` composes a
+retained scene into one current OpenGL 3.3 framebuffer. This is a low-level
+backend spike, not automatic AppWindow rendering or a safe scene widget.
+
+1. Prepare the scene on the UI thread with `PreparedScene::new`, before
+   entering a GL callback. It resolves CPU fallbacks and folds clip scopes.
+2. In the current GL context, construct `Renderer` once. It uploads textures
+   and compiles shader programs. It deduplicates shared image resources and
+   shader sources and caps retained textures at 64 MiB.
+3. `Renderer::move_to` and `set_opacity` update a prepared card/sprite
+   without reflow, rasterization or uploads. Indexes use visible prepared
+   paint order; stable app keys and managed input routing are still pending.
+   Top-level shader opacity changes are not yet supported.
+4. `Renderer::draw(logical_size, framebuffer_size, time_override)` submits
+   quads in scene order to the bound framebuffer, using scissor clips and
+   premultiplied source-over. Changing shader time requires no new text
+   rasterization, shader compilation or texture upload.
+5. Destroy the renderer while its GL context is still current. Its unsafe
+   API documents the caller's context/state/lifetime responsibilities. It
+   creates no window or animation timer and does not restore GL state.
+
+Simple opaque and alpha rectangles and top-level portable shaders run
+natively in GL. `scene::shader(rect, &program, &uniforms)` records a shared
+`gfx::sl` program and local uniforms; CPU replay evaluates the same program
+into bounded RGBA. Logical size follows the target rectangle. On the GPU,
+the renderer can override time independently of the retained scene.
+
+Text runs, rounded primitives, isolated layers and scaled source images
+currently use native CPU raster fallbacks uploaded once as RGBA textures.
+Scaled images use the native resampler during preparation to preserve CPU
+sampling parity. GL textures use premultiplied colors before filtering,
+which avoids halos from transparent texels. This is not a glyph/image
+atlas, geometry batching or native GPU layer rendering. A shader inside an
+isolated CPU layer is flattened at preparation time; draw-time animation
+currently affects only top-level shader commands. Rebuild preparation when
+layout/theme/language/fonts/scale change. CPU fallbacks are at logical 1×.
+
+Validation command (a real GL context, window inside a private Xvfb):
+
+```sh
+env -u WAYLAND_DISPLAY xvfb-run -a -s "-screen 0 1280x800x24" \
+  cargo run --features gpu --example scene_gpu_check
+```
+
+The example compares full CPU and GPU RGB images at 256×192 (maximum
+channel error ≤2), verifies shader-time changes, card movement/fading without texture uploads,
+and checks GL errors.
+It includes a gradient background shader, translucent rounded card with
+text, nested clipping, alpha rectangles and a scaled image with transparent
+texels. CPU/GPU PNGs and JSON go to `target/scene-gpu-check`. On NODE,
+NVIDIA RTX 3070 Ti: max channel error 2, GL error 0, 8 prepared primitives,
+70,296 bytes of retained textures. This is a correctness result, not a CPU,
+GPU or memory efficiency benchmark. CI runs the same check in Xvfb; a
+software GL renderer can prove correctness but not power consumption.
+
 ## Current limits and next stages
 
 - Only shared `paint` helpers are recorded. Raw `fltk::draw` operations,
@@ -115,16 +172,17 @@ defer rasterization until replay. Check the return when drawing directly.
   runs or a GPU atlas. Recording text needs the UI thread and a surface
   for measurement. This API does not make FLTK objects thread-safe.
 - Scene clips are rectangular. Paths, shadows, rounded alpha
-  surfaces, affine transforms and shader commands still
-  need common representations and CPU/GPU parity checks.
-- There is no automatic per-widget scene cache, damage tracker, GL scene
-  renderer, plain-FLTK texture bridge or renderer-selection policy yet.
+  surfaces and affine transforms still need common representations and
+  CPU/GPU parity checks; GPU isolated-layer shaders remain pending.
+- There is no automatic per-widget scene cache, damage tracker, integrated
+  window renderer, plain-FLTK widget texture bridge or renderer-selection
+  policy yet.
   Existing GPU shaders remain `gfx::View`/`GpuView`, with their documented
   subwindow/composition limits.
 
-Next: extend the common primitives, add a single GL scene surface with
-quad batching and text/image atlases, then compose widget fallbacks and
-shader layers. Measure real hardware at 4K/120 Hz before changing the
+Next: integrate the GL compositor with a managed scene surface, add quad
+batching and text/image atlases, then native isolated shader layers and
+widget texture fallbacks. Extend the remaining common primitives. Measure real hardware at 4K/120 Hz before changing the
 default. Compare total process/driver memory and CPU, not submission time
 alone; software GL is useful for correctness, not efficiency claims.
 

@@ -80,6 +80,14 @@ impl Layer {
         true
     }
 
+    #[cfg(feature = "gpu")]
+    pub(super) fn image(&self) -> Option<Image> {
+        if self.0.image.borrow().is_none() {
+            *self.0.image.borrow_mut() = Some(self.rasterize()?);
+        }
+        self.0.image.borrow().clone()
+    }
+
     fn rasterize(&self) -> Option<Image> {
         let black = self.0.scene.render(self.0.bounds, Some(Rgb(0)))?;
         let white = self.0.scene.render(self.0.bounds, Some(Rgb(0xffffff)))?;

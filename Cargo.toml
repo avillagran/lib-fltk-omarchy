@@ -134,3 +134,7 @@ required-features = ["playback"]
 [[example]]
 name = "playback_bench"
 required-features = ["playback"]
+
+[[example]]
+name = "scene_gpu_check"
+required-features = ["gpu"]

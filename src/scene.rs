@@ -9,6 +9,10 @@
 
 mod image;
 mod layer;
+mod shader;
+pub use shader::shader;
+#[cfg(feature = "gpu")]
+pub mod gpu;
 pub use layer::Layer;
 pub use image::{Image, ImageError, MAX_IMAGE_BYTES};
 
@@ -50,6 +54,7 @@ pub enum Command {
     AlphaFill { rect: Rect, color: Rgb, alpha: f64 },
     Image { rect: Rect, image: Image },
     Layer { rect: Rect, layer: Layer, opacity: u8 },
+    Shader { rect: Rect, program: crate::gfx::sl::Shader, uniforms: crate::gfx::Uniforms },
     PushClip(Rect),
     PopClip,
 }
@@ -58,7 +63,7 @@ impl Command {
     fn bounds(&self) -> Option<Rect> {
         match self {
             Self::Fill { rect, .. } | Self::Stroke { rect, .. } | Self::Text { rect, .. }
-                | Self::AlphaFill { rect, .. } | Self::SpacedText { rect, .. } | Self::Image { rect, .. } | Self::Layer { rect, .. } => Some(*rect),
+                | Self::AlphaFill { rect, .. } | Self::SpacedText { rect, .. } | Self::Image { rect, .. } | Self::Layer { rect, .. } | Self::Shader { rect, .. } => Some(*rect),
             _ => None,
         }
     }
@@ -182,7 +187,7 @@ impl Scene {
                 Command::Fill { rect, .. } | Command::Stroke { rect, .. }
                 | Command::Text { rect, .. } | Command::SpacedText { rect, .. }
                 | Command::AlphaFill { rect, .. } | Command::Image { rect, .. }
-                | Command::Layer { rect, .. } | Command::PushClip(rect) => Some(rect),
+                | Command::Layer { rect, .. } | Command::Shader { rect, .. } | Command::PushClip(rect) => Some(rect),
                 Command::PopClip => None,
             };
             if let Some(rect) = rect {
@@ -223,6 +228,7 @@ impl Scene {
                 Command::AlphaFill { rect: r, color, alpha } => paint::alpha_fill(r.x, r.y, r.w, r.h, *color, *alpha),
                 Command::Image { rect, image } => image.draw(*rect),
                 Command::Layer { rect, layer, opacity } => { layer.draw_quantized(*rect, *opacity); }
+                Command::Shader { rect, program, uniforms } => { shader(*rect, program, uniforms); }
                 Command::PushClip(r) => draw::push_clip(r.x, r.y, r.w.max(0), r.h.max(0)),
                 Command::PopClip => draw::pop_clip(),
             }

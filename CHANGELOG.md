@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **Single-surface GL scene compositor spike** (feature `gpu`):
+  `scene::gpu::PreparedScene` / `Renderer`, native rectangles and portable
+  `scene::shader` commands, premultiplied alpha/scissor composition, retained
+  CPU textures for text/rounded shapes/isolated layers/scaled images.
+  One framebuffer, shared resource/program uploads, 64 MiB texture budget,
+  no timers. `scene_gpu_check` compares full CPU/GPU read-back and shader
+  time changes in private Xvfb; CI runs it. Explicit unsafe GL context
+  lifetime API; managed surface, atlases and batching remain pending.
+  CPU AppWindow rendering stays the default. docs/SCENE.md.
+
 - **Isolated scene layers** (`scene::Layer`): retain a bounded child scene,
   translate it and apply group opacity once over the actual backdrop.
   Rounded transparent corners, nested layers, outer clips, shared handles
