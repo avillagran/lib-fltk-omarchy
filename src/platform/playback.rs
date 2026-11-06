@@ -21,10 +21,16 @@ use std::process::{Child, Command};
 pub(crate) enum AudioOut {
     /// An ffmpeg output device (`-f <format> <device>`): one process, no
     /// PCM through a pipe.
-    Device { format: &'static str, device: &'static str },
+    Device {
+        format: &'static str,
+        device: &'static str,
+    },
     /// A player reading s16le 48 kHz stereo on stdin, fed by ffmpeg's
     /// stdout (child to child: the PCM never passes through this process).
-    Player { program: &'static str, args: &'static [&'static str] },
+    Player {
+        program: &'static str,
+        args: &'static [&'static str],
+    },
 }
 
 impl AudioOut {
@@ -39,7 +45,16 @@ impl AudioOut {
 
 const PW_PLAY: AudioOut = AudioOut::Player {
     program: "pw-play",
-    args: &["--raw", "--format", "s16", "--rate", "48000", "--channels", "2", "-"],
+    args: &[
+        "--raw",
+        "--format",
+        "s16",
+        "--rate",
+        "48000",
+        "--channels",
+        "2",
+        "-",
+    ],
 };
 const PAPLAY: AudioOut = AudioOut::Player {
     program: "paplay",
@@ -47,14 +62,27 @@ const PAPLAY: AudioOut = AudioOut::Player {
 };
 const APLAY: AudioOut = AudioOut::Player {
     program: "aplay",
-    args: &["-q", "-t", "raw", "-f", "S16_LE", "-r", "48000", "-c", "2", "-"],
+    args: &[
+        "-q", "-t", "raw", "-f", "S16_LE", "-r", "48000", "-c", "2", "-",
+    ],
 };
 /// Ships with most ffmpeg builds (Windows, Homebrew, Linux distributions).
 const FFPLAY: AudioOut = AudioOut::Player {
     program: "ffplay",
     args: &[
-        "-hide_banner", "-loglevel", "error", "-nodisp", "-autoexit", "-f", "s16le",
-        "-sample_rate", "48000", "-ch_layout", "stereo", "-i", "-",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-nodisp",
+        "-autoexit",
+        "-f",
+        "s16le",
+        "-sample_rate",
+        "48000",
+        "-ch_layout",
+        "stereo",
+        "-i",
+        "-",
     ],
 };
 
@@ -65,7 +93,13 @@ const FFPLAY: AudioOut = AudioOut::Player {
 pub(crate) fn audio_outputs() -> &'static [AudioOut] {
     #[cfg(target_os = "macos")]
     {
-        const OUTS: &[AudioOut] = &[AudioOut::Device { format: "audiotoolbox", device: "-" }, FFPLAY];
+        const OUTS: &[AudioOut] = &[
+            AudioOut::Device {
+                format: "audiotoolbox",
+                device: "-",
+            },
+            FFPLAY,
+        ];
         OUTS
     }
     #[cfg(target_os = "windows")]
@@ -77,10 +111,16 @@ pub(crate) fn audio_outputs() -> &'static [AudioOut] {
     #[cfg(target_os = "linux")]
     {
         const OUTS: &[AudioOut] = &[
-            AudioOut::Device { format: "pulse", device: "default" },
+            AudioOut::Device {
+                format: "pulse",
+                device: "default",
+            },
             PW_PLAY,
             PAPLAY,
-            AudioOut::Device { format: "alsa", device: "default" },
+            AudioOut::Device {
+                format: "alsa",
+                device: "default",
+            },
             APLAY,
             FFPLAY,
         ];
@@ -88,7 +128,14 @@ pub(crate) fn audio_outputs() -> &'static [AudioOut] {
     }
     #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
     {
-        const OUTS: &[AudioOut] = &[AudioOut::Device { format: "pulse", device: "default" }, PAPLAY, FFPLAY];
+        const OUTS: &[AudioOut] = &[
+            AudioOut::Device {
+                format: "pulse",
+                device: "default",
+            },
+            PAPLAY,
+            FFPLAY,
+        ];
         OUTS
     }
 }
@@ -97,9 +144,18 @@ pub(crate) fn audio_outputs() -> &'static [AudioOut] {
 /// forces one, for tests and diagnostics).
 pub(crate) fn audio_out_named(name: &str) -> Option<AudioOut> {
     let all = [
-        AudioOut::Device { format: "pulse", device: "default" },
-        AudioOut::Device { format: "alsa", device: "default" },
-        AudioOut::Device { format: "audiotoolbox", device: "-" },
+        AudioOut::Device {
+            format: "pulse",
+            device: "default",
+        },
+        AudioOut::Device {
+            format: "alsa",
+            device: "default",
+        },
+        AudioOut::Device {
+            format: "audiotoolbox",
+            device: "-",
+        },
         PW_PLAY,
         PAPLAY,
         APLAY,
@@ -112,7 +168,9 @@ pub(crate) fn audio_out_named(name: &str) -> Option<AudioOut> {
 /// `PATH`, then where package managers install them (apps started from
 /// the macOS Finder or the Windows Start menu get a short `PATH`).
 pub(crate) fn tool_dirs() -> Vec<PathBuf> {
-    let mut dirs: Vec<PathBuf> = std::env::var_os("PATH").map(|p| std::env::split_paths(&p).collect()).unwrap_or_default();
+    let mut dirs: Vec<PathBuf> = std::env::var_os("PATH")
+        .map(|p| std::env::split_paths(&p).collect())
+        .unwrap_or_default();
     #[cfg(target_os = "macos")]
     dirs.extend(["/opt/homebrew/bin", "/usr/local/bin", "/opt/local/bin"].map(PathBuf::from));
     #[cfg(target_os = "windows")]
@@ -142,7 +200,10 @@ pub(crate) fn tool_dirs() -> Vec<PathBuf> {
 /// stream: 216 MB PSS by default, 130 MB with these). Elsewhere nothing.
 pub(crate) fn child_env() -> &'static [(&'static str, &'static str)] {
     if cfg!(all(target_os = "linux", target_env = "gnu")) {
-        &[("MALLOC_ARENA_MAX", "2"), ("MALLOC_MMAP_THRESHOLD_", "1048576")]
+        &[
+            ("MALLOC_ARENA_MAX", "2"),
+            ("MALLOC_MMAP_THRESHOLD_", "1048576"),
+        ]
     } else {
         &[]
     }
@@ -174,7 +235,14 @@ pub(crate) fn contain(cmd: &mut Command) {
             cmd.pre_exec(move || {
                 #[cfg(target_os = "linux")]
                 {
-                    if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL as libc::c_ulong, 0, 0, 0) != 0 {
+                    if libc::prctl(
+                        libc::PR_SET_PDEATHSIG,
+                        libc::SIGKILL as libc::c_ulong,
+                        0,
+                        0,
+                        0,
+                    ) != 0
+                    {
                         return Err(std::io::Error::last_os_error());
                     }
                     // The parent died between fork and prctl.
@@ -182,7 +250,10 @@ pub(crate) fn contain(cmd: &mut Command) {
                         return Err(std::io::Error::other("parent exited"));
                     }
                 }
-                let none = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+                let none = libc::rlimit {
+                    rlim_cur: 0,
+                    rlim_max: 0,
+                };
                 libc::setrlimit(libc::RLIMIT_CORE, &none);
                 Ok(())
             });
@@ -259,7 +330,12 @@ mod win {
     #[link(name = "kernel32")]
     extern "system" {
         fn CreateJobObjectW(attributes: *mut c_void, name: *const u16) -> *mut c_void;
-        fn SetInformationJobObject(job: *mut c_void, class: i32, info: *mut c_void, len: u32) -> i32;
+        fn SetInformationJobObject(
+            job: *mut c_void,
+            class: i32,
+            info: *mut c_void,
+            len: u32,
+        ) -> i32;
         fn AssignProcessToJobObject(job: *mut c_void, process: *mut c_void) -> i32;
     }
 

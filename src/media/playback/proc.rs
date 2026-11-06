@@ -180,7 +180,8 @@ impl Procs {
         let i = children.iter().position(|c| c.id() == pid)?;
         match children[i].try_wait() {
             Ok(Some(st)) => {
-                children.remove(i);
+                // Already reaped by try_wait: wait returns the kept status.
+                let _ = children.remove(i).wait();
                 Some(st)
             }
             Ok(None) => None,

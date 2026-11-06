@@ -41,10 +41,9 @@ fn status_text(p: &Player) -> Option<String> {
 }
 
 fn notice_text(p: &Player) -> Option<String> {
-    match p.0.borrow().notice {
-        Some(Notice::NoAudioOutput) => Some(tr!("No audio output: playing without sound")),
-        None => None,
-    }
+    p.0.borrow().notice.map(|n| match n {
+        Notice::NoAudioOutput => tr!("No audio output: playing without sound"),
+    })
 }
 
 fn play_name(p: &Player) -> String {
@@ -474,10 +473,7 @@ impl Video {
         let p3 = player.clone();
         a11y::describe(&inner, move |n| {
             let name = p3.0.borrow().name.clone();
-            n.role(Role::Group).name(if name.is_empty() { &"" } else { &name });
-            if name.is_empty() {
-                n.name(&tr!("Video"));
-            }
+            n.role(Role::Group).name(&if name.is_empty() { tr!("Video") } else { name });
         });
         Video { inner, player, play_button: play, seek_bar: seek }
     }
