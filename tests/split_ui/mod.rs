@@ -1,7 +1,7 @@
 //! UI checks of `split::Split`: mouse drag with clamping, keys in screen
 //! directions (pane on either side, right-to-left rows, columns), reset,
 //! the two-way State and the focus ring pixels.
-use super::{check, pixel};
+use super::{check, pixel, pump_until};
 use fltk::prelude::*;
 use fltk_omarchy::focus::{self, press};
 use fltk_omarchy::layout::{Direction, FlexExt};
@@ -62,9 +62,8 @@ fn fixture(pane_first: bool, column: bool, dir: Option<Direction>) -> Fixture {
     body.layout();
     win.end();
     win.show();
-    for _ in 0..3 {
-        fltk::app::wait_for(0.01).ok();
-    }
+    let (sp, pn) = ((*split).clone(), pane.clone());
+    pump_until(|| sp.w() > 0 && sp.h() > 100 && pn.w() > 0);
     Fixture { win, pane, split, size }
 }
 
