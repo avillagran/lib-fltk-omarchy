@@ -154,15 +154,18 @@ pub fn checks(run: &mut dyn FnMut(&str, Check)) {
         let (_, y, _, h) = f.view.row_rect(added).unwrap();
         let cw = (f.view.code_columns().2 as f64 / 80.0).max(1.0);
         let _ = cw;
+        // Scan the row's height: the highlight's vertical extent follows
+        // the font's metrics (Consolas on Windows, Menlo on macOS).
         let mut found = false;
-        for x in code_x..code_x + 400 {
-            if near(pixel(&p, x, y + 2)?, word, 4) {
-                found = true;
-                break;
+        'scan: for yy in (y + 1..y + h - 1).step_by(2) {
+            for x in code_x..code_x + 400 {
+                if near(pixel(&p, x, yy)?, word, 6) {
+                    found = true;
+                    break 'scan;
+                }
             }
         }
         check(found, "word highlight on the changed word")?;
-        let _ = h;
         // Line numbers are drawn in the gutter (dim ink on the tint).
         let (rx, ry, _, rh) = f.view.row_rect(removed).unwrap();
         let mut ink = false;
@@ -206,12 +209,12 @@ pub fn checks(run: &mut dyn FnMut(&str, Check)) {
         press("Left");
         check(v.is_folded(0, 0), "Left folds")?;
         press("Right");
-        press("Ctrl+Right");
+        press("Mod+Right");
         check(v.current_file() == Some(1), &format!("Mod+Right: next file, {:?}", v.current_file()))?;
         press("Space");
         check(v.is_collapsed(1), "Space collapses the file")?;
         press("Space");
-        press("Ctrl+Left");
+        press("Mod+Left");
         check(v.current_file() == Some(0), "Mod+Left: previous file")?;
         // Down walks the rows; PageDown jumps a screen; End reaches the last row.
         press("Down");
@@ -270,7 +273,7 @@ pub fn checks(run: &mut dyn FnMut(&str, Check)) {
         check(text == "    clock: Clock,\n    frames: Vec<Frame>,\n    frames: VecDeque<Frame>,\n", &format!("text {text:?}"))?;
         let patch = v.selected_text(true);
         check(patch == "     clock: Clock,\n-    frames: Vec<Frame>,\n+    frames: VecDeque<Frame>,\n", &format!("patch {patch:?}"))?;
-        check(press("Ctrl+c"), "Mod+C is used")?;
+        check(press("Mod+c"), "Mod+C is used")?;
         // Drag from the first context line to the added line.
         let (x, y0, _, h) = v.row_rect(v.row_of_line(0, 0, 0).unwrap()).unwrap();
         let (_, y1, _, _) = v.row_rect(v.row_of_line(0, 0, 3).unwrap()).unwrap();
@@ -301,10 +304,12 @@ pub fn checks(run: &mut dyn FnMut(&str, Check)) {
         let p = shot(&f, shots, "diff-find.png")?;
         let current = theme::with(|t| rgb(t.palette.yellow.over(t.palette.background, 0.7)));
         let (cx, _, _) = v.code_columns();
-        let (_, y, _, _) = v.row_rect(v.row_of_line(0, 1, 1).unwrap()).unwrap();
+        let (_, y, _, rh) = v.row_rect(v.row_of_line(0, 1, 1).unwrap()).unwrap();
         let mut seen = false;
-        for x in cx..cx + 300 {
-            seen |= near(pixel(&p, x, y + 2)?, current, 4);
+        for yy in (y + 1..y + rh - 1).step_by(2) {
+            for x in cx..cx + 300 {
+                seen |= near(pixel(&p, x, yy)?, current, 6);
+            }
         }
         check(seen, "current match is highlighted")?;
         press("Shift+F3");
@@ -391,7 +396,7 @@ pub fn checks(run: &mut dyn FnMut(&str, Check)) {
         check(v.current_file() == Some(1) && v.row_rect(v.row_of_hunk(1, 0).unwrap() - 1).unwrap().1 == v.y(), "Down in the tree shows file 1 at the top")?;
         press("Enter");
         check(v.panel().has_focus(), "Enter moves into the diff")?;
-        press("Ctrl+Right");
+        press("Mod+Right");
         check(files.panel().cursor() == Some(2), &format!("tree follows: {:?}", files.panel().cursor()))?;
         close(f);
         Ok(())
