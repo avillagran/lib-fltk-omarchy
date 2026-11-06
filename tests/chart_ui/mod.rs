@@ -15,7 +15,7 @@ use std::rc::Rc;
 type Check<'a> = &'a dyn Fn(&Path) -> Result<(), String>;
 
 fn window() -> AppWindow {
-    let mut win = AppWindow::new("Chart", 420, 320);
+    let win = AppWindow::new("Chart", 420, 320);
     win.body().set_margin(10);
     win
 }
