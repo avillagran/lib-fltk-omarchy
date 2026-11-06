@@ -42,6 +42,34 @@ fn content(x: i32, y: i32) {
 pub fn checks(run: &mut dyn FnMut(&str, Check)) {
     nodes::checks(run);
     motion::checks(run);
+    run("scene surface bounded shader: final phase, restart, explicit time and reduced motion", &|shots| {
+        use fltk_omarchy::{anim::{self, clock, Pace}, gfx::{sl, Uniforms}};
+        use std::time::Duration;
+        struct Restore;
+        impl Drop for Restore {fn drop(&mut self){clock::resume();anim::set_enabled(false);}}
+        let _restore=Restore;
+        anim::set_enabled(true);clock::freeze();
+        let mut win=AppWindow::new("Bounded shader",220,160);
+        let mut body=win.body();body.set_margin(0);
+        let shader=sl::Shader::new(|_,u|sl::mix(u.background(),u.accent(),sl::clamp(u.time(),0.0,1.0)));
+        let view=scene::Surface::new(150,90).paint(move |r,t|{scene::shader(r,&shader,&Uniforms::from_theme(t,(r.w as f32,r.h as f32)));});
+        body.add(&*view);win.end();
+        let capture=|win:&mut AppWindow, name:&str|->Result<Vec<u8>,String>{let p=shots.join(name);win.snapshot(&p).map_err(|e|e.to_string())?;Ok(png_rgb(&p)?.raw)};
+        view.play_shader(Pace::Display,200);
+        let initial=capture(&mut win,"scene-pulse-zero.png")?;
+        clock::advance(Duration::from_millis(100));
+        let middle=capture(&mut win,"scene-pulse-middle.png")?;
+        check(initial!=middle,"bounded shader advances on frozen test clock")?;
+        clock::advance(Duration::from_millis(300));
+        let final_image=capture(&mut win,"scene-pulse-final.png")?;
+        view.set_time(Some(0.2));
+        check(final_image==capture(&mut win,"scene-pulse-reference.png")?,"end phase clamps to requested duration")?;
+        view.play_shader(Pace::Display,200);
+        check(initial==capture(&mut win,"scene-pulse-restart.png")?,"restart clears explicit time and starts at zero")?;
+        clock::advance(Duration::from_millis(100));anim::set_enabled(false);
+        check(initial==capture(&mut win,"scene-pulse-reduced.png")?,"reduced motion draws phase zero")?;
+        fltk::window::DoubleWindow::delete((*win).clone());Ok(())
+    });
     run("scene surface CPU: retained painter, coordinates, invalidation, snapshots and keyboard", &|shots| {
         use fltk_omarchy::{gfx::Backend, focus, State};
         let color=State::new(theme::with(|t|t.palette.accent));

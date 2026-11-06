@@ -114,6 +114,7 @@ cargo run --example composer     # chat composer: @files, $skills, /commands, dr
 cargo run --example app_shell    # Preferences/Actions menus, tabs, search, F1 help, operation toast
 cargo run --example docs_shots -- docs/components   # re-render the pictures of docs/COMPONENTS.md
 cargo run --example shaders      # shapes, gradients, effects, animated CPU shaders
+cargo run --release --features gpu --example lava   # interactive scene: reorder, drag/fall, bounded lava effect (docs/SCENE.md)
 cargo run --example richtext     # Markdown chat transcript (-- --stream streams a reply)
 cargo run --features mermaid --example mermaid   # native Mermaid diagrams (-- --snapshot dir, -- --bench)
 cargo run --release --example playground   # every component in one window, actions logged to build/playground.log

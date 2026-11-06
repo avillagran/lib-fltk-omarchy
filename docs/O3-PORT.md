@@ -352,13 +352,18 @@ Continue section 4 without changing the CPU default:
    Scoped keyed raising and rectangular clipped hit testing are now included.
    Managed node position/opacity transitions now use the shared clock,
    preserve retargeted poses and stop when settled/hidden/reduced motion.
-   Next: batched quads, glyph/image atlases, the live drag/fall composition,
-   CPU widget/overlay texture bridge and
+   The `lava` example now implements live pointer/keyboard reorder,
+   root drag previews, falling removal and a bounded GPU shader pulse.
+   Its tests include full actual GPU read-back versus CPU replay.
+   Next: CPU widget/overlay texture bridge, batched quads, glyph/image atlases and
    native isolated shader layers.
-4. Exercise a live version of the video interaction; measure CPU, GPU and
-   total PSS at normal and high-refresh resolutions. Keep effects bounded,
-   respect reduced motion and stop when hidden. The recorded video is a
-   visual reference, not a rendering benchmark.
+4. A live version of the interaction now runs in `examples/lava.rs`.
+   [Measurements](SCENE.md#interactive-lava-example) cover the actual
+   controller on Wayland: zero idle frames, retained resources during
+   reorder, low GPU submission CPU, but cold-cache GPU PSS still exceeds
+   100 MiB. Continue memory work, GPU/power measurements and normal/high-
+   refresh resolution gates. Effects are bounded and respect reduced
+   motion/visibility. The video remains a visual reference, not a benchmark.
 5. Real o3 protocol spike and full-window renderer policy retain the gates
    above; the synthetic shell and static card demo do not close those gates.
 

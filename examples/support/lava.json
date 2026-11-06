@@ -1,0 +1,31 @@
+{
+  "en": {"{count} tasks|one": "{count} task"},
+  "es": {
+    "Lava tasks": "Tareas de lava",
+    "Tasks": "Tareas",
+    "Today": "Hoy",
+    "{count} tasks": "{count} tareas",
+    "{count} tasks|one": "{count} tarea",
+    "Ship the release notes": "Publicar las notas de la versión",
+    "Review the layout cache": "Revisar la caché de diseño",
+    "Reply to the legal thread": "Responder al hilo legal",
+    "Redesign the empty state": "Rediseñar el estado vacío",
+    "Book flights for the offsite": "Reservar vuelos para el encuentro",
+    "Engineering": "Ingeniería",
+    "Operations": "Operaciones",
+    "Design": "Diseño",
+    "Personal": "Personal",
+    "Ready for review": "Listo para revisar",
+    "Drop here to remove": "Suelta aquí para eliminar",
+    "Up / Down": "Arriba / Abajo",
+    "Space": "Espacio",
+    "Enter / Delete": "Enter / Supr",
+    "Esc": "Esc",
+    "Move the cursor": "Mover el cursor",
+    "Pick up or drop a task": "Levantar o soltar una tarea",
+    "Drop the task into the lava": "Soltar la tarea en la lava",
+    "Cancel the drag": "Cancelar el arrastre",
+    "Reorder the task": "Reordenar la tarea",
+    "Reset the example": "Restablecer el ejemplo"
+  }
+}

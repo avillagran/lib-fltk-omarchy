@@ -15,7 +15,7 @@ mod motion;
 pub use motion::NodeMotion;
 pub use node::{NodeError, NodeId};
 pub(crate) mod surface;
-pub use surface::{Surface, SurfaceStats};
+pub use surface::{Surface, SurfaceStats, WeakSurface};
 pub use shader::shader;
 #[cfg(feature = "gpu")]
 pub mod gpu;

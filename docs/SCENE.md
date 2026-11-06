@@ -157,6 +157,12 @@ stopped visible view without a polling timer. `set_time(Some(t))` freezes
 phase; `set_time(None)` resumes automatic time when a pace is selected.
 `animate(None)` stops automatic pacing and returns to recorded shader time.
 
+`play_shader(pace, duration_ms)` restarts shader time at zero, clamps it to
+the duration and stops frame requests at the end. It clears an explicit
+time override and uses the same clock, visibility and reduced-motion rules.
+The final shader phase should be visually quiet for a short interaction
+effect. Node motion and shader pacing still share one frame request.
+
 GL activation waits three short ticks after the parent maps (Wayland's
 first-frame restriction). Static views install no repeating timer after
 activation. Resize, hide/show and CPU/GPU policy switches prepare/recover
@@ -168,7 +174,12 @@ their lifetime beyond the native window. Known lost contexts abandon old
 names rather than deleting them in a different context.
 
 `AppWindow::snapshot` and `layer::capture` force scene surfaces through CPU
-replay, even after GL activation. Use `read_gpu_pixel` for actual GL output.
+replay, even after GL activation. Use `read_gpu_pixel` or `read_gpu_image`
+for actual GL output. The latter asynchronously returns a top-to-bottom
+RGBA `Image` in physical framebuffer pixels, limited to 64 MiB. Its callback
+runs on a later UI turn outside native drawing; deleting the widget drops
+queued requests. It returns false before activation or on CPU. A capture
+requests one draw/read-back; it is a diagnostic, not a free screenshot API.
 Other custom offscreen harnesses should render the local `Scene` directly;
 a generic native widget capture is not automatically detectable everywhere.
 The widget retains scene content across shader time changes. `SurfaceStats`
@@ -176,6 +187,10 @@ separates scene builds, parent surface draws, CPU frames, GPU submissions,
 GPU preparations, scene uploads and retained texture bytes. Frame counts
 are not presentation callbacks; scene uploads count renderer creation,
 including resource recovery after context loss.
+
+`downgrade()` returns a `WeakSurface` for app controllers and completion
+handlers. `upgrade()` returns `None` once the native widget is deleted or
+the surface state is gone. This avoids a controller/painter ownership cycle.
 
 Try `examples/scene_surface.rs`: same painter and two shared translucent
 cards over a portable gradient, live theme/language and snapshot support.
@@ -292,7 +307,8 @@ those behaviors.
 or `set_scene` supplies new node properties: keep durable positions in app
 state and use them in the painter. This is not automatic keyed layout or
 selection, a reflow operation, a nested-node update API or affine
-transformation. The complete falling/reorder interaction remains work.
+transformation. The interactive lava example below wires these primitives
+to a keyed model and keyboard panel.
 
 ## Managed node motion
 
@@ -439,9 +455,9 @@ software GL renderer can prove correctness but not power consumption.
   Existing GPU shaders remain `gfx::View`/`GpuView`, with their documented
   subwindow/composition limits.
 
-Next: add quad batching and text/image atlases, then native isolated
-shader layers, stable keyed scene updates and widget/overlay texture
-fallbacks. Extend the remaining common primitives. Measure real hardware at 4K/120 Hz before changing the
+Next: add widget/overlay texture fallbacks, quad batching and text/image
+atlases, then native isolated shader layers. Stable keyed updates and node
+motion are implemented. Extend the remaining common primitives. Measure real hardware at 4K/120 Hz before changing the
 default. Compare total process/driver memory and CPU, not submission time
 alone; software GL is useful for correctness, not efficiency claims.
 
@@ -457,16 +473,97 @@ and a continuously moving floor, embers, flame and smoke effect.
 |---|---|
 | Cards, labels, badges, controls and themed styling | Existing custom row renderers, shared `paint`, glyphs/icons |
 | Drag reorder and closing the gap after removal | Existing `List::reorderable`, `ListModel` diffs and row motion; the app owns drop semantics |
-| A lifted or falling copy of a row | `layer::capture`, offscreen layers and the shared animation clock are building blocks; no complete drag-flight component |
-| Fade/reveal and a short drop-triggered effect | Existing layer opacity/effects and bounded `gfx::View` shaders; needs app wiring and measurements |
-| Animated lava floor with particles behind translucent cards | No efficient complete composition path yet; requires the window scene and shader/alpha layers |
+| A lifted or falling copy of a row | The `lava` example uses a root keyed preview sharing its row layer, soft shadow and managed position/opacity motion |
+| Fade/reveal and a short drop-triggered effect | Example wires a 450 ms bounded GPU shader pulse to drag/drop; CPU fallback keeps the floor static |
+| Animated lava floor with particles behind translucent cards | Explicit `scene::Surface` now composes top-level shaders and retained translucent card textures in one GL child; native shader layers and the full-window widget bridge remain pending |
 | Quiet idle after interaction | Continuous decorative animation is not idle; pause/freeze it when hidden, reduced motion or saver mode is active |
 
-The current toolkit can build the task UI and bounded effects. It cannot
-yet promise the complete video's rendering at display refresh within the
-low-power budget. A prerecorded video background is a possible app choice,
-but it neither proves a native scene renderer nor replaces interactive
-composition. Do not count it as completion of the GPU plan.
+The toolkit can now build the interactive composition in one explicit
+canvas. This does not establish the full video's continuously animated
+floor, smoke, affine card rotation or low-power budget at every resolution.
+
+## Interactive lava example
+
+```sh
+cargo run --release --features gpu --example lava
+cargo run --release --example lava -- --cpu
+cargo run --example lava -- --snapshot target/lava.png
+# Private, no-focus Wayland diagnostic with the actual app controller:
+cargo build --release --features gpu --example lava
+SCENE_BENCH_BIN="$PWD/target/release/examples/lava" script/scene-bench --size 720x680
+SCENE_BENCH_BIN="$PWD/target/release/examples/lava" script/scene-bench --cpu --size 720x680
+```
+
+One `ListModel` and one `KeyboardPanel` own the five tasks. Dragging previews
+the keyed order and moves a separate root copy, so the row can leave its
+list clip. Release above the floor settles into its slot; release over the
+floor falls, fades, removes the model row once and closes the gap. Rows and
+previews share card resources. A retained soft shadow follows the preview.
+Theme, corners, text and right-to-left layout follow toolkit settings;
+the example adds English source keys and a Spanish catalog.
+
+Use arrows to select, Space to pick up/drop, arrows while held to reorder,
+Escape to restore the original slot, Enter/Delete/Backspace to complete,
+Mod+Shift+Up/Down to reorder and Mod+R to reset. Rapid input during settling
+waits for the current flight. The CPU example's F1 help uses the existing
+overlay. With GPU selected, in-window CPU overlays can still be obscured by
+the native GL child: the overlay bridge remains a required next step.
+
+GPU lava pulses only during interaction and stops after 450 ms. CPU lava
+is a cached static specialization of the same base shader, avoiding shader
+interpretation during each card-motion frame. This is an explicit energy
+choice; animated CPU/GPU effects are not the same workload. Reduced motion
+settles immediately, and static/finished scenes request no animation frames.
+
+The UI suite imports the example's actual controller/painter. It checks
+pointer and keyboard reorder, cancel, falling 5-to-4 removal, reset during
+flight, all rows removed, resource reuse during motion and stopped GPU
+frames afterward. A frozen actual GPU read-back of the complete surface
+is compared against CPU replay with maximum RGB channel error 2, including
+the animated shader. This parity test renders the same GPU scene on CPU;
+the ordinary CPU demo deliberately chooses the static shader instead.
+Capture callbacks can close their window safely on a later UI turn;
+deletion suppresses subsequent queued capture callbacks.
+
+The benchmark exercises that same controller without taking focus: repeated
+350 ms reorder cycles, then one falling deletion, with idle phases on both
+sides. Shader pulses overlap during repeated GPU interactions. It runs in
+a private hidden special workspace and checks compositor focus events.
+Frame counts are submissions, including input-triggered redraws, not
+display presentation rates. Hidden-workspace timings do not measure GPU
+power or establish visible display pacing, the 5,000-message o3 budget,
+or the 4K/120 gate.
+
+Release measurements on NODE (2026-11-06), native Wayland on NVIDIA
+RTX 3080 Ti, 1920×1080 at 60 Hz/scale 1, 720×639 surface, sequential runs
+on a hidden special workspace:
+
+| Workload | CPU (% of one core) | Draw submissions/s | Active PSS |
+|---|---:|---:|---:|
+| CPU cards, cached static floor | 5.80 | 24.0 | 34.7 MiB |
+| GPU cards and overlapping bounded pulses, warm disk cache (two runs) | 1.17–1.22 | 64.0–64.7 | 71.8–71.9 MiB |
+| Same GPU scene, disk shader cache disabled | 1.34 | 64.3 | 118.6 MiB |
+
+Both idle phases submitted **zero frames**, at 0.006–0.014 % process CPU.
+Reordering caused zero scene rebuilds, preparations or uploads; input and
+completion caused eight parent draws in the three-second animation sample.
+The GPU retained 1,357,824 texture bytes. All runs finished the falling
+deletion with four stable IDs and no flight, and recorded zero focus changes.
+The default first GPU run at a compositor-selected 1100×693 also reached
+132.3 MiB active PSS; a later warm floating run at that same size used
+73.6 MiB. Controlling size alone did not explain the memory difference.
+
+The cache-disabled control isolates a cold-compilation cost retained in
+the process; it does not prove the ownership of every allocated page.
+An experiment requesting [`glReleaseShaderCompiler`](https://registry.khronos.org/OpenGL/specs/gl/glspec45.core.withchanges.pdf)
+after linking changed 118.6 to 118.5 MiB, effectively no improvement, so
+it was not retained.
+No heap-trimming workaround or global driver configuration was added.
+The ≤100 MiB budget therefore remains **unmet for this cold GPU run**.
+Use `script/scene-bench --no-shader-cache` to repeat that control without
+deleting or changing the user's shader cache. These results establish
+bounded interactive composition, not GPU default policy or power savings.
+Raw reports and diagnostic metadata: [lava-scene-2026-11-06.json](lava-scene-2026-11-06.json).
 
 ## Validation
 

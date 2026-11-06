@@ -1,0 +1,523 @@
+{
+  "date": "2026-11-06",
+  "machine": "NODE",
+  "build": "release, feature gpu",
+  "display": {
+    "size": [
+      1920,
+      1080
+    ],
+    "scale": 1,
+    "refresh_hz": 60
+  },
+  "scope": "Five-card live lava controller. Repeated 350 ms reorder cycles then one deletion. Native Wayland, hidden special workspace, zero focus changes. CPU static lava versus GPU bounded shader pulses. Frames are draw submissions, not display presentation. CPU excludes startup compilation; PSS samples include retained process/driver memory. No power, 5000-message or 4K/120 result.",
+  "memory_gate": "Cold-cache-disabled GPU PSS exceeds 100 MiB; default GPU policy remains disabled. ReleaseShaderCompiler experiment had no material effect and was removed.",
+  "runs": [
+    {
+      "case": "cpu-static-floor",
+      "report": {
+        "animation": {
+          "cpu_percent_one_core": 5.799666681218934,
+          "fps": 24.000805099006776,
+          "frames": 72,
+          "parent_draws": 72,
+          "preparations": 0,
+          "scene_builds": 0,
+          "scene_uploads": 0,
+          "seconds": 2.999899366
+        },
+        "backend": "Cpu",
+        "flight_finished": true,
+        "idle": {
+          "cpu_percent_one_core": 0.01056370584833584,
+          "fps": 0.0,
+          "frames": 0,
+          "parent_draws": 0,
+          "preparations": 0,
+          "scene_builds": 0,
+          "scene_uploads": 0,
+          "seconds": 1.999904229
+        },
+        "idle_again": {
+          "cpu_percent_one_core": 0.008640110626685179,
+          "fps": 0.0,
+          "frames": 0,
+          "parent_draws": 0,
+          "preparations": 0,
+          "scene_builds": 0,
+          "scene_uploads": 0,
+          "seconds": 2.00064568
+        },
+        "remaining_keys": [
+          3,
+          4,
+          5,
+          1
+        ],
+        "renderer": null,
+        "scope": "five-card lava controller; 350 ms reorder cycles, then 5-to-4 deletion; GPU pulses, CPU static lava; no physical input, power, 5000-message or 4K/120 claim",
+        "surface_size": [
+          720,
+          639
+        ],
+        "texture_bytes": 0
+      },
+      "metadata": {
+        "focus_change_events": 0,
+        "focus_unchanged_at_end": true,
+        "spawn_no_focus": true,
+        "workspace": "special:omarchy-scene-bench-3927419",
+        "memory": [
+          {
+            "phase": "idle",
+            "pss_kib": 35510
+          },
+          {
+            "phase": "animation",
+            "pss_kib": 35514
+          },
+          {
+            "phase": "idle_again",
+            "pss_kib": 35510
+          }
+        ],
+        "protocol": "Wayland",
+        "report_exists": true
+      }
+    },
+    {
+      "case": "gpu-warm-1",
+      "report": {
+        "animation": {
+          "cpu_percent_one_core": 1.16516234470428,
+          "fps": 64.66860431050142,
+          "frames": 194,
+          "parent_draws": 8,
+          "preparations": 0,
+          "scene_builds": 0,
+          "scene_uploads": 0,
+          "seconds": 2.9999101120000002
+        },
+        "backend": "Gpu",
+        "flight_finished": true,
+        "idle": {
+          "cpu_percent_one_core": 0.010345316441838304,
+          "fps": 0.0,
+          "frames": 0,
+          "parent_draws": 0,
+          "preparations": 0,
+          "scene_builds": 0,
+          "scene_uploads": 0,
+          "seconds": 2.000393136
+        },
+        "idle_again": {
+          "cpu_percent_one_core": 0.013222630517831202,
+          "fps": 0.0,
+          "frames": 0,
+          "parent_draws": 0,
+          "preparations": 0,
+          "scene_builds": 0,
+          "scene_uploads": 0,
+          "seconds": 1.99963237
+        },
+        "remaining_keys": [
+          3,
+          4,
+          5,
+          1
+        ],
+        "renderer": "NVIDIA GeForce RTX 3080 Ti/PCIe/SSE2",
+        "scope": "five-card lava controller; 350 ms reorder cycles, then 5-to-4 deletion; GPU pulses, CPU static lava; no physical input, power, 5000-message or 4K/120 claim",
+        "surface_size": [
+          720,
+          639
+        ],
+        "texture_bytes": 1357824
+      },
+      "metadata": {
+        "focus_change_events": 0,
+        "focus_unchanged_at_end": true,
+        "spawn_no_focus": true,
+        "workspace": "special:omarchy-scene-bench-3925114",
+        "memory": [
+          {
+            "phase": "idle",
+            "pss_kib": 71496
+          },
+          {
+            "phase": "animation",
+            "pss_kib": 73544
+          },
+          {
+            "phase": "idle_again",
+            "pss_kib": 72484
+          }
+        ],
+        "protocol": "Wayland",
+        "report_exists": true
+      }
+    },
+    {
+      "case": "gpu-warm-2",
+      "report": {
+        "animation": {
+          "cpu_percent_one_core": 1.2152788822193803,
+          "fps": 64.00251820041277,
+          "frames": 192,
+          "parent_draws": 8,
+          "preparations": 0,
+          "scene_builds": 0,
+          "scene_uploads": 0,
+          "seconds": 2.999881964
+        },
+        "backend": "Gpu",
+        "flight_finished": true,
+        "idle": {
+          "cpu_percent_one_core": 0.010696366543529873,
+          "fps": 0.0,
+          "frames": 0,
+          "parent_draws": 0,
+          "preparations": 0,
+          "scene_builds": 0,
+          "scene_uploads": 0,
+          "seconds": 2.0005111
+        },
+        "idle_again": {
+          "cpu_percent_one_core": 0.012799016460793993,
+          "fps": 0.0,
+          "frames": 0,
+          "parent_draws": 0,
+          "preparations": 0,
+          "scene_builds": 0,
+          "scene_uploads": 0,
+          "seconds": 1.999934923
+        },
+        "remaining_keys": [
+          3,
+          4,
+          5,
+          1
+        ],
+        "renderer": "NVIDIA GeForce RTX 3080 Ti/PCIe/SSE2",
+        "scope": "five-card lava controller; 350 ms reorder cycles, then 5-to-4 deletion; GPU pulses, CPU static lava; no physical input, power, 5000-message or 4K/120 claim",
+        "surface_size": [
+          720,
+          639
+        ],
+        "texture_bytes": 1357824
+      },
+      "metadata": {
+        "focus_change_events": 0,
+        "focus_unchanged_at_end": true,
+        "spawn_no_focus": true,
+        "workspace": "special:omarchy-scene-bench-3931084",
+        "memory": [
+          {
+            "phase": "idle",
+            "pss_kib": 71594
+          },
+          {
+            "phase": "animation",
+            "pss_kib": 73642
+          },
+          {
+            "phase": "idle_again",
+            "pss_kib": 72582
+          }
+        ],
+        "protocol": "Wayland",
+        "report_exists": true
+      }
+    },
+    {
+      "case": "gpu-cold-cache-disabled",
+      "report": {
+        "animation": {
+          "cpu_percent_one_core": 1.3370910929158561,
+          "fps": 64.33599703661864,
+          "frames": 193,
+          "parent_draws": 8,
+          "preparations": 0,
+          "scene_builds": 0,
+          "scene_uploads": 0,
+          "seconds": 2.999875791
+        },
+        "backend": "Gpu",
+        "flight_finished": true,
+        "idle": {
+          "cpu_percent_one_core": 0.009048530557670126,
+          "fps": 0.0,
+          "frames": 0,
+          "parent_draws": 0,
+          "preparations": 0,
+          "scene_builds": 0,
+          "scene_uploads": 0,
+          "seconds": 2.000402152
+        },
+        "idle_again": {
+          "cpu_percent_one_core": 0.00996466475543012,
+          "fps": 0.0,
+          "frames": 0,
+          "parent_draws": 0,
+          "preparations": 0,
+          "scene_builds": 0,
+          "scene_uploads": 0,
+          "seconds": 1.9990938470000001
+        },
+        "remaining_keys": [
+          3,
+          4,
+          5,
+          1
+        ],
+        "renderer": "NVIDIA GeForce RTX 3080 Ti/PCIe/SSE2",
+        "scope": "five-card lava controller; 350 ms reorder cycles, then 5-to-4 deletion; GPU pulses, CPU static lava; no physical input, power, 5000-message or 4K/120 claim",
+        "surface_size": [
+          720,
+          639
+        ],
+        "texture_bytes": 1357824
+      },
+      "metadata": {
+        "focus_change_events": 0,
+        "focus_unchanged_at_end": true,
+        "spawn_no_focus": true,
+        "workspace": "special:omarchy-scene-bench-3931991",
+        "shader_disk_cache_disabled": true,
+        "memory": [
+          {
+            "phase": "idle",
+            "pss_kib": 119355
+          },
+          {
+            "phase": "animation",
+            "pss_kib": 121403
+          },
+          {
+            "phase": "idle_again",
+            "pss_kib": 120495
+          }
+        ],
+        "protocol": "Wayland",
+        "report_exists": true
+      }
+    },
+    {
+      "case": "gpu-first-default",
+      "report": {
+        "animation": {
+          "cpu_percent_one_core": 1.1952466833551583,
+          "fps": 64.33539935745803,
+          "frames": 193,
+          "parent_draws": 8,
+          "preparations": 0,
+          "scene_builds": 0,
+          "scene_uploads": 0,
+          "seconds": 2.99990366
+        },
+        "backend": "Gpu",
+        "flight_finished": true,
+        "idle": {
+          "cpu_percent_one_core": 0.01033628931444797,
+          "fps": 0.0,
+          "frames": 0,
+          "parent_draws": 0,
+          "preparations": 0,
+          "scene_builds": 0,
+          "scene_uploads": 0,
+          "seconds": 2.000379379
+        },
+        "idle_again": {
+          "cpu_percent_one_core": 0.008683247891875384,
+          "fps": 0.0,
+          "frames": 0,
+          "parent_draws": 0,
+          "preparations": 0,
+          "scene_builds": 0,
+          "scene_uploads": 0,
+          "seconds": 1.999770157
+        },
+        "remaining_keys": [
+          3,
+          4,
+          5,
+          1
+        ],
+        "renderer": "NVIDIA GeForce RTX 3080 Ti/PCIe/SSE2",
+        "scope": "five-card lava controller; 350 ms reorder cycles, then 5-to-4 deletion; GPU pulses, CPU static lava; no physical input, power, 5000-message or 4K/120 claim",
+        "surface_size": [
+          1100,
+          693
+        ],
+        "texture_bytes": 2151264
+      },
+      "metadata": {
+        "focus_change_events": 0,
+        "focus_unchanged_at_end": true,
+        "spawn_no_focus": true,
+        "workspace": "special:omarchy-scene-bench-3920260",
+        "memory": [
+          {
+            "phase": "idle",
+            "pss_kib": 133384
+          },
+          {
+            "phase": "animation",
+            "pss_kib": 135432
+          },
+          {
+            "phase": "idle_again",
+            "pss_kib": 138376
+          }
+        ],
+        "protocol": "Wayland",
+        "report_exists": true
+      }
+    },
+    {
+      "case": "gpu-warm-larger",
+      "report": {
+        "animation": {
+          "cpu_percent_one_core": 1.2365486961579888,
+          "fps": 64.33613575107051,
+          "frames": 193,
+          "parent_draws": 8,
+          "preparations": 0,
+          "scene_builds": 0,
+          "scene_uploads": 0,
+          "seconds": 2.999869323
+        },
+        "backend": "Gpu",
+        "flight_finished": true,
+        "idle": {
+          "cpu_percent_one_core": 0.008350315851903873,
+          "fps": 0.0,
+          "frames": 0,
+          "parent_draws": 0,
+          "preparations": 0,
+          "scene_builds": 0,
+          "scene_uploads": 0,
+          "seconds": 2.000654861
+        },
+        "idle_again": {
+          "cpu_percent_one_core": 0.00809643597282027,
+          "fps": 0.0,
+          "frames": 0,
+          "parent_draws": 0,
+          "preparations": 0,
+          "scene_builds": 0,
+          "scene_uploads": 0,
+          "seconds": 2.000435754
+        },
+        "remaining_keys": [
+          3,
+          4,
+          5,
+          1
+        ],
+        "renderer": "NVIDIA GeForce RTX 3080 Ti/PCIe/SSE2",
+        "scope": "five-card lava controller; 350 ms reorder cycles, then 5-to-4 deletion; GPU pulses, CPU static lava; no physical input, power, 5000-message or 4K/120 claim",
+        "surface_size": [
+          1100,
+          693
+        ],
+        "texture_bytes": 2151264
+      },
+      "metadata": {
+        "focus_change_events": 0,
+        "focus_unchanged_at_end": true,
+        "spawn_no_focus": true,
+        "workspace": "special:omarchy-scene-bench-3928674",
+        "memory": [
+          {
+            "phase": "idle",
+            "pss_kib": 73358
+          },
+          {
+            "phase": "animation",
+            "pss_kib": 75408
+          },
+          {
+            "phase": "idle_again",
+            "pss_kib": 78351
+          }
+        ],
+        "protocol": "Wayland",
+        "report_exists": true
+      }
+    },
+    {
+      "case": "experiment-release-compiler-not-retained",
+      "report": {
+        "animation": {
+          "cpu_percent_one_core": 1.357706681320788,
+          "fps": 64.6697538929346,
+          "frames": 194,
+          "parent_draws": 8,
+          "preparations": 0,
+          "scene_builds": 0,
+          "scene_uploads": 0,
+          "seconds": 2.999856785
+        },
+        "backend": "Gpu",
+        "flight_finished": true,
+        "idle": {
+          "cpu_percent_one_core": 0.0077385646598982895,
+          "fps": 0.0,
+          "frames": 0,
+          "parent_draws": 0,
+          "preparations": 0,
+          "scene_builds": 0,
+          "scene_uploads": 0,
+          "seconds": 2.00038388
+        },
+        "idle_again": {
+          "cpu_percent_one_core": 0.012292021807898299,
+          "fps": 0.0,
+          "frames": 0,
+          "parent_draws": 0,
+          "preparations": 0,
+          "scene_builds": 0,
+          "scene_uploads": 0,
+          "seconds": 1.9995490070000002
+        },
+        "remaining_keys": [
+          3,
+          4,
+          5,
+          1
+        ],
+        "renderer": "NVIDIA GeForce RTX 3080 Ti/PCIe/SSE2",
+        "scope": "five-card lava controller; 350 ms reorder cycles, then 5-to-4 deletion; GPU pulses, CPU static lava; no physical input, power, 5000-message or 4K/120 claim",
+        "surface_size": [
+          720,
+          639
+        ],
+        "texture_bytes": 1357824
+      },
+      "metadata": {
+        "focus_change_events": 0,
+        "focus_unchanged_at_end": true,
+        "spawn_no_focus": true,
+        "workspace": "special:omarchy-scene-bench-3936800",
+        "shader_disk_cache_disabled": true,
+        "memory": [
+          {
+            "phase": "idle",
+            "pss_kib": 119322
+          },
+          {
+            "phase": "animation",
+            "pss_kib": 121370
+          },
+          {
+            "phase": "idle_again",
+            "pss_kib": 120500
+          }
+        ],
+        "protocol": "Wayland",
+        "report_exists": true
+      }
+    }
+  ]
+}

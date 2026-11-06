@@ -308,7 +308,7 @@ impl Renderer {
         gl.active_texture(glow::TEXTURE0);
         for d in &self.draws {
             let r = intersection(d.clip, Rect::new(0, 0, logical.0, logical.1));
-            if r.w <= 0 || r.h <= 0 { continue; }
+            if r.w <= 0 || r.h <= 0 || !d.rect.intersects(r) || (d.uniforms.is_none() && d.color.a<=0.0) { continue; }
             let sx = pixels.0 as f64 / logical.0 as f64;
             let sy = pixels.1 as f64 / logical.1 as f64;
             let (x, y, right, bottom) = ((r.x as f64 * sx).round() as i32, (r.y as f64 * sy).round() as i32, ((r.x as f64 + r.w as f64) * sx).round() as i32, ((r.y as f64 + r.h as f64) * sy).round() as i32);

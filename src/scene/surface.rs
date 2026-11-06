@@ -51,6 +51,7 @@ struct State {
     gpu_renderer: Option<String>,
     time: Option<f32>,
     pace: Option<Pace>,
+    shader_duration: Option<u32>,
     motion: super::motion::Motions,
     stats: SurfaceStats,
     started: std::time::Instant,
@@ -79,6 +80,23 @@ pub struct Surface {
     group: Group,
     st: Rc<RefCell<State>>,
 }
+/// A UI-thread reference that does not keep a surface's state alive.
+#[derive(Clone)]
+pub struct WeakSurface {
+    group: Group,
+    st: std::rc::Weak<RefCell<State>>,
+}
+impl WeakSurface {
+    pub fn upgrade(&self) -> Option<Surface> {
+        if self.group.was_deleted() {
+            return None;
+        }
+        Some(Surface {
+            group: self.group.clone(),
+            st: self.st.upgrade()?,
+        })
+    }
+}
 fltk::widget_extends!(Surface, Group, group);
 impl Surface {
     pub fn new(w: i32, h: i32) -> Self {
@@ -102,6 +120,7 @@ impl Surface {
             gpu_renderer: None,
             time: None,
             pace: None,
+            shader_duration: None,
             motion: super::motion::Motions::default(),
             stats: SurfaceStats::default(),
             started: anim::now(),
@@ -227,6 +246,12 @@ impl Surface {
     pub fn stats(&self) -> SurfaceStats {
         self.st.borrow().stats
     }
+    pub fn downgrade(&self) -> WeakSurface {
+        WeakSurface {
+            group: self.group.clone(),
+            st: Rc::downgrade(&self.st),
+        }
+    }
     /// Moves a keyed isolated layer without invalidating/re-recording the
     /// painter or preparing/uploading GPU resources. Positions are local;
     /// ancestor clips and paint order stay fixed. A painter rebuild or
@@ -344,13 +369,30 @@ impl Surface {
     /// advances on the animation clock unless set_time freezes it. Reduced
     /// motion draws phase zero; animate does not rebuild a painter per frame.
     pub fn animate(self, pace: Option<Pace>) -> Self {
-        self.st.borrow_mut().pace = pace;
+        {
+            let mut s = self.st.borrow_mut();
+            s.pace = pace;
+            s.shader_duration = None;
+        }
         self.group.clone().redraw();
         self
     }
+    /// Plays top-level shader time once from zero, then holds its final
+    /// phase and stops pacing. Uses the shared clock, no separate timer.
+    pub fn play_shader(&self, pace: Pace, duration_ms: u32) {
+        {
+            let mut s = self.st.borrow_mut();
+            s.started = anim::now();
+            s.time = None;
+            s.pace = Some(pace);
+            s.shader_duration = Some(duration_ms);
+        }
+        self.redraw_content();
+    }
     /// Queue a logical local pixel read after the next GL frame. Returns
     /// false on CPU, before activation, or outside the surface. Snapshots
-    /// use the CPU path; this method checks the actual GL output.
+    /// use the CPU path; this method checks the actual GL output. The
+    /// callback runs on a later UI turn; widget deletion drops it.
     pub fn read_gpu_pixel(&self, x: i32, y: i32, f: impl FnOnce([u8; 4]) + 'static) -> bool {
         if x < 0 || y < 0 || x >= self.group.w() || y >= self.group.h() {
             return false;
@@ -376,6 +418,39 @@ impl Surface {
         #[cfg(not(feature = "gpu"))]
         {
             let _ = (x, y, f);
+            false
+        }
+    }
+    /// Queues an actual GPU framebuffer capture, in physical pixels and
+    /// top-to-bottom RGBA order, limited to the image resource budget.
+    /// Unlike AppWindow snapshots this does not use CPU replay. Returns
+    /// false on CPU or before GL activation. Completion runs on a later
+    /// UI turn, outside native drawing; widget deletion drops the request.
+    pub fn read_gpu_image(
+        &self,
+        callback: impl FnOnce(Result<super::Image, String>) + 'static,
+    ) -> bool {
+        #[cfg(feature = "gpu")]
+        {
+            let win = {
+                let s = self.st.borrow();
+                let Some(n) = s.native.as_ref() else {
+                    return false;
+                };
+                if !n.visible() || s.error.is_some() {
+                    return false;
+                }
+                if !n.queue_image(Box::new(callback)) {
+                    return false;
+                }
+                n.win.clone()
+            };
+            win.clone().redraw();
+            true
+        }
+        #[cfg(not(feature = "gpu"))]
+        {
+            let _ = callback;
             false
         }
     }
@@ -436,6 +511,12 @@ fn frame_pace(s: &State, gpu: bool) -> Option<Pace> {
         .then_some(if gpu { Pace::Display } else { Pace::Low });
     let shader = s.pace.filter(|_| {
         s.time.is_none()
+            && s.shader_duration.map_or(true, |ms| {
+                anim::now()
+                    .saturating_duration_since(s.started)
+                    .as_secs_f64()
+                    < ms as f64 / 1000.0
+            })
             && s.scene
                 .commands()
                 .iter()
@@ -457,9 +538,10 @@ fn scene_time(s: &State) -> Option<f32> {
     s.time.or_else(|| {
         s.pace.map(|_| {
             if anim::enabled() {
-                anim::now()
+                let t = anim::now()
                     .saturating_duration_since(s.started)
-                    .as_secs_f32()
+                    .as_secs_f32();
+                s.shader_duration.map_or(t, |ms| t.min(ms as f32 / 1000.0))
             } else {
                 0.0
             }
@@ -623,6 +705,10 @@ mod native {
     use super::*;
     use fltk::window::GlWindow;
     use glow::HasContext;
+    enum Readback {
+        Pixel(i32, i32, Box<dyn FnOnce([u8; 4])>),
+        Image(Box<dyn FnOnce(Result<super::super::Image, String>)>),
+    }
     struct Gl {
         renderer: Option<Renderer>,
         win: GlWindow,
@@ -631,7 +717,7 @@ mod native {
         prepared: Option<PreparedScene>,
         owner: std::rc::Weak<RefCell<State>>,
         pending_scene: bool,
-        readbacks: Vec<(i32, i32, Box<dyn FnOnce([u8; 4])>)>,
+        readbacks: Vec<Readback>,
     }
     impl Drop for Gl {
         fn drop(&mut self) {
@@ -663,7 +749,17 @@ mod native {
             let Some(gl) = self.gl.upgrade() else {
                 return false;
             };
-            gl.borrow_mut().readbacks.push((x, y, f));
+            gl.borrow_mut().readbacks.push(Readback::Pixel(x, y, f));
+            true
+        }
+        pub fn queue_image(
+            &self,
+            callback: Box<dyn FnOnce(Result<super::super::Image, String>)>,
+        ) -> bool {
+            let Some(gl) = self.gl.upgrade() else {
+                return false;
+            };
+            gl.borrow_mut().readbacks.push(Readback::Image(callback));
             true
         }
         pub fn visible(&self) -> bool {
@@ -1011,28 +1107,76 @@ mod native {
             s.stats.texture_bytes = renderer.texture_bytes();
         }
         let ctx = gl.ctx.clone();
-        let mut results = Vec::new();
+        let mut results: Vec<Box<dyn FnOnce()>> = Vec::new();
         if let Some(ctx) = ctx {
-            for (x, y, f) in gl.readbacks.drain(..) {
-                let px = ((x as f64 + 0.5) * win.pixel_w() as f64 / win.w().max(1) as f64).floor()
-                    as i32;
-                let py = win.pixel_h()
-                    - 1
-                    - ((y as f64 + 0.5) * win.pixel_h() as f64 / win.h().max(1) as f64).floor()
-                        as i32;
-                let mut value = [0; 4];
+            if !gl.readbacks.is_empty() {
                 unsafe {
-                    ctx.read_pixels(
-                        px,
-                        py,
-                        1,
-                        1,
-                        glow::RGBA,
-                        glow::UNSIGNED_BYTE,
-                        glow::PixelPackData::Slice(Some(&mut value)),
-                    );
+                    ctx.pixel_store_i32(glow::PACK_ALIGNMENT, 1);
+                    ctx.pixel_store_i32(glow::PACK_ROW_LENGTH, 0);
                 }
-                results.push((f, value));
+            }
+            for request in gl.readbacks.drain(..) {
+                match request {
+                    Readback::Pixel(x, y, f) => {
+                        let px = ((x as f64 + 0.5) * win.pixel_w() as f64 / win.w().max(1) as f64)
+                            .floor() as i32;
+                        let py = win.pixel_h()
+                            - 1
+                            - ((y as f64 + 0.5) * win.pixel_h() as f64 / win.h().max(1) as f64)
+                                .floor() as i32;
+                        let mut value = [0; 4];
+                        unsafe {
+                            ctx.read_pixels(
+                                px,
+                                py,
+                                1,
+                                1,
+                                glow::RGBA,
+                                glow::UNSIGNED_BYTE,
+                                glow::PixelPackData::Slice(Some(&mut value)),
+                            );
+                        }
+                        results.push(Box::new(move || f(value)));
+                    }
+                    Readback::Image(callback) => {
+                        let (w, h) = (win.pixel_w(), win.pixel_h());
+                        let size = if w > 0 && h > 0 {
+                            (w as usize)
+                                .checked_mul(h as usize)
+                                .and_then(|n| n.checked_mul(4))
+                        } else {
+                            None
+                        };
+                        let result = if let Some(size) =
+                            size.filter(|n| *n <= super::super::MAX_IMAGE_BYTES)
+                        {
+                            let mut pixels = vec![0; size];
+                            unsafe {
+                                ctx.read_pixels(
+                                    0,
+                                    0,
+                                    w,
+                                    h,
+                                    glow::RGBA,
+                                    glow::UNSIGNED_BYTE,
+                                    glow::PixelPackData::Slice(Some(&mut pixels)),
+                                );
+                            }
+                            let stride = w as usize * 4;
+                            for y in 0..h as usize / 2 {
+                                let (top, bottom) =
+                                    pixels.split_at_mut((h as usize - y - 1) * stride);
+                                top[y * stride..(y + 1) * stride]
+                                    .swap_with_slice(&mut bottom[..stride]);
+                            }
+                            super::super::Image::rgba(w as u32, h as u32, pixels)
+                                .map_err(|e| e.to_string())
+                        } else {
+                            Err("GPU capture exceeds the image resource budget".to_string())
+                        };
+                        results.push(Box::new(move || callback(result)));
+                    }
+                }
             }
         }
         drop(gl);
@@ -1044,8 +1188,18 @@ mod native {
                 anim::request_redraw_at(win, pace);
             }
         }
-        for (f, value) in results {
-            f(value);
+        if !results.is_empty() {
+            let window = win.clone();
+            // A capture callback may replace content or close its window.
+            // Never deliver it inside FLTK's native GL draw callback.
+            app::add_timeout3(0.0, move |_| {
+                for f in results.drain(..) {
+                    if window.was_deleted() {
+                        break;
+                    }
+                    f();
+                }
+            });
         }
         if !win.was_deleted() {
             if let Some(parent) = win.parent() {

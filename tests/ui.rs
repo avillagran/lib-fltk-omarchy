@@ -40,6 +40,7 @@ mod list_ui;
 mod typo_ui;
 mod layer_ui;
 mod scene_ui;
+mod lava_ui;
 mod scroll_ui;
 mod media_ui;
 #[cfg(feature = "playback")]
@@ -2022,6 +2023,7 @@ fn main() {
     typo_ui::checks(&mut run);
     layer_ui::checks(&mut run);
     scene_ui::checks(&mut run);
+    lava_ui::checks(&mut run);
     scroll_ui::checks(&mut run);
     media_ui::checks(&mut run);
     #[cfg(feature = "playback")]
