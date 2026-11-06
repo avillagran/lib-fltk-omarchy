@@ -12,6 +12,7 @@
 //! `TextSender`, which applies them at most 60 times a second), idle 3 s.
 //! `--lang ar`: the same transcript and stream in Arabic with Latin words
 //! and numbers (right-to-left blocks through the bidi layout).
+use fltk::prelude::WidgetExt as _;
 use fltk::app;
 use fltk_omarchy::text::{Block, ColorRole, RichText, Style};
 use fltk_omarchy::{App, AppWindow};
@@ -141,14 +142,19 @@ fn main() {
     let via = arg(&args, "--via", "timer");
     let arabic = arg(&args, "--lang", "en") == "ar";
     let out = arg(&args, "--out", "build/richtext-bench.json");
+    // --scroll N: instead of streaming, scroll N px per frame at --hz
+    // (bouncing between the ends); --size WxH: window size.
+    let scroll: i32 = arg(&args, "--scroll", "0").parse().unwrap();
+    let size = arg(&args, "--size", "800x900");
+    let (ww, wh) = size.split_once('x').map(|(a, b)| (a.parse().unwrap(), b.parse().unwrap())).unwrap_or((800, 900));
     let title = args
         .last()
         .cloned()
         .filter(|a| !a.starts_with("--") && args.len() > 1)
         .unwrap_or_else(|| "richtext-bench".into());
     let app = App::without_theme_watch("dev.omarchy.fltk.richtext-bench");
-    let mut win = AppWindow::new(&title, 800, 900);
-    let view = RichText::new().stick_to_bottom(true);
+    let mut win = AppWindow::new(&title, ww, wh);
+    let view = RichText::new().stick_to_bottom(scroll == 0);
     win.end();
 
     let t0 = Instant::now();
@@ -195,7 +201,11 @@ fn main() {
                 s.phase_start = Some((Instant::now(), cpu_ticks()));
                 s.paint0 = v.paint_stats();
             }
-            start_stream(r.clone(), v.clone(), rate, hz, secs, &via, arabic);
+            if scroll > 0 {
+                start_scroll(v.clone(), scroll, hz, secs);
+            } else {
+                start_stream(r.clone(), v.clone(), rate, hz, secs, &via, arabic);
+            }
         });
     });
     // Finish: after the stream and 3 s of idle.
@@ -248,6 +258,26 @@ fn main() {
         });
     });
     app.run();
+}
+
+/// Scrolls `px` per frame at `hz` for `secs`, bouncing at the ends.
+fn start_scroll(view: RichText, px: i32, hz: f64, secs: f64) {
+    let end = Instant::now() + Duration::from_secs_f64(secs);
+    let dir = Rc::new(std::cell::Cell::new(-1i64));
+    view.scroll_to(view.content_height() / 2);
+    app::add_timeout3(1.0 / hz, move |h| {
+        if Instant::now() >= end {
+            return;
+        }
+        let max = (view.content_height() - view.h() as i64).max(0);
+        let mut top = view.scroll_offset() + dir.get() * px as i64;
+        if top <= 0 || top >= max {
+            dir.set(-dir.get());
+            top = top.clamp(0, max);
+        }
+        view.scroll_to(top);
+        app::repeat_timeout3(1.0 / hz, h);
+    });
 }
 
 fn start_stream(run: Rc<RefCell<Run>>, view: RichText, rate: usize, hz: f64, secs: f64, via: &str, arabic: bool) {

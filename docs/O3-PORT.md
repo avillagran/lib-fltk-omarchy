@@ -203,6 +203,21 @@ Proposal, in order:
    effects). Same pixels either way, checked by read-back, as the shaders
    are today.
 
+Measured on the CPU backend (2026-11-06, NODE, 1920×1080 @ 60 Hz, scale
+1; `richtext_bench --messages 5000 --scroll 20 --hz 60`, release, real
+Wayland window on a hidden Hyprland workspace; two runs each):
+
+| Window | Paint per frame | CPU while scrolling at 60 fps | PSS |
+|---|---|---|---|
+| 1100×734 | 1.2 ms | 7.5 % of a core | 19–21 MB |
+| 1896×1030 | 1.7 ms | 10.7 % of a core | 26 MB |
+
+Paint grows about 0.41 ms per megapixel on a 0.9 ms base, so a 4K window
+would need about 4.3 ms per frame: ≈ 26 % of a core at 60 Hz and ≈ 52 % at
+120 Hz (extrapolated, not measured). At 1080p the CPU backend is cheaper
+overall than a GL context (+35–40 MB PSS for the driver), which is why it
+stays the default; the GPU scene pays off on 4K and high-refresh displays.
+
 Gates before the GPU scene becomes a default for o3: on a 4K/120 Hz
 display, scrolling a 5 000-message transcript must cost clearly less CPU
 on the GPU backend than on the CPU backend; idle stays 0 %; total PSS
