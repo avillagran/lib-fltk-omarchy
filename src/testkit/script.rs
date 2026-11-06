@@ -287,7 +287,9 @@ fn widget_at_path<W: WindowExt>(window: &W, path: &str) -> Option<fltk::widget::
     Some(w)
 }
 
-fn matcher(t: &Value) -> Result<Box<dyn Fn(&Element) -> bool>, String> {
+type Matcher = Box<dyn Fn(&Element) -> bool>;
+
+fn matcher(t: &Value) -> Result<Matcher, String> {
     if let Some(name) = t.as_str() {
         let name = name.to_string();
         return Ok(Box::new(move |e: &Element| e.name == name));

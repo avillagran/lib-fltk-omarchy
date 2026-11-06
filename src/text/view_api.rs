@@ -871,6 +871,23 @@ where
     rt.changed();
 }
 
+/// Without the `a11y` feature: messages near the view as rows for
+/// `testkit::tree` (kept only while the kit is armed).
+#[cfg(not(feature = "a11y"))]
+pub(super) fn testkit_rows(rt: &RichText) {
+    let v = rt.clone();
+    crate::a11y::describe(&rt.widget.clone(), move |n| {
+        n.role(crate::a11y::Role::Document);
+        for (j, key) in v.message_keys().iter().enumerate() {
+            if let Some((x, y, w, h)) = v.message_rect(key) {
+                n.child(j as u64, |c| {
+                    c.role(crate::a11y::Role::Group).name(key).bounds(x, y, w, h);
+                });
+            }
+        }
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1064,19 +1081,3 @@ mod tests {
     }
 }
 
-/// Without the `a11y` feature: messages near the view as rows for
-/// `testkit::tree` (kept only while the kit is armed).
-#[cfg(not(feature = "a11y"))]
-pub(super) fn testkit_rows(rt: &RichText) {
-    let v = rt.clone();
-    crate::a11y::describe(&rt.widget.clone(), move |n| {
-        n.role(crate::a11y::Role::Document);
-        for (j, key) in v.message_keys().iter().enumerate() {
-            if let Some((x, y, w, h)) = v.message_rect(key) {
-                n.child(j as u64, |c| {
-                    c.role(crate::a11y::Role::Group).name(key).bounds(x, y, w, h);
-                });
-            }
-        }
-    });
-}

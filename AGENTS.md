@@ -83,6 +83,8 @@ classic Omarchy look. Import as `fltk_omarchy`.
    showing a window; look at the PNG. Verify keys with
    `focus::press("Tab")`, `press("Down")`, `press("Enter")`… (same path as
    a real key).
+   Elements, scripts, motion: `testkit::tree`, `run_script`, `Gate`; drive
+   any app with `OMARCHY_FLTK_SCRIPT` under Xvfb (docs/TESTKIT.md).
 14. Multiplatform (Linux Wayland/X11, macOS, Windows): no OS-specific code
    (`#[cfg(target_os)]`, FFI, OS paths) outside `src/platform/`, and every
    platform function has a working fallback on every OS. Paths come from

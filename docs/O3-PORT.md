@@ -316,8 +316,8 @@ for o3's chat views. What to adopt, in order:
 | 8 | **Done** (`Composer::page_keys_to`). A composer that fits passes PageUp/PageDown/Home/End to the transcript | rune README | S | yes |
 | 9 | **Done** (`Style::chip`, `MarkdownOptions::with_chip_links`). Chips in read-only text, matching the composer's | `el/pills.rs` | S–M | yes |
 | 10 | **Done** (`task::Latest`). `task::Latest<T>`: latest-wins background requests with debounce (`@` search) | `latest.rs` | S | yes |
-| 11 | Frame log (paint / wall / CPU per frame) and a warning when a UI callback blocks | `RUNE_FRAME_LOG` | S | yes |
-| 12 | Scripted agent harness (input by accessible name, element dump with rects) and a motion gate (no jumps on prepend/stream/follow) | `--script`, `--tree`, `motion_gate` | M | yes |
+| 11 | **Done** (`OMARCHY_FLTK_FRAME_LOG`, `testkit::frames`; docs/TESTKIT.md). Frame log (paint / wall / CPU per frame) and a warning when a UI callback blocks | `RUNE_FRAME_LOG` | S | yes |
+| 12 | **Done** (`testkit::{tree, run_script, Gate}`, `OMARCHY_FLTK_SCRIPT`; docs/TESTKIT.md). Scripted agent harness (input by accessible name, element dump with rects) and a motion gate (no jumps on prepend/stream/follow) | `--script`, `--tree`, `motion_gate` | M | yes |
 
 Not adopted: spring-driven growth of every row (each animation frame is a
 repaint on the CPU backend).

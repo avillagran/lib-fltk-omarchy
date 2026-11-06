@@ -94,6 +94,33 @@ pub fn checks(run: &mut dyn FnMut(&str, Check)) {
         delete(d.win);
         Ok(())
     });
+    run("testkit: a transcript exposes rows near its viewport, inside the view", &|_| {
+        testkit::arm();
+        let mut win = AppWindow::new("t", 520, 320);
+        let rt = RichText::new();
+        win.end();
+        for k in 0..60 {
+            rt.set_message(&format!("m{k}"), Message::markdown(&format!("Message w{k}\n\nwith a second paragraph")));
+        }
+        rt.scroll_to(rt.content_height() / 2);
+        testkit::run_steps(&*win, &[]);
+        let all = testkit::tree(&*win);
+        let host = all.iter().find(|e| e.kind == "Document").ok_or("no Document")?;
+        let prefix = format!("{}#", host.path);
+        let rows: Vec<_> = all.iter().filter(|e| e.key.is_some() && e.path.starts_with(&prefix)).collect();
+        let shown: Vec<_> = rows.iter().filter(|e| e.visible).collect();
+        check(!shown.is_empty() && rows.len() < 400, &format!("{} rows, {} shown", rows.len(), shown.len()))?;
+        let (top, bottom) = (host.rect.1, host.rect.1 + host.rect.3);
+        check(
+            shown.iter().all(|e| e.rect.1 < bottom && e.rect.1 + e.rect.3 > top),
+            &format!("shown rows meet the view {top}..{bottom}: {:?}", shown.iter().map(|e| e.rect).collect::<Vec<_>>()),
+        )?;
+        let key = (0..60).map(|k| format!("m{k}")).find(|k| rt.message_rect(k).is_some()).ok_or("a message in view")?;
+        let r = rt.message_rect(&key).ok_or("rect")?;
+        check(r.1 < bottom && r.1 + r.3 > top && r.2 == rt.w(), &format!("message_rect {key} {r:?}"))?;
+        delete(win);
+        Ok(())
+    });
     run("testkit: a script types, clicks by name, presses Mod+K, wheels a list and checks; failures are reported", &|shots| {
         let d = demo();
         let shot = shots.join("testkit-script.png");
