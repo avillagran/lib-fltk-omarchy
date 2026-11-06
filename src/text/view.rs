@@ -1774,6 +1774,10 @@ impl RichText {
         });
         #[cfg(feature = "a11y")]
         access::install(self);
+        #[cfg(not(feature = "a11y"))]
+        if crate::testkit::armed() {
+            api::testkit_rows(self);
+        }
     }
 
     // ------------------------------------------------------------ builders

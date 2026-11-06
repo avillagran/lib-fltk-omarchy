@@ -59,7 +59,7 @@ pub(super) fn wayland() -> bool {
     !unsafe { fl_wl_display() }.is_null()
 }
 
-pub(super) use super::generic::process_cpu_time;
+pub(super) use super::generic::{process_cpu_time, thread_cpu_time};
 
 pub(super) fn prefers_dark() -> Option<bool> {
     None // the Omarchy theme decides

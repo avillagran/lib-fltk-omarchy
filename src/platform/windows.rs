@@ -59,6 +59,14 @@ struct FileTime {
 #[link(name = "kernel32")]
 extern "system" {
     fn GetCurrentProcess() -> *mut c_void;
+    fn GetCurrentThread() -> *mut c_void;
+    fn GetThreadTimes(
+        thread: *mut c_void,
+        creation: *mut FileTime,
+        exit: *mut FileTime,
+        kernel: *mut FileTime,
+        user: *mut FileTime,
+    ) -> i32;
     fn GetProcessTimes(
         process: *mut c_void,
         creation: *mut FileTime,
@@ -78,6 +86,20 @@ pub(super) fn process_cpu_time() -> Option<Duration> {
     );
     // SAFETY: pseudo-handle of this process and valid out pointers.
     let ok = unsafe { GetProcessTimes(GetCurrentProcess(), &mut c, &mut e, &mut k, &mut u) };
+    let ticks = |t: &FileTime| (u64::from(t.high) << 32) | u64::from(t.low);
+    (ok != 0).then(|| Duration::from_nanos((ticks(&k) + ticks(&u)) * 100))
+}
+
+/// Kernel + user time of the calling thread from `GetThreadTimes`.
+pub(super) fn thread_cpu_time() -> Option<Duration> {
+    let (mut c, mut e, mut k, mut u) = (
+        FileTime::default(),
+        FileTime::default(),
+        FileTime::default(),
+        FileTime::default(),
+    );
+    // SAFETY: pseudo-handle of this thread and valid out pointers.
+    let ok = unsafe { GetThreadTimes(GetCurrentThread(), &mut c, &mut e, &mut k, &mut u) };
     let ticks = |t: &FileTime| (u64::from(t.high) << 32) | u64::from(t.low);
     (ok != 0).then(|| Duration::from_nanos((ticks(&k) + ticks(&u)) * 100))
 }

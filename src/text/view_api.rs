@@ -239,6 +239,22 @@ impl RichText {
         Some(s..s + i.msg_len(j))
     }
 
+    /// Window rectangle `(x, y, w, h)` of message `key` (all its blocks,
+    /// not clipped) while some of it is in view; None when it is out of
+    /// view or unknown. Scroll glides included (tests, the motion gate).
+    pub fn message_rect(&self, key: &str) -> Option<(i32, i32, i32, i32)> {
+        let r = self.message_blocks(key).filter(|r| !r.is_empty())?;
+        let i = self.inner.borrow();
+        let wy = self.widget.y();
+        let top = i.screen_y(r.start, wy);
+        let bottom = (wy as i64 + i.pad as i64 + i.heights.prefix(r.end) - i.top) as i32;
+        let view_h = if i.view_h > 0 { i.view_h } else { self.widget.h() };
+        if bottom <= wy || top >= wy + view_h {
+            return None;
+        }
+        Some((self.widget.x(), top, self.widget.w(), bottom - top))
+    }
+
     /// Key of the message that holds block `block`.
     pub fn message_at(&self, block: usize) -> Option<String> {
         let i = self.inner.borrow();
@@ -855,6 +871,23 @@ where
     rt.changed();
 }
 
+/// Without the `a11y` feature: messages near the view as rows for
+/// `testkit::tree` (kept only while the kit is armed).
+#[cfg(not(feature = "a11y"))]
+pub(super) fn testkit_rows(rt: &RichText) {
+    let v = rt.clone();
+    crate::a11y::describe(&rt.widget.clone(), move |n| {
+        n.role(crate::a11y::Role::Document);
+        for (j, key) in v.message_keys().iter().enumerate() {
+            if let Some((x, y, w, h)) = v.message_rect(key) {
+                n.child(j as u64, |c| {
+                    c.role(crate::a11y::Role::Group).name(key).bounds(x, y, w, h);
+                });
+            }
+        }
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1047,3 +1080,4 @@ mod tests {
         assert_eq!(i.pos_of(4), TextPos { block: 1, offset: 0 });
     }
 }
+

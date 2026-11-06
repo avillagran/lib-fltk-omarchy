@@ -45,6 +45,8 @@ impl App {
         crate::tooltip::install();
         // Follow the system's Animations setting (Hyprland, GNOME, macOS, Windows).
         crate::anim::init();
+        // OMARCHY_FLTK_SCRIPT / _TREE / _FRAME_LOG (docs/TESTKIT.md).
+        crate::testkit::env::init();
         App { id: id.to_string(), _fltk: fltk, watcher: Some(ThemeWatcher::start()) }
     }
 
@@ -66,6 +68,14 @@ impl App {
     /// On return, background tasks are cancelled and their workers joined
     /// (up to 2 s) and theme watching stops.
     pub fn run(mut self) {
+        // A scripted run (OMARCHY_FLTK_SCRIPT) replaces the event loop.
+        if let Some(code) = crate::testkit::env::run_if_requested() {
+            self.shutdown();
+            if code != 0 {
+                std::process::exit(code);
+            }
+            return;
+        }
         loop {
             // Fl::wait() returns at once when no window is shown; a
             // resident app waits for events, timers and posted work anyway.
