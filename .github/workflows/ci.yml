@@ -38,6 +38,7 @@ jobs:
             cargo check --locked --target "$t" --all-targets --features gpu
             cargo check --locked --target "$t" --all-targets --features a11y
             cargo check --locked --target "$t" --all-targets --features playback
+            cargo check --locked --target "$t" --all-targets --features mermaid
             cargo clippy --locked --target "$t" --all-targets -- -D clippy::correctness -D clippy::suspicious
           done
 
@@ -58,6 +59,8 @@ jobs:
             libwayland-dev wayland-protocols libxkbcommon-dev libdbus-1-dev libegl-dev
       - name: build with 1.80 (default features)
         run: cargo +1.80.0 build --locked --all-targets
+      - name: build with 1.80 (mermaid)
+        run: cargo +1.80.0 build --locked --lib --features mermaid
       - name: build with 1.85 (a11y)
         run: cargo +1.85.0 build --locked --all-targets --features a11y
 
@@ -98,6 +101,8 @@ jobs:
         run: env -u WAYLAND_DISPLAY xvfb-run -a -s "-screen 0 1280x800x24" cargo test --locked --features qr
       - name: images feature
         run: env -u WAYLAND_DISPLAY xvfb-run -a -s "-screen 0 1280x800x24" cargo test --locked --features images
+      - name: mermaid feature
+        run: env -u WAYLAND_DISPLAY xvfb-run -a -s "-screen 0 1280x800x24" cargo test --locked --features mermaid
       - name: playback feature (system ffmpeg; silent test output)
         run: |
           sudo apt-get install -y ffmpeg

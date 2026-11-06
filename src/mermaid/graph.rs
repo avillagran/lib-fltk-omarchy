@@ -248,10 +248,8 @@ fn draw_in(model: &Model, dir: Dir, p: &Parts) -> Option<(Vec<Item>, f32, Geo)> 
     let shapes_v: Vec<NodeShape> = model.nodes.iter().map(|n| n.shape).collect();
     let ends = model.edges.iter().map(|e| (e.from, e.to)).collect();
     let boxes = p.edge_labels.iter().map(|l| l.as_ref().map(|m| ax(label_box(m)))).collect();
-    let ctx = Ctx::new(&placed, &p.sizes, shapes_v, boxes, across, ends).titles(title_boxes.iter().map(|r| {
-        // Titles are screen rects; `titles` maps them back to layout axes.
-        *r
-    }));
+    // Titles are screen rects; `titles` maps them back to layout axes.
+    let ctx = Ctx::new(&placed, &p.sizes, shapes_v, boxes, across, ends).titles(title_boxes.iter().copied());
     // Routes first: every edge's line breaks around every label.
     let routes: Vec<Option<(super::route::Route, Option<[f32; 4]>)>> = (0..model.edges.len())
         .map(|i| {
