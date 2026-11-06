@@ -83,7 +83,7 @@ impl NavTree {
             s.pv.open.take()
         };
         if let Some((_, l)) = open {
-            crate::overlay::close_layer(&l);
+            close_later(l);
         }
     }
 
@@ -151,7 +151,7 @@ impl NavTree {
         let open = self.st.borrow_mut().pv.open.take();
         self.st.borrow_mut().pv.card_hovered = false;
         if let Some((_, l)) = open {
-            crate::overlay::close_layer(&l);
+            close_later(l);
         }
     }
 
@@ -202,7 +202,7 @@ impl NavTree {
         }
         let layer = g.as_base_widget();
         if !keep || col.children() == 0 {
-            crate::overlay::close_layer(&layer);
+            close_later(layer);
             return;
         }
         let kids: Vec<i32> = (0..col.children())
@@ -260,4 +260,11 @@ impl NavTree {
         }
         g.redraw();
     }
+}
+
+/// Closes a card on the next loop turn: it may be closed from inside an
+/// event its window is still dispatching to its children (a wheel on the
+/// rows), which must not see the child list change under it.
+fn close_later(l: Widget) {
+    app::add_timeout3(0.0, move |_| crate::overlay::close_layer(&l));
 }

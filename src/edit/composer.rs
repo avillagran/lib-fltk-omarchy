@@ -2149,6 +2149,27 @@ mod tests {
     }
 
     #[test]
+    fn prompt_history_keeps_the_draft() {
+        let list: Vec<String> = vec!["newest".into(), "older".into()];
+        let mut h = PromptHistory::new();
+        assert_eq!(h.step(&list, false, "draft"), None);
+        assert_eq!(h.step(&list, true, "draft").as_deref(), Some("newest"));
+        assert!(h.browsing());
+        assert_eq!(h.step(&list, true, "newest").as_deref(), Some("older"));
+        assert_eq!(h.step(&list, true, "older"), None);
+        assert_eq!(h.step(&list, false, "older").as_deref(), Some("newest"));
+        assert_eq!(h.step(&list, false, "newest").as_deref(), Some("draft"));
+        assert!(!h.browsing());
+        assert_eq!(h.step(&list, false, "draft"), None);
+        // An edit resets: the edited text becomes the draft.
+        h.step(&list, true, "draft");
+        h.reset();
+        assert_eq!(h.step(&list, true, "edited").as_deref(), Some("newest"));
+        assert_eq!(h.step(&list, false, "newest").as_deref(), Some("edited"));
+        assert_eq!(PromptHistory::new().step(&[], true, "x"), None);
+    }
+
+    #[test]
     fn file_lists_from_pastes_and_drops() {
         assert_eq!(
             parse_files("file:///home/a/My%20File.txt\r\nfile:///tmp/b\n", false),

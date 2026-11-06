@@ -18,7 +18,7 @@ const STEP: i32 = 20;
 /// [`ShelfResizer::shelf`] keeps the shelf's height in its column equal to it.
 ///
 /// Several shelves with their own heights are a column of [`NavTree`]s
-/// (each with its own model, pinned, `widths(w, w)`), each below a
+/// (each with its own model, pinned), each below a
 /// resizer; the last one usually takes the rest of the column:
 ///
 /// ```no_run
@@ -28,14 +28,21 @@ const STEP: i32 = 20;
 /// let selected = State::new(String::new());
 /// let active = ListModel::new(|t: &NavItem| t.key.clone());
 /// let settled = ListModel::new(|t: &NavItem| t.key.clone());
-/// let tree = NavTree::new(&active, &selected).widths(300, 300); // takes the rest
+/// let tree = NavTree::new(&active, &selected); // takes the rest
 /// let h = State::new(220);
 /// let grip = ShelfResizer::new("Settled threads height", &h, 220);
-/// let shelf = NavTree::new(&settled, &selected).widths(300, 300);
+/// let shelf = NavTree::new(&settled, &selected);
 /// col.fit(&*grip);
 /// let grip = grip.shelf(&*shelf);
 /// col.end();
+/// tree.set_pinned(true);
+/// shelf.set_pinned(true);
 /// ```
+///
+/// A single `NavTree` with sections (`NavItem::section(..).collapsible()`)
+/// is the other way: one scroll, one Tab stop, sections fold, but no
+/// per-section height. Use shelves when a section must keep its rows in
+/// view while the main list scrolls (o3's Working and Settled shelves).
 ///
 /// It is a Tab stop with the accessible role Slider (name: `name`, value
 /// in pixels); the accent line shows while hovered, dragged or focused.
@@ -84,7 +91,7 @@ impl ShelfResizer {
                 let lw = (w.w() - 24).max(0);
                 let x = w.x() + (w.w() - lw) / 2;
                 let thick = 2;
-                crate::paint::fill(x, w.y() + (w.h() - thick) / 2, lw, thick, 1, t.palette.accent);
+                crate::paint::fill(x, w.y() + (w.h() - thick) / 2, lw, thick, 0, t.palette.accent);
             });
         });
         let (hs, rg) = (height.clone(), range.clone());

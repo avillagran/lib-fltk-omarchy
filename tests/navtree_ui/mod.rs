@@ -667,10 +667,277 @@ pub fn checks(run: &mut dyn FnMut(&str, Check)) {
         i18n::set_locale("en");
         check(ok && closed, &format!("rtl: on the right {ok}, Right closes {closed}"))
     });
+    run("navtree: o3 cards (82 px, three lines) and slim rows, status text replaced by hover/cursor actions, tree guides, Delete", &|shots| {
+        anim::set_enabled(false);
+        let mut log = Log::default();
+        let s = shell(o3_cards(), 460, |t| {
+            let (t, l) = wire(t.tree_guides(true));
+            log = l;
+            t
+        });
+        s.tree.set_pinned(true);
+        let p = shot(&s.win, shots, "navtree-cards-0.png")?;
+        let r1 = s.tree.item_rect("t1").ok_or("no t1")?;
+        let r2 = s.tree.item_rect("t2").ok_or("no t2")?;
+        let ra = s.tree.item_rect("t1/a").ok_or("no t1/a")?;
+        let rh = theme::with(|t| t.spacing.control_height + t.spacing.md);
+        check(r1.3 == 82 && r2.3 == 62 && ra.3 == rh, &format!("heights card {} two-line card {} slim {}", r1.3, r2.3, ra.3))?;
+        let yellow = theme::with(|t| rgb(ColorRole::Yellow.rgb(t)));
+        let line1 = (r1.0, r1.1 + 10, r1.2, 20);
+        let status = count_close(&p, line1, yellow, 40)?;
+        check(status > 10, &format!("status text in its role on the first line ({status} px)"))?;
+        // Tree guide under the card's icon, through the sub-thread row.
+        let surface = theme::with(|t| t.palette.foreground.over(t.palette.background, 0.04));
+        let guide = theme::with(|t| rgb(t.palette.foreground.over(surface, 0.14)));
+        let gx = ra.0 + 20;
+        let on_guide = count(&p, (gx, ra.1, 1, ra.3), guide)?;
+        check(on_guide >= (ra.3 - 4) as usize, &format!("guide column at {gx}: {on_guide} of {}", ra.3))?;
+        // Hover: the actions take the status text's place, on the first line.
+        focus::hover_at(&*s.win, r1.0 + r1.2 / 2, r1.1 + r1.3 - 12);
+        let p = shot(&s.win, shots, "navtree-cards-1-hover.png")?;
+        let status = count_close(&p, line1, yellow, 40)?;
+        check(status == 0, &format!("hovered: no status text ({status} px)"))?;
+        let ay = r1.1 + 10 + 10;
+        let ax = r1.0 + r1.2 - 12 - 11;
+        focus::hover_at(&*s.win, ax, ay);
+        check(s.tree.rows_widget().tooltip().as_deref() == Some("Snooze"), &format!("action tooltip {:?}", s.tree.rows_widget().tooltip()))?;
+        focus::click_at(&*s.win, ax, ay);
+        check(take(&log) == ["action t1 snooze"], "click on the first line's action")?;
+        // Keyboard: the cursor row shows its actions too; Delete runs the first.
+        focus::hover_at(&*s.win, s.content.x() + 4, s.content.y() + 4);
+        let _ = s.tree.rows_widget().take_focus();
+        s.tree.set_cursor("t1/a");
+        press("Down");
+        let p = shot(&s.win, shots, "navtree-cards-2-cursor.png")?;
+        let r2l = (r2.0 + r2.2 - 60, r2.1 + 10, 60, 20);
+        let ink_t2 = count_close(&p, r2l, theme::with(|t| rgb(t.palette.foreground)), 60)?;
+        check(ink_t2 > 5, "cursor row: an action glyph where the time was")?;
+        press("Delete");
+        check(take(&log) == ["action t2 settle"], "Delete: first action")?;
+        delete(s.win);
+        Ok(())
+    });
+    run("navtree: action menu (right-click, Menu, Shift+F10) lists the row's actions without on_context", &|shots| {
+        anim::set_enabled(false);
+        let log: Log = Rc::default();
+        let l2 = log.clone();
+        let s = shell(o3_cards(), 460, move |t| {
+            t.action_menu(true).on_action(move |k, a| l2.borrow_mut().push(format!("action {k} {a}")))
+        });
+        s.tree.set_pinned(true);
+        let _ = s.tree.rows_widget().take_focus();
+        s.tree.set_cursor("t1");
+        press("Shift+F10");
+        shot(&s.win, shots, "navtree-action-menu.png")?;
+        press("Down");
+        press("Enter");
+        check(take(&log) == ["action t1 snooze"], &format!("picked the second action {:?}", log.borrow()))?;
+        let r = s.tree.item_rect("t2").ok_or("no t2")?;
+        focus::right_click_at(&*s.win, r.0 + 40, r.1 + r.3 / 2);
+        press("Enter");
+        check(take(&log) == ["action t2 settle"], "right-click menu")?;
+        delete(s.win);
+        Ok(())
+    });
+    run("navtree: hover preview card opens after 500 ms beside the row, stays while on the card, closes 140 ms after leaving, on scroll and on keys", &|shots| {
+        anim::set_enabled(false);
+        let built: Rc<RefCell<Vec<String>>> = Rc::default();
+        let b2 = built.clone();
+        let s = shell(o3_cards(), 460, move |t| {
+            t.preview(240, move |key, col| {
+                b2.borrow_mut().push(key.to_string());
+                if key == "t3" {
+                    return false;
+                }
+                col.fit(&*fltk_omarchy::widgets::Label::new(&format!("Preview of {key}")));
+                col.fit(&*fltk_omarchy::widgets::Label::new("feature/branch"));
+                true
+            })
+        });
+        s.tree.set_pinned(true);
+        shot(&s.win, shots, "navtree-preview-0.png")?;
+        let r = s.tree.item_rect("t2").ok_or("no t2")?;
+        // The pointer rests: hover again on every turn, since the X server
+        // of a test run can send a stray Leave for windows of earlier checks.
+        let rest = |x: i32, y: i32, until: &dyn Fn() -> bool, max: Duration| {
+            let t = Instant::now();
+            while !until() && t.elapsed() < max {
+                focus::hover_at(&*s.win, x, y);
+                fltk_omarchy::App::pump();
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        };
+        let t0 = Instant::now();
+        rest(r.0 + 60, r.1 + r.3 / 2, &|| s.tree.preview_key().is_some(), Duration::from_secs(3));
+        let waited = t0.elapsed();
+        check(s.tree.preview_key().as_deref() == Some("t2"), &format!("opened {:?}", s.tree.preview_key()))?;
+        check(waited >= Duration::from_millis(450) && waited < Duration::from_millis(1500), &format!("after {waited:?}"))?;
+        let pr = s.tree.preview_rect().ok_or("no rect")?;
+        check(pr.0 >= s.tree.x() + s.tree.w() && pr.2 == 240 && pr.3 > 30, &format!("beside the sidebar {pr:?}"))?;
+        let p = shot(&s.win, shots, "navtree-preview-1-open.png")?;
+        let bg = theme::with(|t| rgb(t.palette.background));
+        let painted = (pr.3 * pr.2) as usize - count(&p, pr, bg)?;
+        check(painted > 200, &format!("the card is drawn ({painted} px)"))?;
+        // On the card it stays.
+        rest(pr.0 + pr.2 / 2, pr.1 + pr.3 / 2, &|| false, Duration::from_millis(400));
+        check(s.tree.preview_key().is_some(), "stays while the pointer is on the card")?;
+        // Away from both: closes after 140 ms.
+        let t2 = Instant::now();
+        rest(pr.0 + pr.2 / 2, pr.1 + pr.3 + 60, &|| s.tree.preview_key().is_none(), Duration::from_secs(3));
+        check(s.tree.preview_key().is_none() && t2.elapsed() < Duration::from_millis(1000), &format!("closed after {:?}", t2.elapsed()))?;
+        // Scroll and keys close it at once.
+        s.tree.show_preview("t2");
+        check(s.tree.preview_key().is_some(), "show_preview")?;
+        focus::wheel_at(&*s.win, r.0 + 60, r.1 + r.3 / 2, 1);
+        check(s.tree.preview_key().is_none(), "scroll closes it")?;
+        s.tree.show_preview("t2");
+        let _ = s.tree.rows_widget().take_focus();
+        press("Escape");
+        check(s.tree.preview_key().is_none(), "Esc closes it")?;
+        // A row without a preview: nothing opens.
+        s.tree.show_preview("t3");
+        check(s.tree.preview_key().is_none() && built.borrow().contains(&"t3".to_string()), "build returned false")?;
+        // The row going away closes it.
+        s.tree.show_preview("t2");
+        s.model.remove_key(&"t2".to_string());
+        shot(&s.win, shots, "navtree-preview-2-removed.png")?;
+        super::pump_until(|| s.tree.preview_key().is_none());
+        check(s.tree.preview_key().is_none(), "removed row: closed")?;
+        delete(s.win);
+        Ok(())
+    });
+    run("navtree: shelf resizer sets the shelf height (keys ±20, Home resets, drag up grows, range), Slider role", &|shots| {
+        anim::set_enabled(false);
+        let mut win = AppWindow::new("Shelves", 360, 520);
+        let mut body = win.body();
+        body.set_margin(0);
+        let mut col = layout::column();
+        col.set_spacing(0);
+        let selected = State::new(String::new());
+        let top = NavTree::new(&o3_model(), &selected).widths(44, 360);
+        col.add(&*top);
+        let h = State::new(160);
+        let grip = ShelfResizer::new("Settled threads height", &h, 160).range(60, 300);
+        col.fit(&*grip);
+        let shelf = NavTree::new(&o3_cards(), &selected).widths(44, 360);
+        col.fit(&*shelf);
+        let grip = grip.shelf(&*shelf);
+        col.end();
+        win.end();
+        top.set_pinned(true);
+        shelf.set_pinned(true);
+        shot(&win, shots, "navtree-shelf-0.png")?;
+        check(shelf.h() == 160, &format!("initial {}", shelf.h()))?;
+        let _ = grip.clone().take_focus();
+        press("Up");
+        check(h.get() == 180 && shelf.h() == 180, &format!("Up +20: {} {}", h.get(), shelf.h()))?;
+        press("Down");
+        press("Down");
+        check(h.get() == 140, "Down -20")?;
+        let p = shot(&win, shots, "navtree-shelf-1-focus.png")?;
+        let accent = theme::with(|t| rgb(t.palette.accent));
+        let line = count_close(&p, (grip.x(), grip.y(), grip.w(), grip.h()), accent, 40)?;
+        check(line > 100, &format!("focused grip shows the accent line ({line} px)"))?;
+        press("Home");
+        check(h.get() == 160, "Home: default")?;
+        let (gx, gy) = (grip.x() + grip.w() / 2, grip.y() + grip.h() / 2);
+        focus::mouse_drag(&*win, (gx, gy), (gx, gy - 30), true);
+        check(h.get() == 190 && shelf.h() == 190, &format!("drag up 30: {}", h.get()))?;
+        focus::mouse_drag(&*win, (gx, grip.y() + 2), (gx, grip.y() - 400), true);
+        check(h.get() == 300, "clamped to the range")?;
+        delete(win);
+        Ok(())
+    });
+}
+
+/// o3's thread cards: a working card with meta and a sub-thread, a
+/// two-line card, a slim settled row.
+pub fn o3_cards() -> ListModel<String, NavItem> {
+    let settle = || RowAction::new("settle", glyph::CHECK, "Settle").on_hover();
+    let snooze = || RowAction::new("snooze", glyph::BELL, "Snooze").on_hover();
+    let m = ListModel::new(|t: &NavItem| t.key.clone());
+    m.extend([
+        NavItem::section("s:active", "Active").count("3"),
+        NavItem::row("t1", glyph::FOLDER, "Fix the bar")
+            .parent("s:active")
+            .card()
+            .overline("omarchy")
+            .status(glyph::LOADING, "Working 2m", ColorRole::Yellow)
+            .badge(Badge::icon(glyph::BOOKMARK, "Pinned", ColorRole::Dim))
+            .meta(Meta::new(glyph::FOLDER, "feature/a-very-long-branch-name-for-the-bar"))
+            .meta(Meta::new(glyph::MONITOR, ""))
+            .meta(Meta::new(glyph::SETTINGS, ""))
+            .action(settle())
+            .action(snooze()),
+        NavItem::row("t1/a", glyph::LOADING, "Explore icons")
+            .parent("t1")
+            .trailing("3m")
+            .action(settle()),
+        NavItem::row("t2", glyph::FOLDER, "Theme picker")
+            .parent("s:active")
+            .card()
+            .overline("omarchy")
+            .trailing("1h")
+            .note("5m")
+            .action(settle()),
+        NavItem::row("t3", glyph::FILE, "Old thread")
+            .parent("s:active")
+            .trailing("2d")
+            .dimmed(),
+    ]);
+    m
+}
+
+fn close(a: [u8; 3], b: [u8; 3], tol: u8) -> bool {
+    a.iter().zip(b).all(|(x, y)| x.abs_diff(y) <= tol)
+}
+
+fn count_close(p: &Path, (x, y, w, h): (i32, i32, i32, i32), color: [u8; 3], tol: u8) -> Result<usize, String> {
+    let img = png_rgb(p)?;
+    let mut n = 0;
+    for yy in y.max(0)..y + h {
+        for xx in x.max(0)..x + w {
+            if close(img.at(xx, yy), color, tol) {
+                n += 1;
+            }
+        }
+    }
+    Ok(n)
 }
 
 #[cfg(feature = "a11y")]
 pub fn a11y_checks(run: &mut dyn FnMut(&str, Check)) {
+    run("a11y: o3 cards describe overline, status, note, meta and icon badges; shelf resizer is a named Slider", &|shots| {
+        anim::set_enabled(false);
+        let mut win = AppWindow::new("Shelves", 360, 520);
+        let mut body = win.body();
+        body.set_margin(0);
+        let mut col = layout::column();
+        let selected = State::new(String::new());
+        let tree = NavTree::new(&o3_cards(), &selected).widths(44, 360).action_menu(true);
+        col.add(&*tree);
+        let h = State::new(120);
+        let grip = ShelfResizer::new("Settled threads height", &h, 120);
+        col.fit(&*grip);
+        let shelf = NavTree::new(&o3_model(), &selected).widths(44, 360);
+        col.fit(&*shelf);
+        let _grip = grip.shelf(&*shelf);
+        col.end();
+        win.end();
+        tree.set_pinned(true);
+        shelf.set_pinned(true);
+        shot(&win, shots, "a11y-navtree-cards.png")?;
+        let snap = fltk_omarchy::a11y::snapshot(&*win).ok_or("no tree")?;
+        let has = |f: &dyn Fn(&str) -> bool| snap.lines().any(f);
+        let ok = [
+            ("card", has(&|l| l.contains("TreeItem \"Fix the bar\"") && l.contains("omarchy") && l.contains("Working 2m") && l.contains("feature/a-very-long-branch-name-for-the-bar") && l.contains("Pinned"))),
+            ("note", has(&|l| l.contains("TreeItem \"Theme picker\"") && l.contains("1h") && l.contains("5m"))),
+            ("slider", has(&|l| l.contains("Slider \"Settled threads height\"") && l.contains("120"))),
+        ];
+        delete(win);
+        let bad: Vec<&str> = ok.iter().filter(|(_, v)| !v).map(|(n, _)| *n).collect();
+        check(bad.is_empty(), &format!("missing {bad:?}:\n{snap}"))
+    });
     run("a11y: navtree is a Tree of TreeItems with level, position, expanded, selected; actions are named buttons", &|shots| {
         anim::set_enabled(false);
         let s = shell(o3_model(), 460, |t| t);
