@@ -85,11 +85,14 @@ fn icon_button(icon: Rc<dyn Fn() -> (&'static str, String)>, on: Rc<dyn Fn()>, k
         theme::with(|t| {
             let s = crate::widgets::interaction_of(w, &ia);
             let under = t.palette.background;
-            paint::draw_look(w.x(), w.y(), w.w(), w.h(), t.radius, paint::control_look(t, s, under, None, false), under);
+            // A square at the bottom (the audio row is taller than a control).
+            let sq = w.w().min(w.h());
+            let (bx, by) = (w.x() + (w.w() - sq) / 2, w.y() + w.h() - sq);
+            paint::draw_look(bx, by, sq, sq, t.radius, paint::control_look(t, s, under, None, false), under);
             let fg = if s.disabled { t.palette.foreground.darker(2.0) } else { t.palette.foreground };
             if let Ok(svg) = Svg::cached(src) {
-                let side = scaled(16.0).min(w.w() - 4).max(1);
-                icon::draw(w, &svg, w.x() + (w.w() - side) / 2, w.y() + (w.h() - side) / 2, side, side, fg);
+                let side = scaled(16.0).min(sq - 4).max(1);
+                icon::draw(w, &svg, bx + (sq - side) / 2, by + (sq - side) / 2, side, side, fg);
             }
         });
     });
@@ -200,7 +203,7 @@ fn seek_bar(p: &Player) -> Widget {
             let fw = (w.w() as f64 * f).round() as i32;
             paint::fill(w.x(), ty, fw, track, track / 2, fg);
             if dur.is_some() {
-                let kx = (w.x() + ((w.w() - k) as f64 * f).round() as i32).clamp(w.x(), w.x() + w.w() - k);
+                let kx = (w.x() + ((w.w() - k).max(0) as f64 * f).round() as i32).min(w.x() + w.w() - k).max(w.x());
                 let ky = w.y() + (w.h() - k) / 2;
                 fltk::draw::set_draw_color(under.fl());
                 fltk::draw::draw_pie(kx - 2, ky - 2, k + 4, k + 4, 0.0, 360.0);
@@ -248,7 +251,11 @@ fn time_label(p: &Player) -> Widget {
     let p2 = p.clone();
     w.draw(move |w| {
         let text = time_text(&p2);
-        theme::with(|t| paint::text(&text, w.x(), w.y(), w.w(), w.h(), t.font.body_small, false, dim(t), Align::Right));
+        theme::with(|t| {
+            // On the controls' line (the bottom of a taller audio row).
+            let h = w.h().min(t.spacing.control_height);
+            paint::text(&text, w.x(), w.y() + w.h() - h, w.w(), h, t.font.body_small, false, dim(t), Align::Right)
+        });
     });
     a11y::describe(&w, |n| {
         n.role(Role::Unknown).leaf(); // the slider reads the same
@@ -264,7 +271,11 @@ fn time_text(p: &Player) -> String {
 }
 
 fn time_width(dur: Option<f64>) -> i32 {
-    let sample = if dur.is_some_and(|d| d >= 3600.0) { "0:00:00 / 0:00:00" } else { "00:00 / 00:00" };
+    let sample = match dur {
+        Some(d) if d >= 3600.0 => "0:00:00 / 0:00:00",
+        Some(d) if d < 600.0 => "0:00 / 0:00",
+        _ => "00:00 / 00:00",
+    };
     theme::with(|t| paint::measure(sample, t.font.body_small, false)) + scaled(4.0)
 }
 
@@ -642,13 +653,9 @@ impl Audio {
         let mut inner = Flex::default().row().with_size(w.max(120), line + ch);
         inner.set_spacing(theme::with(|t| t.spacing.control_gap));
         layout::set_direction(&inner, Some(Direction::Ltr));
-        let mut c1 = Flex::default().column();
-        let mut pad = fltk::frame::Frame::default();
+        // One row; the buttons and the time sit on the slider's line.
         let play = play_button(&player);
-        c1.fixed(&pad, line);
-        c1.fixed(&play, ch);
-        c1.end();
-        inner.fixed(&c1, ch);
+        inner.fixed(&play, ch);
         let mut col = Flex::default().column();
         col.set_spacing(0);
         let name = name_line(&player);
@@ -656,22 +663,12 @@ impl Audio {
         let seek = seek_bar(&player);
         col.fixed(&seek, ch);
         col.end();
-        let mut c3 = Flex::default().column();
-        let pad3 = fltk::frame::Frame::default();
         let time = time_label(&player);
-        c3.fixed(&pad3, line);
-        c3.fixed(&time, ch);
-        c3.end();
-        inner.fixed(&c3, time.w());
-        let mut c4 = Flex::default().column();
-        let pad4 = fltk::frame::Frame::default();
+        inner.fixed(&time, time.w());
         let mute = mute_button();
-        c4.fixed(&pad4, line);
-        c4.fixed(&mute, ch);
-        c4.end();
-        inner.fixed(&c4, ch);
+        inner.fixed(&mute, ch);
         inner.end();
-        pad.set_frame(FrameType::NoBox);
+        refit_time(&player, &inner, &time);
         for v in [&play, &seek, &time, &mute, &name] {
             player.add_view(v);
         }

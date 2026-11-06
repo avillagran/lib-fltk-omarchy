@@ -690,6 +690,99 @@ mod tests {
         assert!(matches!(check_path(&dir), Err(Error::Unsupported(_))), "a directory");
     }
 
+    /// A 2 s clip (mpeg4 + aac: encoders every ffmpeg build has) in the
+    /// temp dir, or `None` without ffmpeg (CI may not have it).
+    fn clip(name: &str) -> Option<PathBuf> {
+        let ffmpeg = find_tool("ffmpeg")?;
+        find_tool("ffprobe")?;
+        let path = std::env::temp_dir().join(format!("fltk-omarchy-{}-{name}.mp4", std::process::id()));
+        let ok = Command::new(ffmpeg)
+            .args(["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=25:duration=2"])
+            .args(["-f", "lavfi", "-i", "sine=frequency=440:duration=2:sample_rate=48000", "-c:v", "mpeg4", "-c:a", "aac", "-shortest"])
+            .arg(&path)
+            .status()
+            .is_ok_and(|s| s.success());
+        ok.then_some(path)
+    }
+
+    fn events() -> Arc<Events> {
+        Events::new(crate::task::register_sink(|| true))
+    }
+
+    #[test]
+    fn real_ffmpeg_probe_paced_video_and_reaping() {
+        let Some(path) = clip("video") else {
+            eprintln!("skipped: no ffmpeg/ffprobe");
+            return;
+        };
+        let info = probe(&path).unwrap();
+        assert!((info.duration.unwrap() - 2.0).abs() < 0.1, "{info:?}");
+        let v = info.video.clone().unwrap();
+        assert_eq!((v.display, v.rate), ((320, 180), Some((25, 1))));
+        assert!(info.audio.is_some());
+        // Paced: 1 s of video from 1.0 takes about 1 s (25 frames at 25 fps).
+        let procs = Procs::new();
+        let slot = Arc::new(FrameSlot::default());
+        let ev = events();
+        let job = VideoJob { path: path.clone(), gen: 7, size: (160, 90), pacer: Pacer { start: 1.0, rate: (25, 1) }, single: false };
+        let t = Instant::now();
+        let r = read_video(&find_tool("ffmpeg").unwrap(), &job, &procs, &slot, &ev);
+        let took = t.elapsed();
+        assert_eq!(r, Ok(25), "frames of the last second");
+        assert!(took >= Duration::from_millis(900) && took < Duration::from_millis(3000), "paced: {took:?}");
+        let f = slot.take().unwrap();
+        assert_eq!((f.width, f.height, f.rgb.len()), (160, 90, 160 * 90 * 3));
+        assert!((f.pts - 1.96).abs() < 1e-9, "last frame at 1.96 s: {}", f.pts);
+        assert_eq!(procs.live(), 0, "reaped at the end");
+        let evs = ev.take();
+        assert!(matches!(evs.first(), Some(Event::Started { gen: 7, .. })), "{evs:?}");
+        // Stopping mid-stream kills and reaps at once.
+        let procs = Procs::new();
+        let job = VideoJob { path: path.clone(), gen: 8, size: (160, 90), pacer: Pacer { start: 0.0, rate: (25, 1) }, single: false };
+        start_video(find_tool("ffmpeg").unwrap(), job, procs.clone(), slot.clone(), ev.clone());
+        let end = Instant::now() + Duration::from_secs(3);
+        while slot.take().is_none() && Instant::now() < end {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert_eq!(procs.live(), 1);
+        procs.stop();
+        assert_eq!(procs.live(), 0);
+        // One frame (poster).
+        let procs = Procs::new();
+        let job = VideoJob { path: path.clone(), gen: 9, size: (2, 2), pacer: Pacer { start: 0.5, rate: (25, 1) }, single: true };
+        assert_eq!(read_video(&find_tool("ffmpeg").unwrap(), &job, &procs, &slot, &ev), Ok(1));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn real_ffmpeg_audio_plays_in_real_time_and_refuses_junk() {
+        let Some(path) = clip("audio") else {
+            eprintln!("skipped: no ffmpeg/ffprobe");
+            return;
+        };
+        let ffmpeg = find_tool("ffmpeg").unwrap();
+        // The silent output: decoded at playback speed, nothing audible.
+        let procs = Procs::new();
+        let job = AudioJob { path: path.clone(), gen: 1, start: 1.0, out: None, name: "test".into() };
+        let t = Instant::now();
+        assert_eq!(run_audio(&ffmpeg, &job, &procs), Ok(()));
+        let took = t.elapsed();
+        assert!(took >= Duration::from_millis(500) && took < Duration::from_millis(2500), "real time: {took:?}");
+        assert_eq!(procs.live(), 0);
+        // A player that cannot start is an error, not a hang.
+        let procs = Procs::new();
+        let bogus = AudioOut::Player { program: "fltk-omarchy-no-such-player", args: &[] };
+        let job = AudioJob { path: path.clone(), gen: 2, start: 0.0, out: Some(bogus), name: "test".into() };
+        assert!(run_audio(&ffmpeg, &job, &procs).is_err());
+        assert_eq!(procs.live(), 0);
+        // Not media: ffprobe refuses it, nothing is left running.
+        let junk = std::env::temp_dir().join(format!("fltk-omarchy-{}-junk.mp4", std::process::id()));
+        std::fs::write(&junk, b"definitely not a video").unwrap();
+        assert!(probe(&junk).is_err());
+        let _ = std::fs::remove_file(&junk);
+        let _ = std::fs::remove_file(&path);
+    }
+
     #[test]
     fn stopped_group_refuses_spawns() {
         let p = Procs::new();

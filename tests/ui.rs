@@ -39,6 +39,8 @@ mod keys_ui;
 mod list_ui;
 mod typo_ui;
 mod media_ui;
+#[cfg(feature = "playback")]
+mod playback_ui;
 mod transcript_ui;
 
 const COLORS_A: &str = "accent = \"#e68e0d\"\nbackground = \"#121212\"\nforeground = \"#bebebe\"\nred = \"#d35f5f\"\n";
@@ -2011,6 +2013,8 @@ fn main() {
     list_ui::checks(&mut run);
     typo_ui::checks(&mut run);
     media_ui::checks(&mut run);
+    #[cfg(feature = "playback")]
+    playback_ui::checks(&mut run);
     transcript_ui::checks(&mut run);
     #[cfg(feature = "a11y")]
     a11y_checks(&mut run);
@@ -2026,6 +2030,8 @@ fn main() {
     popup_ui::a11y_checks(&mut run);
     #[cfg(feature = "a11y")]
     media_ui::a11y_checks(&mut run);
+    #[cfg(all(feature = "a11y", feature = "playback"))]
+    playback_ui::a11y_checks(&mut run);
     #[cfg(feature = "a11y")]
     transcript_ui::a11y_checks(&mut run);
     drop(app);
