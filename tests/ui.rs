@@ -41,6 +41,8 @@ mod typo_ui;
 mod layer_ui;
 mod scroll_ui;
 mod media_ui;
+#[cfg(feature = "playback")]
+mod playback_ui;
 mod transcript_ui;
 mod diff_ui;
 mod frame_ui;
@@ -2017,6 +2019,8 @@ fn main() {
     layer_ui::checks(&mut run);
     scroll_ui::checks(&mut run);
     media_ui::checks(&mut run);
+    #[cfg(feature = "playback")]
+    playback_ui::checks(&mut run);
     transcript_ui::checks(&mut run);
     diff_ui::checks(&mut run);
     frame_ui::checks(&mut run);
@@ -2034,6 +2038,8 @@ fn main() {
     popup_ui::a11y_checks(&mut run);
     #[cfg(feature = "a11y")]
     media_ui::a11y_checks(&mut run);
+    #[cfg(all(feature = "a11y", feature = "playback"))]
+    playback_ui::a11y_checks(&mut run);
     #[cfg(feature = "a11y")]
     transcript_ui::a11y_checks(&mut run);
     #[cfg(feature = "a11y")]

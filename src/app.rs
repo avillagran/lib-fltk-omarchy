@@ -111,6 +111,8 @@ impl App {
     }
 
     fn shutdown(&mut self) {
+        #[cfg(feature = "playback")]
+        crate::media::playback::stop_all();
         if let Some(w) = self.watcher.take() {
             w.stop();
         }

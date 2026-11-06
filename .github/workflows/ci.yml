@@ -37,6 +37,7 @@ jobs:
             cargo check --locked --target "$t" --all-targets
             cargo check --locked --target "$t" --all-targets --features gpu
             cargo check --locked --target "$t" --all-targets --features a11y
+            cargo check --locked --target "$t" --all-targets --features playback
             cargo clippy --locked --target "$t" --all-targets -- -D clippy::correctness -D clippy::suspicious
           done
 
@@ -97,6 +98,10 @@ jobs:
         run: env -u WAYLAND_DISPLAY xvfb-run -a -s "-screen 0 1280x800x24" cargo test --locked --features qr
       - name: images feature
         run: env -u WAYLAND_DISPLAY xvfb-run -a -s "-screen 0 1280x800x24" cargo test --locked --features images
+      - name: playback feature (system ffmpeg; silent test output)
+        run: |
+          sudo apt-get install -y ffmpeg
+          env -u WAYLAND_DISPLAY xvfb-run -a -s "-screen 0 1280x800x24" cargo test --locked --features playback
 
   linux-wayland:
     name: Linux Wayland (headless sway)

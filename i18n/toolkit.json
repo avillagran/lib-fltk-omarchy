@@ -93,7 +93,17 @@
     "Mode changed from {old} to {new}": "Mode changed from {old} to {new}",
     "No content changes": "No content changes",
     "{count} hidden lines": "{count} hidden lines",
-    "{count} hidden lines|one": "{count} hidden line"
+    "{count} hidden lines|one": "{count} hidden line",
+    "Play": "Play",
+    "Mute": "Mute",
+    "Unmute": "Unmute",
+    "Playback position": "Playback position",
+    "{position} of {duration}": "{position} of {duration}",
+    "Video": "Video",
+    "Audio": "Audio",
+    "Playback needs ffmpeg and ffprobe": "Playback needs ffmpeg and ffprobe",
+    "Cannot play this file": "Cannot play this file",
+    "No audio output: playing without sound": "No audio output: playing without sound"
   },
   "es": {
     "Cancel": "Cancelar",
@@ -189,7 +199,17 @@
     "Mode changed from {old} to {new}": "Modo cambiado de {old} a {new}",
     "No content changes": "Sin cambios de contenido",
     "{count} hidden lines": "{count} líneas ocultas",
-    "{count} hidden lines|one": "{count} línea oculta"
+    "{count} hidden lines|one": "{count} línea oculta",
+    "Play": "Reproducir",
+    "Mute": "Silenciar",
+    "Unmute": "Activar sonido",
+    "Playback position": "Posición de reproducción",
+    "{position} of {duration}": "{position} de {duration}",
+    "Video": "Vídeo",
+    "Audio": "Audio",
+    "Playback needs ffmpeg and ffprobe": "La reproducción necesita ffmpeg y ffprobe",
+    "Cannot play this file": "No se puede reproducir este archivo",
+    "No audio output: playing without sound": "Sin salida de audio: se reproduce sin sonido"
   },
   "pt": {
     "Cancel": "Cancelar",
@@ -285,7 +305,17 @@
     "Mode changed from {old} to {new}": "Modo alterado de {old} para {new}",
     "No content changes": "Sem alterações de conteúdo",
     "{count} hidden lines": "{count} linhas ocultas",
-    "{count} hidden lines|one": "{count} linha oculta"
+    "{count} hidden lines|one": "{count} linha oculta",
+    "Play": "Reproduzir",
+    "Mute": "Silenciar",
+    "Unmute": "Ativar som",
+    "Playback position": "Posição de reprodução",
+    "{position} of {duration}": "{position} de {duration}",
+    "Video": "Vídeo",
+    "Audio": "Áudio",
+    "Playback needs ffmpeg and ffprobe": "A reprodução precisa de ffmpeg e ffprobe",
+    "Cannot play this file": "Não é possível reproduzir este arquivo",
+    "No audio output: playing without sound": "Sem saída de áudio: reproduzindo sem som"
   },
   "fr": {
     "Cancel": "Annuler",
@@ -381,7 +411,17 @@
     "Mode changed from {old} to {new}": "Mode changé de {old} à {new}",
     "No content changes": "Aucune modification du contenu",
     "{count} hidden lines": "{count} lignes masquées",
-    "{count} hidden lines|one": "{count} ligne masquée"
+    "{count} hidden lines|one": "{count} ligne masquée",
+    "Play": "Lire",
+    "Mute": "Couper le son",
+    "Unmute": "Rétablir le son",
+    "Playback position": "Position de lecture",
+    "{position} of {duration}": "{position} sur {duration}",
+    "Video": "Vidéo",
+    "Audio": "Audio",
+    "Playback needs ffmpeg and ffprobe": "La lecture nécessite ffmpeg et ffprobe",
+    "Cannot play this file": "Impossible de lire ce fichier",
+    "No audio output: playing without sound": "Aucune sortie audio : lecture sans son"
   },
   "de": {
     "Cancel": "Abbrechen",
@@ -477,7 +517,17 @@
     "Mode changed from {old} to {new}": "Modus geändert von {old} zu {new}",
     "No content changes": "Keine Inhaltsänderungen",
     "{count} hidden lines": "{count} ausgeblendete Zeilen",
-    "{count} hidden lines|one": "{count} ausgeblendete Zeile"
+    "{count} hidden lines|one": "{count} ausgeblendete Zeile",
+    "Play": "Abspielen",
+    "Mute": "Stummschalten",
+    "Unmute": "Ton einschalten",
+    "Playback position": "Wiedergabeposition",
+    "{position} of {duration}": "{position} von {duration}",
+    "Video": "Video",
+    "Audio": "Audio",
+    "Playback needs ffmpeg and ffprobe": "Die Wiedergabe benötigt ffmpeg und ffprobe",
+    "Cannot play this file": "Diese Datei kann nicht abgespielt werden",
+    "No audio output: playing without sound": "Keine Audioausgabe: Wiedergabe ohne Ton"
   },
   "it": {
     "Cancel": "Annulla",
@@ -573,7 +623,17 @@
     "Mode changed from {old} to {new}": "Modalità cambiata da {old} a {new}",
     "No content changes": "Nessuna modifica al contenuto",
     "{count} hidden lines": "{count} righe nascoste",
-    "{count} hidden lines|one": "{count} riga nascosta"
+    "{count} hidden lines|one": "{count} riga nascosta",
+    "Play": "Riproduci",
+    "Mute": "Disattiva audio",
+    "Unmute": "Riattiva audio",
+    "Playback position": "Posizione di riproduzione",
+    "{position} of {duration}": "{position} di {duration}",
+    "Video": "Video",
+    "Audio": "Audio",
+    "Playback needs ffmpeg and ffprobe": "La riproduzione richiede ffmpeg e ffprobe",
+    "Cannot play this file": "Impossibile riprodurre questo file",
+    "No audio output: playing without sound": "Nessuna uscita audio: riproduzione senza suono"
   },
   "nl": {
     "Cancel": "Annuleren",
@@ -669,7 +729,17 @@
     "Mode changed from {old} to {new}": "Modus gewijzigd van {old} naar {new}",
     "No content changes": "Geen inhoudelijke wijzigingen",
     "{count} hidden lines": "{count} verborgen regels",
-    "{count} hidden lines|one": "{count} verborgen regel"
+    "{count} hidden lines|one": "{count} verborgen regel",
+    "Play": "Afspelen",
+    "Mute": "Dempen",
+    "Unmute": "Dempen opheffen",
+    "Playback position": "Afspeelpositie",
+    "{position} of {duration}": "{position} van {duration}",
+    "Video": "Video",
+    "Audio": "Audio",
+    "Playback needs ffmpeg and ffprobe": "Afspelen vereist ffmpeg en ffprobe",
+    "Cannot play this file": "Dit bestand kan niet worden afgespeeld",
+    "No audio output: playing without sound": "Geen audio-uitvoer: afspelen zonder geluid"
   },
   "pl": {
     "Cancel": "Anuluj",
@@ -769,7 +839,17 @@
     "{count} hidden lines": "{count} ukrytego wiersza",
     "{count} hidden lines|one": "{count} ukryty wiersz",
     "{count} hidden lines|few": "{count} ukryte wiersze",
-    "{count} hidden lines|many": "{count} ukrytych wierszy"
+    "{count} hidden lines|many": "{count} ukrytych wierszy",
+    "Play": "Odtwórz",
+    "Mute": "Wycisz",
+    "Unmute": "Wyłącz wyciszenie",
+    "Playback position": "Pozycja odtwarzania",
+    "{position} of {duration}": "{position} z {duration}",
+    "Video": "Wideo",
+    "Audio": "Dźwięk",
+    "Playback needs ffmpeg and ffprobe": "Odtwarzanie wymaga ffmpeg i ffprobe",
+    "Cannot play this file": "Nie można odtworzyć tego pliku",
+    "No audio output: playing without sound": "Brak wyjścia audio: odtwarzanie bez dźwięku"
   },
   "ru": {
     "Cancel": "Отмена",
@@ -869,7 +949,17 @@
     "{count} hidden lines": "{count} скрытой строки",
     "{count} hidden lines|one": "{count} скрытая строка",
     "{count} hidden lines|few": "{count} скрытые строки",
-    "{count} hidden lines|many": "{count} скрытых строк"
+    "{count} hidden lines|many": "{count} скрытых строк",
+    "Play": "Воспроизвести",
+    "Mute": "Выключить звук",
+    "Unmute": "Включить звук",
+    "Playback position": "Позиция воспроизведения",
+    "{position} of {duration}": "{position} из {duration}",
+    "Video": "Видео",
+    "Audio": "Аудио",
+    "Playback needs ffmpeg and ffprobe": "Для воспроизведения нужны ffmpeg и ffprobe",
+    "Cannot play this file": "Не удаётся воспроизвести этот файл",
+    "No audio output: playing without sound": "Нет аудиовыхода: воспроизведение без звука"
   },
   "uk": {
     "Cancel": "Скасувати",
@@ -969,7 +1059,17 @@
     "{count} hidden lines": "{count} прихованого рядка",
     "{count} hidden lines|one": "{count} прихований рядок",
     "{count} hidden lines|few": "{count} приховані рядки",
-    "{count} hidden lines|many": "{count} прихованих рядків"
+    "{count} hidden lines|many": "{count} прихованих рядків",
+    "Play": "Відтворити",
+    "Mute": "Вимкнути звук",
+    "Unmute": "Увімкнути звук",
+    "Playback position": "Позиція відтворення",
+    "{position} of {duration}": "{position} з {duration}",
+    "Video": "Відео",
+    "Audio": "Аудіо",
+    "Playback needs ffmpeg and ffprobe": "Для відтворення потрібні ffmpeg і ffprobe",
+    "Cannot play this file": "Не вдається відтворити цей файл",
+    "No audio output: playing without sound": "Немає аудіовиходу: відтворення без звуку"
   },
   "ja": {
     "Cancel": "キャンセル",
@@ -1063,7 +1163,17 @@
     "Binary file — metadata only": "バイナリファイル（メタデータのみ）",
     "Mode changed from {old} to {new}": "モードが {old} から {new} に変更されました",
     "No content changes": "内容の変更はありません",
-    "{count} hidden lines": "{count} 行を非表示"
+    "{count} hidden lines": "{count} 行を非表示",
+    "Play": "再生",
+    "Mute": "ミュート",
+    "Unmute": "ミュート解除",
+    "Playback position": "再生位置",
+    "{position} of {duration}": "{position} / {duration}",
+    "Video": "動画",
+    "Audio": "音声",
+    "Playback needs ffmpeg and ffprobe": "再生には ffmpeg と ffprobe が必要です",
+    "Cannot play this file": "このファイルは再生できません",
+    "No audio output: playing without sound": "音声出力がありません：音声なしで再生します"
   },
   "ko": {
     "Cancel": "취소",
@@ -1157,7 +1267,17 @@
     "Binary file — metadata only": "바이너리 파일 — 메타데이터만",
     "Mode changed from {old} to {new}": "모드가 {old}에서 {new}(으)로 변경됨",
     "No content changes": "내용 변경 없음",
-    "{count} hidden lines": "숨겨진 줄 {count}개"
+    "{count} hidden lines": "숨겨진 줄 {count}개",
+    "Play": "재생",
+    "Mute": "음소거",
+    "Unmute": "음소거 해제",
+    "Playback position": "재생 위치",
+    "{position} of {duration}": "{duration} 중 {position}",
+    "Video": "동영상",
+    "Audio": "오디오",
+    "Playback needs ffmpeg and ffprobe": "재생하려면 ffmpeg와 ffprobe가 필요합니다",
+    "Cannot play this file": "이 파일을 재생할 수 없습니다",
+    "No audio output: playing without sound": "오디오 출력 없음: 소리 없이 재생합니다"
   },
   "zh": {
     "Cancel": "取消",
@@ -1251,7 +1371,17 @@
     "Binary file — metadata only": "二进制文件 — 仅元数据",
     "Mode changed from {old} to {new}": "模式从 {old} 改为 {new}",
     "No content changes": "内容没有变化",
-    "{count} hidden lines": "{count} 行已隐藏"
+    "{count} hidden lines": "{count} 行已隐藏",
+    "Play": "播放",
+    "Mute": "静音",
+    "Unmute": "取消静音",
+    "Playback position": "播放位置",
+    "{position} of {duration}": "{position} / {duration}",
+    "Video": "视频",
+    "Audio": "音频",
+    "Playback needs ffmpeg and ffprobe": "播放需要 ffmpeg 和 ffprobe",
+    "Cannot play this file": "无法播放此文件",
+    "No audio output: playing without sound": "没有音频输出：无声播放"
   },
   "ar": {
     "Cancel": "إلغاء",
@@ -1355,7 +1485,17 @@
     "{count} hidden lines|one": "سطر مخفي واحد",
     "{count} hidden lines|two": "سطران مخفيان",
     "{count} hidden lines|few": "{count} أسطر مخفية",
-    "{count} hidden lines|many": "{count} سطرًا مخفيًا"
+    "{count} hidden lines|many": "{count} سطرًا مخفيًا",
+    "Play": "تشغيل",
+    "Mute": "كتم الصوت",
+    "Unmute": "إلغاء كتم الصوت",
+    "Playback position": "موضع التشغيل",
+    "{position} of {duration}": "{position} من {duration}",
+    "Video": "فيديو",
+    "Audio": "صوت",
+    "Playback needs ffmpeg and ffprobe": "يتطلب التشغيل ffmpeg و ffprobe",
+    "Cannot play this file": "تعذّر تشغيل هذا الملف",
+    "No audio output: playing without sound": "لا يوجد مخرج صوت: التشغيل بدون صوت"
   },
   "tr": {
     "Cancel": "İptal",
@@ -1451,7 +1591,17 @@
     "Mode changed from {old} to {new}": "Kip {old} değerinden {new} değerine değişti",
     "No content changes": "İçerik değişikliği yok",
     "{count} hidden lines": "{count} gizli satır",
-    "{count} hidden lines|one": "{count} gizli satır"
+    "{count} hidden lines|one": "{count} gizli satır",
+    "Play": "Oynat",
+    "Mute": "Sesi kapat",
+    "Unmute": "Sesi aç",
+    "Playback position": "Oynatma konumu",
+    "{position} of {duration}": "{position} / {duration}",
+    "Video": "Video",
+    "Audio": "Ses",
+    "Playback needs ffmpeg and ffprobe": "Oynatma için ffmpeg ve ffprobe gerekir",
+    "Cannot play this file": "Bu dosya oynatılamıyor",
+    "No audio output: playing without sound": "Ses çıkışı yok: sessiz oynatılıyor"
   },
   "sv": {
     "Cancel": "Avbryt",
@@ -1547,7 +1697,17 @@
     "Mode changed from {old} to {new}": "Läget ändrat från {old} till {new}",
     "No content changes": "Inga innehållsändringar",
     "{count} hidden lines": "{count} dolda rader",
-    "{count} hidden lines|one": "{count} dold rad"
+    "{count} hidden lines|one": "{count} dold rad",
+    "Play": "Spela upp",
+    "Mute": "Ljud av",
+    "Unmute": "Ljud på",
+    "Playback position": "Uppspelningsposition",
+    "{position} of {duration}": "{position} av {duration}",
+    "Video": "Video",
+    "Audio": "Ljud",
+    "Playback needs ffmpeg and ffprobe": "Uppspelning kräver ffmpeg och ffprobe",
+    "Cannot play this file": "Filen kan inte spelas upp",
+    "No audio output: playing without sound": "Ingen ljudutgång: spelar upp utan ljud"
   },
   "da": {
     "Cancel": "Annuller",
@@ -1643,7 +1803,17 @@
     "Mode changed from {old} to {new}": "Tilstand ændret fra {old} til {new}",
     "No content changes": "Ingen indholdsændringer",
     "{count} hidden lines": "{count} skjulte linjer",
-    "{count} hidden lines|one": "{count} skjult linje"
+    "{count} hidden lines|one": "{count} skjult linje",
+    "Play": "Afspil",
+    "Mute": "Slå lyd fra",
+    "Unmute": "Slå lyd til",
+    "Playback position": "Afspilningsposition",
+    "{position} of {duration}": "{position} af {duration}",
+    "Video": "Video",
+    "Audio": "Lyd",
+    "Playback needs ffmpeg and ffprobe": "Afspilning kræver ffmpeg og ffprobe",
+    "Cannot play this file": "Filen kan ikke afspilles",
+    "No audio output: playing without sound": "Ingen lydudgang: afspiller uden lyd"
   },
   "no": {
     "Cancel": "Avbryt",
@@ -1739,7 +1909,17 @@
     "Mode changed from {old} to {new}": "Modus endret fra {old} til {new}",
     "No content changes": "Ingen innholdsendringer",
     "{count} hidden lines": "{count} skjulte linjer",
-    "{count} hidden lines|one": "{count} skjult linje"
+    "{count} hidden lines|one": "{count} skjult linje",
+    "Play": "Spill av",
+    "Mute": "Demp",
+    "Unmute": "Slå på lyd",
+    "Playback position": "Avspillingsposisjon",
+    "{position} of {duration}": "{position} av {duration}",
+    "Video": "Video",
+    "Audio": "Lyd",
+    "Playback needs ffmpeg and ffprobe": "Avspilling krever ffmpeg og ffprobe",
+    "Cannot play this file": "Kan ikke spille av denne filen",
+    "No audio output: playing without sound": "Ingen lydutgang: spiller av uten lyd"
   },
   "fi": {
     "Cancel": "Peruuta",
@@ -1835,7 +2015,17 @@
     "Mode changed from {old} to {new}": "Tila muuttui: {old} → {new}",
     "No content changes": "Ei sisältömuutoksia",
     "{count} hidden lines": "{count} piilotettua riviä",
-    "{count} hidden lines|one": "{count} piilotettu rivi"
+    "{count} hidden lines|one": "{count} piilotettu rivi",
+    "Play": "Toista",
+    "Mute": "Mykistä",
+    "Unmute": "Poista mykistys",
+    "Playback position": "Toistokohta",
+    "{position} of {duration}": "{position} / {duration}",
+    "Video": "Video",
+    "Audio": "Ääni",
+    "Playback needs ffmpeg and ffprobe": "Toisto vaatii ffmpegin ja ffproben",
+    "Cannot play this file": "Tätä tiedostoa ei voi toistaa",
+    "No audio output: playing without sound": "Ei äänilähtöä: toistetaan ilman ääntä"
   },
   "cs": {
     "Cancel": "Zrušit",
@@ -1933,6 +2123,16 @@
     "No content changes": "Žádné změny obsahu",
     "{count} hidden lines": "{count} skrytých řádků",
     "{count} hidden lines|one": "{count} skrytý řádek",
-    "{count} hidden lines|few": "{count} skryté řádky"
+    "{count} hidden lines|few": "{count} skryté řádky",
+    "Play": "Přehrát",
+    "Mute": "Ztlumit",
+    "Unmute": "Zrušit ztlumení",
+    "Playback position": "Pozice přehrávání",
+    "{position} of {duration}": "{position} z {duration}",
+    "Video": "Video",
+    "Audio": "Zvuk",
+    "Playback needs ffmpeg and ffprobe": "Přehrávání vyžaduje ffmpeg a ffprobe",
+    "Cannot play this file": "Tento soubor nelze přehrát",
+    "No audio output: playing without sound": "Žádný zvukový výstup: přehrává se bez zvuku"
   }
 }
