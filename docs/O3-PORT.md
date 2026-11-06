@@ -307,7 +307,7 @@ for o3's chat views. What to adopt, in order:
 | # | Idea | Rune source | Effort | Fits CPU/FLTK |
 |---|---|---|---|---|
 | 1 | **Done** (`MarkdownOptions::with_settle_tail`). Streaming tail settling: draw an open `**`, `` ` ``, `~~`, `[link](` already closed in a display copy of the tail; hold back a trailing run of markers and an unconfirmed `\|` line; keep table column widths while the last row is still arriving | `rune-kit/src/markdown/stream.rs` | S–M | yes |
-| 2 | A `4. ` line inside a paragraph continues the list (models write lists that way) | `markdown/interrupt.rs` | S | yes |
+| 2 | **Done** (`MarkdownOptions::with_model_lists`). A `4. ` line inside a paragraph continues the list (models write lists that way) | `markdown/interrupt.rs` | S | yes |
 | 3 | **Done** (`RichText::on_far_from_bottom`, `follow_end` cuts then glides). `on_far_from_bottom(min_px)` for the jump-to-latest button, separate from following; a long jump to the end cuts to two viewports above it, then glides | `runtime/scroll/bottom.rs` | S | yes |
 | 4 | **Done** (`set_bottom_inset` keeps the room while following). Bottom slack: when the composer shrinks after a send, keep the freed room under the last block until growth stops (~120 ms) | `bottom.rs` | S–M | yes |
 | 5 | **Done, partly** (`RichText::pace_words`: a trailing partial word from a sender waits ≤ 80 ms; big backlogs are not split into extra frames). Stream pacing at word boundaries: backlogs under 512 chars at once, else ~24 ms chunks cut at words; hold back a trailing partial word | `research/18` | S | yes (fewer reflows) |
