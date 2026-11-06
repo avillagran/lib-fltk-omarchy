@@ -321,6 +321,10 @@ pub fn checks(run: &mut dyn FnMut(&str, Check)) {
 
     run("i18n: follows Omarchy's Setup > Language file, unless the app picked a language", &|_| {
         use fltk_omarchy::i18n;
+        use fltk_omarchy::platform::{Os, OS};
+        if OS != Os::Linux {
+            return Ok(()); // Omarchy's language file exists on Linux only
+        }
         let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("build/test-ui/xdg-config");
         std::fs::create_dir_all(root.join("omarchy")).map_err(|e| e.to_string())?;
         std::fs::write(root.join("omarchy/language"), "da\n").map_err(|e| e.to_string())?;
