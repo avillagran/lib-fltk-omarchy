@@ -952,6 +952,11 @@ fn apply_to_fltk(t: &Theme) {
     Font::set_font(Font::HelveticaBoldItalic, &bold_italic);
     Font::set_font(Font::CourierItalic, &italic);
     Font::set_font(Font::CourierBoldItalic, &bold_italic);
+    // Medium and semibold (paint::Weight) in two slots the toolkit does not
+    // otherwise use.
+    let (medium, semibold) = crate::platform::fonts::weight_faces(&t.font_family);
+    Font::set_font(Font::Times, &medium);
+    Font::set_font(Font::TimesBold, &semibold);
     app::set_font_size(t.font.body);
 }
 

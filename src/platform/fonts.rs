@@ -37,6 +37,17 @@ pub fn italic_faces(family: &str) -> (String, String) {
     }
 }
 
+/// FLTK face names (medium, semibold) for `family`. Linux (Pango) asks
+/// fontconfig for those weights and falls back to the nearest one the
+/// family has; GDI and Core Text cannot name them for any family, so
+/// Windows and macOS use regular for medium and bold for semibold.
+pub fn weight_faces(family: &str) -> (String, String) {
+    match OS {
+        Os::MacOs | Os::Windows => faces(family),
+        _ => (format!("{family} Medium"), format!("{family} SemiBold")),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -56,6 +67,13 @@ mod tests {
         }
         if OS == Os::Linux {
             assert_eq!(default_family(), "monospace");
+            assert_eq!(
+                weight_faces("JetBrains Mono"),
+                (
+                    "JetBrains Mono Medium".into(),
+                    "JetBrains Mono SemiBold".into()
+                )
+            );
         }
     }
 }

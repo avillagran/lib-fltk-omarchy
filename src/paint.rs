@@ -107,6 +107,69 @@ pub fn font(bold: bool) -> Font {
     if bold { Font::HelveticaBold } else { Font::Helvetica }
 }
 
+/// Font weight beyond regular and bold (o3-code's DemiBold titles). Medium
+/// and semibold come from the theme family through fontconfig on Linux;
+/// on macOS and Windows they map to regular and bold.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Weight {
+    Regular,
+    Medium,
+    SemiBold,
+    Bold,
+}
+
+/// The FLTK font for `weight` in the theme family.
+pub fn font_weight(weight: Weight) -> Font {
+    match weight {
+        Weight::Regular => Font::Helvetica,
+        Weight::Medium => Font::Times,
+        Weight::SemiBold => Font::TimesBold,
+        Weight::Bold => Font::HelveticaBold,
+    }
+}
+
+/// [`text`] with a [`Weight`].
+pub fn text_weight(s: &str, x: i32, y: i32, w: i32, h: i32, size: i32, weight: Weight, color: Rgb, align: Align) {
+    draw::set_font(font_weight(weight), size);
+    draw::set_draw_color(color.fl());
+    let fitted = elide(s, w);
+    draw::draw_text2(&escape(&fitted), x, y, w, h, align | Align::Inside | Align::Clip);
+}
+
+/// Width of `s` with a [`Weight`].
+pub fn measure_weight(s: &str, size: i32, weight: Weight) -> i32 {
+    draw::set_font(font_weight(weight), size);
+    draw::width(s).ceil() as i32
+}
+
+/// One line with `spacing` extra pixels between characters (letter
+/// spacing for small capitals and section labels), vertically centred in
+/// `h`, aligned left, centre or right in `w` (right to left: pass the
+/// mirrored alignment). Returns the drawn width.
+#[allow(clippy::too_many_arguments)]
+pub fn text_spaced(s: &str, x: i32, y: i32, w: i32, h: i32, size: i32, weight: Weight, spacing: f64, color: Rgb, align: Align) -> i32 {
+    draw::set_font(font_weight(weight), size);
+    let chars: Vec<String> = unicode_segmentation::UnicodeSegmentation::graphemes(s, true).map(str::to_string).collect();
+    let widths: Vec<f64> = chars.iter().map(|c| draw::width(c)).collect();
+    let total = widths.iter().sum::<f64>() + spacing * chars.len().saturating_sub(1) as f64;
+    let mut cx = if align.contains(Align::Right) {
+        x as f64 + w as f64 - total
+    } else if align.contains(Align::Left) {
+        x as f64
+    } else {
+        x as f64 + (w as f64 - total) / 2.0
+    };
+    let base = y + (h + draw::height() - draw::descent()) / 2 - draw::descent() / 2;
+    draw::set_draw_color(color.fl());
+    draw::push_clip(x, y, w, h);
+    for (c, cw) in chars.iter().zip(widths) {
+        draw::draw_text(c, cx.round() as i32, base);
+        cx += cw + spacing;
+    }
+    draw::pop_clip();
+    total.ceil() as i32
+}
+
 /// Text in a box with alignment; clipped and single-line unless `Align::Wrap`.
 pub fn text(s: &str, x: i32, y: i32, w: i32, h: i32, size: i32, bold: bool, color: Rgb, align: Align) {
     draw::set_font(font(bold), size);
