@@ -383,6 +383,12 @@ pub(super) struct Inner {
     changed_from: Option<usize>,
     /// Frame rate of streamed appends (`stream_pace`); None: at once.
     stream_pace: Option<crate::anim::Pace>,
+    /// Room kept under the last block after the bottom inset shrank while
+    /// following (Rune's slack): new content fills it; what is left goes
+    /// 120 ms after the content stopped growing.
+    slack: i64,
+    /// Content height at the last frame and when it last grew.
+    grown: (i64, Option<Instant>),
     host: Option<fltk::group::Group>,
     pub(super) find: Option<Find>,
     notes: Vec<Note>,
@@ -450,6 +456,8 @@ impl Inner {
             blits: 0,
             changed_from: None,
             stream_pace: None,
+            slack: 0,
+            grown: (0, None),
             host: None,
             find: None,
             notes: Vec::new(),
@@ -550,7 +558,17 @@ impl Inner {
     }
 
     fn content_h(&self) -> i64 {
-        self.heights.prefix(self.heights.len()) + 2 * self.pad as i64 + self.inset as i64
+        self.heights.prefix(self.heights.len()) + 2 * self.pad as i64 + self.inset as i64 + self.slack
+    }
+
+    /// New content uses up the slack; notes when the content last grew.
+    fn track_growth(&mut self) {
+        let h = self.heights.prefix(self.heights.len());
+        if h > self.grown.0 && self.grown.0 > 0 {
+            self.slack = (self.slack - (h - self.grown.0)).max(0);
+            self.grown.1 = Some(Instant::now());
+        }
+        self.grown.0 = h;
     }
 
     fn max_top(&self) -> i64 {
@@ -2325,6 +2343,7 @@ fn draw_view(w: &mut Widget, i: &mut Inner, t: &Theme) {
         }
     }
     i.ensure_visible(&mut m);
+    i.track_growth();
     if i.motion.running() && !i.hold_motion {
         // Wheel glide: frames that only move the content.
         crate::anim::request_scroll_frame(w);

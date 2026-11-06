@@ -407,10 +407,57 @@ impl RichText {
     /// Changes the bottom inset (the composer grew): the end stays at the
     /// end, otherwise the view stays still.
     pub fn set_bottom_inset(&self, px: i32) {
-        self.with(|i| {
-            i.inset = px.max(0);
+        let px = px.max(0);
+        let keep = self.with(|i| {
+            let old = i.inset;
+            // Shrinking while following: keep the room (the rows do not dip
+            // after a send); growing uses up kept room first.
+            if px < old && i.stuck {
+                i.slack += (old - px) as i64;
+            } else if px > old {
+                i.slack = (i.slack - (px - old) as i64).max(0);
+            }
+            i.inset = px;
             i.reanchor();
-        })
+            i.slack > 0
+        });
+        if keep {
+            self.release_slack_later();
+        }
+    }
+
+    /// Releases the kept room 120 ms after the content stopped growing,
+    /// gliding to the new end.
+    fn release_slack_later(&self) {
+        const WAIT: f64 = 0.12;
+        let (inn, w) = (Rc::downgrade(&self.inner), self.widget.clone());
+        app::add_timeout3(WAIT, move |h| {
+            let Some(inn) = inn.upgrade() else { return };
+            if w.was_deleted() {
+                return;
+            }
+            let mut i = inn.borrow_mut();
+            if i.slack == 0 {
+                return;
+            }
+            if let Some(t) = i.grown.1 {
+                let left = WAIT - t.elapsed().as_secs_f64();
+                if left > 0.0 {
+                    app::repeat_timeout3(left, h);
+                    return;
+                }
+            }
+            i.slack = 0;
+            let max = i.max_top();
+            if i.stuck && i.top > max {
+                let top = i.top;
+                i.motion.wheel(top, (max - top) as f64, max);
+            } else {
+                i.reanchor();
+            }
+            drop(i);
+            w.clone().redraw();
+        });
     }
 
     /// Scrolls so position `p` is in view.

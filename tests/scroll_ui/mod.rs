@@ -121,4 +121,42 @@ pub fn checks(run: &mut dyn FnMut(&str, Check)) {
         fltk::window::DoubleWindow::delete((*win).clone());
         Ok(())
     });
+
+    run("bottom slack: a shrinking inset does not dip the rows; the room goes after growth stops", &|_| {
+        let mut win = AppWindow::new("Slack", 520, 400);
+        let rt = RichText::new().stick_to_bottom(true).bottom_inset(120);
+        win.end();
+        win.show();
+        for k in 0..40 {
+            rt.append_markdown(&format!("Paragraph {k} with enough words to wrap once or twice wordlast{k}."));
+        }
+        let r2 = rt.clone();
+        pump_until(|| r2.w() > 0 && r2.is_at_bottom());
+        settle();
+        let before = rt.text_rect("wordlast39").ok_or("last line")?.1;
+        // The composer shrinks after a send: the rows must not move.
+        rt.set_bottom_inset(40);
+        settle_quick();
+        let after = rt.text_rect("wordlast39").ok_or("last line after")?.1;
+        check(after == before, &format!("no dip: {before} -> {after}"))?;
+        // The reply arrives and fills the kept room.
+        rt.append_markdown("Reply with enough words to take a line or two of the kept room replyword.");
+        settle();
+        // Nothing more: the rest of the room goes, the view is at the end.
+        let t = std::time::Instant::now();
+        while t.elapsed() < std::time::Duration::from_millis(300) {
+            fltk_omarchy::App::pump();
+            let _ = fltk::app::wait_for(0.01);
+        }
+        check(rt.is_at_bottom() && rt.is_following(), "at the end after the room is released")?;
+        let reply = rt.text_rect("replyword").ok_or("reply")?;
+        check(reply.1 + reply.3 <= rt.y() + rt.h() - 40 + 2, &format!("the reply sits above the new inset: {reply:?}"))?;
+        fltk::window::DoubleWindow::delete((*win).clone());
+        Ok(())
+    });
+}
+
+fn settle_quick() {
+    fltk::app::flush();
+    let _ = fltk::app::wait_for(0.01);
 }
