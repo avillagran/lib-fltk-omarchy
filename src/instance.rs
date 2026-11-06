@@ -863,7 +863,9 @@ mod tests {
         server.handle("echo", |a| format!("echo:{a}"));
         server.handle_request("join", |r| if r.args.is_empty() { Err("no args".into()) } else { Ok(r.args.join("+")) });
         let client = match rt.opts("dev.test.a").wait(Duration::from_millis(300)).acquire() {
-            Instance::Secondary(c) => c,
+            // A slow CI runner (Windows, tests in parallel) needs more than
+            // the default 2 s.
+            Instance::Secondary(c) => c.timeout(Duration::from_secs(15)),
             Instance::Primary(_) => panic!("expected a secondary"),
         };
         assert_eq!(call_pumped(&rx, client.clone(), Request::new("echo", &["hi"])).unwrap(), "echo:hi");

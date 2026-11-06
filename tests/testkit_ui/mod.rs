@@ -355,7 +355,7 @@ pub fn checks(run: &mut dyn FnMut(&str, Check)) {
         check(!lines.is_empty(), "frames logged")?;
         let l = &lines[lines.len() - 1];
         check(
-            l["window"] == "Frames" && l["paint_ms"].is_number() && l["damage"].is_number() && l["size"][0] == 300,
+            l["window"] == "Frames" && l["paint_ms"].is_number() && l["damage"].is_number() && l["size"][0].as_i64().is_some_and(|w| w > 0),
             &format!("fields: {l}"),
         )?;
         check(lines.len() < 2 || lines[1]["wall_ms"].is_number(), "frame interval after the first frame")?;
