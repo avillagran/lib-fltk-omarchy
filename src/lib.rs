@@ -2,6 +2,7 @@ pub mod a11y;
 pub mod anim;
 pub mod app;
 pub mod chart;
+pub mod diff;
 pub mod edit;
 pub mod focus;
 pub mod gfx;
