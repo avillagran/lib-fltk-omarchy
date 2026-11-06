@@ -13,6 +13,9 @@ use fltk::{app, enums::*, prelude::*, widget::Widget};
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
+mod notices;
+pub use notices::{Notice, NoticeAction, NoticeDismiss, NoticeHandle};
+
 thread_local! {
     // Deletion-tracked handles only; a layer does not own its window.
     // `true` for modal layers (they take the keyboard).
@@ -102,6 +105,7 @@ pub(crate) fn native_route(event: Event, window: app::WindowPtr) -> Option<(app:
 /// Redraw the stack together, only when an open overlay's window is dirty.
 /// No timer, callback per popup, or redraw while the window is idle.
 pub(crate) fn prepare_redraw() {
+    layout_toasts();
     LAYERS.with(|layers| {
         let mut layers = layers.borrow_mut();
         layers.retain(|(l, _)| !l.was_deleted() && l.parent().is_some());
@@ -759,30 +763,59 @@ pub enum Urgency {
 }
 
 thread_local! {
-    static TOASTS: RefCell<Vec<Widget>> = const { RefCell::new(Vec::new()) };
+    static TOASTS: RefCell<Vec<ToastEntry>> = const { RefCell::new(Vec::new()) };
+}
+
+struct ToastEntry {
+    layer: Widget,
+    size: Rc<dyn Fn(i32) -> (i32, i32)>,
+}
+
+fn register_toast(layer: &Widget, size: Rc<dyn Fn(i32) -> (i32, i32)>) {
+    TOASTS.with(|v| v.borrow_mut().push(ToastEntry { layer: layer.clone(), size }));
+    layout_toasts();
+}
+
+// One stack per containing window. Run before flush, without a timer or
+// damage when unchanged, so resize, font scale and RTL stay live.
+fn layout_toasts() {
+    TOASTS.with(|v| {
+        let mut entries = v.borrow_mut();
+        entries.retain(|e| !e.layer.was_deleted() && e.layer.parent().is_some());
+        let margin = theme::with(|t| t.gaps_out.max(8));
+        let mut positions = std::collections::HashMap::new();
+        for entry in entries.iter_mut() {
+            let Some(mut win) = entry.layer.top_window() else { continue };
+            let y = positions.entry(win.as_widget_ptr() as usize).or_insert(margin);
+            let (w, h) = (entry.size)(win.w());
+            let x = if crate::layout::is_rtl(&entry.layer) { margin } else { win.w() - w - margin };
+            if (entry.layer.x(), entry.layer.y(), entry.layer.w(), entry.layer.h()) != (x, *y, w, h) {
+                entry.layer.resize(x, *y, w, h);
+                win.redraw();
+            }
+            *y += h + margin;
+        }
+    });
 }
 
 impl Notification {
     pub fn show<A: WidgetExt>(anchor: &A, icon: &str, summary: &str, body: &str, urgency: Urgency) {
         let Some(win) = anchor.top_window() else { return };
-        let (cw, ch) = theme::with(|t| {
+        let empty = body.is_empty();
+        let size: Rc<dyn Fn(i32) -> (i32, i32)> = Rc::new(move |ww| theme::with(|t| {
             let s = |px: f64| (px * t.font.base as f64 / 12.0).round() as i32;
-            let cw = s(380.0).min(win.w() - 2 * t.gaps_out.max(8));
-            let lines = if body.is_empty() { 1 } else { 2 };
-            let pad = if body.is_empty() { s(7.0) } else { s(10.0) };
+            let cw = s(380.0).min(ww - 2 * t.gaps_out.max(8)).max(1);
+            let lines = if empty { 1 } else { 2 };
+            let pad = if empty { s(7.0) } else { s(10.0) };
             (cw, (2 * pad + lines * (t.font.title + 6)).max(s(40.0) + 2 * pad) + 4)
-        });
+        }));
+        let (cw, ch) = size(win.w());
         let margin = theme::with(|t| t.gaps_out.max(8));
-        let stack_y = TOASTS.with(|v| {
-            // Toasts deleted with their window are gone.
-            v.borrow_mut().retain(|w| !w.was_deleted());
-            v.borrow().iter().map(|w| w.h() + margin).sum::<i32>()
-        });
         // Top-right; top-left right to left, with the icon on the right.
         let rtl = crate::layout::is_rtl(anchor);
-        let rect = (if rtl { margin } else { win.w() - cw - margin }, margin + stack_y, cw, ch);
+        let rect = (if rtl { margin } else { win.w() - cw - margin }, margin, cw, ch);
         let Some(mut layer) = open_layer(anchor, Some(rect), false) else { return };
-        TOASTS.with(|v| v.borrow_mut().push(layer.clone()));
+        register_toast(&layer, size);
         let (icon, summary, body) = (icon.to_string(), summary.to_string(), body.to_string());
         let (summary2, body2) = (summary.clone(), body.clone());
         draw_layer(&mut layer, move |l| {
@@ -790,7 +823,7 @@ impl Notification {
                 let n = &t.notifications;
                 card(t, l.x(), l.y(), l.w(), l.h(), n, 2);
                 let s = |px: f64| (px * t.font.base as f64 / 12.0).round() as i32;
-                let m = crate::layout::Mirror::new(rtl, l.x(), l.w());
+                let m = crate::layout::Mirror::of(l);
                 let mut x = l.x() + 12;
                 if !icon.is_empty() {
                     let slot = s(40.0);
@@ -814,7 +847,7 @@ impl Notification {
         // Keyboard: Tab reaches the toast; Enter, Space, Delete or Esc dismiss it.
         layer.set_visible_focus();
         layer.handle(|l, ev| match ev {
-            Event::Push => { dismiss(l); true }
+            Event::Push => { if app::event_button() == 1 { dismiss(l); } true }
             Event::Enter => true,
             Event::Focus => { crate::focus::remember(l); l.redraw(); true }
             Event::Unfocus => { l.redraw(); true }
@@ -844,19 +877,25 @@ impl Notification {
 
     /// Number of toasts currently shown (all windows).
     pub fn count() -> usize {
-        TOASTS.with(|v| v.borrow().len())
+        TOASTS.with(|v| {
+            let mut entries = v.borrow_mut();
+            entries.retain(|e| !e.layer.was_deleted() && e.layer.parent().is_some());
+            entries.len()
+        })
     }
 }
 
 fn dismiss(l: &Widget) {
+    if l.was_deleted() { return; }
     let present = TOASTS.with(|v| {
         let mut v = v.borrow_mut();
-        let before = v.len();
-        v.retain(|w| w.as_widget_ptr() != l.as_widget_ptr());
-        before != v.len()
+        let present = v.iter().any(|e| !e.layer.was_deleted() && e.layer.as_widget_ptr() == l.as_widget_ptr());
+        v.retain(|e| !e.layer.was_deleted() && e.layer.as_widget_ptr() != l.as_widget_ptr());
+        present
     });
     if present {
         close_layer(l);
+        layout_toasts();
     }
 }
 

@@ -196,6 +196,7 @@ operation started from a menu.
 | NumberField | Up / Down |
 | Slider | Left / Right / Up / Down |
 | TabBar | anywhere: Ctrl+Tab, Ctrl+Shift+Tab, Ctrl+PageDown, Ctrl+PageUp. Focused: Left/Right/Home/End select; Alt+Left/Right moves cursor only; Enter/Space activates cursor; Delete closes cursor; Menu/Shift+F10 context; Mod+Shift+Left/Right requests enabled reorder without selection |
+| Notice | one Tab stop per card; Left/Right/Home/End moves cursor through enabled actions and Close; Enter/Space activates; Esc/Delete/Backspace dismisses; horizontal direction mirrors in RTL |
 | List | Up / Down, j / k, PageUp / PageDown, Home / End, Enter |
 | RichText | Up / Down, PageUp / PageDown, Home / End (End follows a stream again) scroll; Tab / Shift+Tab go through the links and code copy buttons in view, then on to the next control; Enter / Space open the link or copy the code; Ctrl+A select all, Ctrl+C copy (Cmd on macOS); Esc clears |
 | RichLabel | with links: a Tab stop; Enter / Space open the first link |

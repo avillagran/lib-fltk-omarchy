@@ -810,6 +810,21 @@ pub fn visible_in_window<W: WidgetExt>(w: &W) -> bool {
     true
 }
 
+// Native child windows use coordinates in their containing native window.
+// Include every native ancestor in screen coordinates, but not groups:
+// their widget positions already use the containing window's coordinates.
+fn screen_coords<W: WindowExt>(window: &W, mut x: i32, mut y: i32) -> (i32, i32) {
+    let mut current = Some(window.as_base_widget());
+    while let Some(w) = current {
+        if w.as_window().is_some() {
+            x = x.saturating_add(w.x());
+            y = y.saturating_add(w.y());
+        }
+        current = w.parent().map(|g| g.as_base_widget());
+    }
+    (x, y)
+}
+
 /// Moves the pointer to window coordinates `(x, y)` of `window` (no
 /// button held) through fltk's normal event path: hover states and
 /// tooltips follow it (tests, scripted tours).
@@ -819,8 +834,9 @@ pub fn hover_at<W: WindowExt>(window: &W, x: i32, y: i32) {
     unsafe {
         FL_E_X = x;
         FL_E_Y = y;
-        FL_E_X_ROOT = window.x() + x;
-        FL_E_Y_ROOT = window.y() + y;
+        let (root_x, root_y) = screen_coords(window, x, y);
+        FL_E_X_ROOT = root_x;
+        FL_E_Y_ROOT = root_y;
         FL_E_STATE = 0;
     }
     dispatch(Event::Move, win);
@@ -839,8 +855,9 @@ pub fn click_at_with<W: WindowExt>(window: &W, x: i32, y: i32, mods: Shortcut) {
     unsafe {
         FL_E_X = x;
         FL_E_Y = y;
-        FL_E_X_ROOT = window.x() + x;
-        FL_E_Y_ROOT = window.y() + y;
+        let (root_x, root_y) = screen_coords(window, x, y);
+        FL_E_X_ROOT = root_x;
+        FL_E_Y_ROOT = root_y;
         FL_E_CLICKS = 0;
         FL_E_KEYSYM = Key::from_i32(0xfee8 + 1).bits(); // FL_Button + 1 (left)
         FL_E_STATE = 0x0100_0000 | mods.bits(); // FL_BUTTON1
@@ -866,8 +883,9 @@ pub fn click_button_at<W: WindowExt>(window: &W, x: i32, y: i32, button: i32) {
     unsafe {
         FL_E_X = x;
         FL_E_Y = y;
-        FL_E_X_ROOT = window.x() + x;
-        FL_E_Y_ROOT = window.y() + y;
+        let (root_x, root_y) = screen_coords(window, x, y);
+        FL_E_X_ROOT = root_x;
+        FL_E_Y_ROOT = root_y;
         FL_E_CLICKS = 0;
         FL_E_KEYSYM = Key::from_i32(0xfee8 + button).bits();
         FL_E_STATE = match button { 1 => 0x0100_0000, 2 => 0x0200_0000, 3 => 0x0400_0000, _ => 0 };
@@ -889,8 +907,9 @@ pub fn mouse_drag<W: WindowExt>(window: &W, from: (i32, i32), to: (i32, i32), re
         unsafe {
             FL_E_X = x;
             FL_E_Y = y;
-            FL_E_X_ROOT = window.x() + x;
-            FL_E_Y_ROOT = window.y() + y;
+            let (root_x, root_y) = screen_coords(window, x, y);
+            FL_E_X_ROOT = root_x;
+            FL_E_Y_ROOT = root_y;
             FL_E_CLICKS = 0;
             FL_E_KEYSYM = Key::from_i32(0xfee8 + 1).bits(); // FL_Button + 1 (left)
             FL_E_STATE = state;
@@ -916,8 +935,9 @@ pub fn mouse_up<W: WindowExt>(window: &W, x: i32, y: i32) {
     unsafe {
         FL_E_X = x;
         FL_E_Y = y;
-        FL_E_X_ROOT = window.x() + x;
-        FL_E_Y_ROOT = window.y() + y;
+        let (root_x, root_y) = screen_coords(window, x, y);
+        FL_E_X_ROOT = root_x;
+        FL_E_Y_ROOT = root_y;
         FL_E_KEYSYM = Key::from_i32(0xfee8 + 1).bits();
         FL_E_STATE = 0;
     }
@@ -933,8 +953,9 @@ pub fn wheel_at<W: WindowExt>(window: &W, x: i32, y: i32, dy: i32) -> bool {
     unsafe {
         FL_E_X = x;
         FL_E_Y = y;
-        FL_E_X_ROOT = window.x() + x;
-        FL_E_Y_ROOT = window.y() + y;
+        let (root_x, root_y) = screen_coords(window, x, y);
+        FL_E_X_ROOT = root_x;
+        FL_E_Y_ROOT = root_y;
         FL_E_STATE = 0;
         FL_E_DY = dy;
     }
@@ -962,8 +983,9 @@ pub fn drop_at<W: WindowExt>(window: &W, x: i32, y: i32, text: &str, release: bo
     unsafe {
         FL_E_X = x;
         FL_E_Y = y;
-        FL_E_X_ROOT = window.x() + x;
-        FL_E_Y_ROOT = window.y() + y;
+        let (root_x, root_y) = screen_coords(window, x, y);
+        FL_E_X_ROOT = root_x;
+        FL_E_Y_ROOT = root_y;
         FL_E_STATE = 0;
     }
     if DRAGGING.with(|d| !d.replace(true)) {

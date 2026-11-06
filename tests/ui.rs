@@ -35,6 +35,7 @@ mod navtree_ui;
 mod popup_ui;
 mod split_ui;
 mod tabs_ui;
+mod notices_ui;
 mod chart_ui;
 mod keys_ui;
 mod list_ui;
@@ -2013,6 +2014,7 @@ fn main() {
     tooltip_ui::checks(&mut run, COLORS_A, COLORS_B);
     edit_ui::checks(&mut run);
     tabs_ui::checks(&mut run);
+    notices_ui::checks(&mut run);
     motion_ui::checks(&mut run);
     sidebar_ui::checks(&mut run);
     navtree_ui::checks(&mut run);

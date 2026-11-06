@@ -294,7 +294,7 @@ on the GPU backend than on the CPU backend; idle stays 0 %; total PSS
 | P1 17 keys: command tables, record, repeat, suspend | merged |
 | P1 18 font weights, letter spacing, named and terminal colors, project colors | merged |
 | P1 19 charts (`chart`), QR codes (`qr`, feature), masked input (`TextField::mask`) | merged |
-| P1 19 persistent notice cards with actions | pending; existing critical notifications persist but only dismiss |
+| P1 19 persistent notice cards with actions | implemented: `overlay::Notice`, app-owned stable action IDs, live labels, keyboard/AT and per-window stacks ([NOTICES.md](NOTICES.md)) |
 | P1 15 paced animation clock (`anim::Pace`, `PaceMode`) | merged |
 | P1 16 layer rendering (`layer::Layer`, `capture`, `cross_fade`) | merged |
 | P1 10 `FrameView`: shared-memory frames (memfd/shm/file mapping, triple buffer, pipe/FIFO/event wake-ups), input events with Qt mapping, resize/zoom/copy, PNG/BMP file mode for gradual migration (`frame`, docs/FRAMES.md) | merged |

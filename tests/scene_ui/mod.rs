@@ -10,6 +10,8 @@ mod motion;
 #[cfg(feature="gpu")]
 mod overlays;
 #[cfg(feature="gpu")]
+mod notices;
+#[cfg(feature="gpu")]
 mod lifecycle;
 #[cfg(feature="gpu")]
 mod batching;
@@ -50,6 +52,8 @@ pub fn checks(run: &mut dyn FnMut(&str, Check)) {
     motion::checks(run);
     #[cfg(feature="gpu")]
     overlays::checks(run);
+    #[cfg(feature="gpu")]
+    notices::checks(run);
     #[cfg(feature="gpu")]
     lifecycle::checks(run);
     #[cfg(feature="gpu")]

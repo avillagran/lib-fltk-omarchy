@@ -1,0 +1,23 @@
+{
+  "en": {
+    "Operation interrupted": "Operation interrupted",
+    "Retry when ready. This notice stays until you close it.": "Retry when ready. This notice stays until you close it.",
+    "Persistent notices": "Persistent notices",
+    "Show notification": "Show notification",
+    "Retry": "Retry",
+    "Close": "Close",
+    "{count} retries|one": "{count} retry",
+    "{count} retries": "{count} retries"
+  },
+  "es": {
+    "Operation interrupted": "Operación interrumpida",
+    "Retry when ready. This notice stays until you close it.": "Reintenta cuando quieras. Esta notificación permanece hasta que la cierres.",
+    "Persistent notices": "Notificaciones persistentes",
+    "Show notification": "Mostrar notificación",
+    "Retry": "Reintentar",
+    "Close": "Cerrar",
+    "{count} retries|one": "{count} reintento",
+    "{count} retries|many": "{count} reintentos",
+    "{count} retries": "{count} reintentos"
+  }
+}

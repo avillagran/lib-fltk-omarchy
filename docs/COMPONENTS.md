@@ -1015,6 +1015,12 @@ Notification::show(&*win, glyph::WIFI, "Connected", "", Urgency::Low);
 Low hides after 5 s, Normal after 8 s, Critical stays until dismissed.
 **Keys:** Tab reaches a notification; Enter, Space, Delete or Esc dismiss it.
 
+Persistent cards with app-owned actions use `overlay::Notice`:
+`Notice::new(summary, body).action(NoticeAction::new(id, label))`
+`.on_action(|notice, id| ..).show(&win)`. Actions do not close implicitly;
+cards share a per-window stack with the short-lived notifications above.
+Live labels, keyboard, accessibility and lifetime: [NOTICES.md](NOTICES.md).
+
 ## Tooltip
 
 ![tooltip](components/tooltip.png)
@@ -1311,7 +1317,7 @@ with an area limit and a time budget, and shape hit-testing: all in
 | keyboard panel | `panel::KeyboardPanel` | `new(name)`, `.layout()`, `set_items(len, id_at, index_of)`, `cursor()`, `selection()`, `click()`, `focus()`, `show_ring()`, `.on_activate()`, `.on_edge()`, `.on_key()`, `.on_change()`, `.on_focus()`; `focus::host(&widget, &[&a, &b])`, `focus::on_panel_focus(f)` |
 | menu plugin | `overlay::Menu` | `open(&win, title, items, f)` |
 | ConfirmDialog | `overlay::ConfirmDialog` | `open(&win, message, confirm, destructive, f)` |
-| notifications | `overlay::Notification` | `show(&win, glyph, summary, body, Urgency::..)`, `count()` |
+| notifications | `overlay::Notification`, `Notice` | `Notification::show`, `count`; persistent `Notice::new`, `action`, `on_action`, `show` ([guide](NOTICES.md)) |
 | operations tray | `popups::OperationToast` | `show(&win, title)`, `.on_pause()`, `.on_cancel()`, `set_progress`, `set_detail`, `focus()`, `close()` |
 | F1 help | `popups::ShortcutHelp` | `open(&win, title, sections)` |
 | PanelToolTip | `tooltip` | automatic for `.tooltip()` / `.bind_tooltip()` / `set_tooltip`; `show(&w)`, `hide()`, `shown()`, `settings()`, `set_settings(..)` |
