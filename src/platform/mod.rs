@@ -23,6 +23,9 @@ pub(crate) mod a11y;
 pub mod dirs;
 pub(crate) mod fl_abi;
 pub mod fonts;
+/// Shared memory and wake-ups for `crate::frame` (memfd, POSIX shm, file
+/// mappings; pipes, FIFOs, events).
+pub(crate) mod frame;
 mod generic;
 /// Local IPC transport for `crate::instance` (Unix sockets, named pipes).
 pub(crate) mod instance;
