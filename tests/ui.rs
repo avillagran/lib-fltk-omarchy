@@ -2026,6 +2026,7 @@ fn main() {
     popup_ui::a11y_checks(&mut run);
     #[cfg(feature = "a11y")]
     media_ui::a11y_checks(&mut run);
+    #[cfg(feature = "a11y")]
     transcript_ui::a11y_checks(&mut run);
     drop(app);
     println!("{}", if failed == 0 { "all ui checks passed" } else { "ui checks FAILED" });
