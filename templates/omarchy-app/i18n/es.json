@@ -1,0 +1,21 @@
+{
+  "{count} taps": {
+    "one": "{count} toque",
+    "many": "{count} de toques",
+    "other": "{count} toques"
+  },
+  "Press Space to count": "Pulsa Space para contar",
+  "Saved": "Guardado",
+  "Unsaved changes": "Cambios sin guardar",
+  "Counting": "Contar",
+  "Count one more": "Contar uno más",
+  "File": "Archivo",
+  "App": "App",
+  "Export…": "Exportar…",
+  "Text": "Texto",
+  "Exported to {path}": "Exportado a {path}",
+  "Could not export: {error}": "No se pudo exportar: {error}",
+  "Could not save: {error}": "No se pudo guardar: {error}",
+  "Saving is off: the saved tally could not be read": "Guardar está desactivado: no se pudo leer el recuento guardado",
+  "Could not read the saved tally: {error}": "No se pudo leer el recuento guardado: {error}"
+}

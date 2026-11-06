@@ -1,0 +1,6 @@
+{
+  "{count} taps": {
+    "one": "{count} tap",
+    "other": "{count} taps"
+  }
+}

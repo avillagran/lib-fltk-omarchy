@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name={{Name}}
+Comment=Count things from the keyboard
+Comment[da]=Tæl ting fra tastaturet
+Comment[de]=Dinge mit der Tastatur zählen
+Comment[es]=Cuenta cosas desde el teclado
+Exec={{name}}
+Icon={{name}}
+Terminal=false
+Categories=Utility;
+StartupWMClass={{name}}

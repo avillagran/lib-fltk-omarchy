@@ -1,0 +1,10 @@
+#!/bin/sh
+# Builds the release binary: target/release/{{name}}.
+set -eu
+
+ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+cd "$ROOT"
+
+cargo build --release "$@"
+
+echo "Built ${CARGO_TARGET_DIR:-$ROOT/target}/release/{{name}}"
