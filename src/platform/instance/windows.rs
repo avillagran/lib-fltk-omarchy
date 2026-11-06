@@ -43,6 +43,7 @@ const ERROR_SEM_TIMEOUT: i32 = 121;
 const ERROR_PIPE_CONNECTED: i32 = 535;
 const TOKEN_QUERY: u32 = 0x0008;
 const TOKEN_USER_CLASS: u32 = 1;
+const TOKEN_OWNER_CLASS: u32 = 4;
 const SE_KERNEL_OBJECT: u32 = 6;
 const OWNER_SECURITY_INFORMATION: u32 = 0x0000_0001;
 const SW_RESTORE: i32 = 9;
@@ -246,6 +247,19 @@ impl Drop for Listener {
 }
 
 /// The SID of this process's user is the owner of `handle`.
+/// The SID a token information class starts with (`TOKEN_USER` and
+/// `TOKEN_OWNER` both begin with a `PSID`), in a buffer that owns it.
+///
+/// # Safety
+/// `token` must be an open token handle with `TOKEN_QUERY`.
+unsafe fn token_sid(token: Handle, class: u32) -> Option<Vec<u64>> {
+    let mut len = 0u32;
+    GetTokenInformation(token, class, std::ptr::null_mut(), 0, &mut len);
+    let mut buf = vec![0u64; (len as usize).div_ceil(8).max(1)];
+    let ok = GetTokenInformation(token, class, buf.as_mut_ptr().cast(), len, &mut len) != 0;
+    ok.then_some(buf)
+}
+
 fn owned_by_me(handle: Handle) -> bool {
     // SAFETY: standard token/SID queries with checked results; buffers are
     // sized by the first call; the security descriptor is freed.
@@ -254,22 +268,12 @@ fn owned_by_me(handle: Handle) -> bool {
         if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) == 0 {
             return false;
         }
-        let mut len = 0u32;
-        GetTokenInformation(token, TOKEN_USER_CLASS, std::ptr::null_mut(), 0, &mut len);
-        let mut buf = vec![0u64; (len as usize).div_ceil(8).max(1)];
-        let ok = GetTokenInformation(
-            token,
-            TOKEN_USER_CLASS,
-            buf.as_mut_ptr().cast(),
-            len,
-            &mut len,
-        ) != 0;
+        // Our user, and the default owner of what we create: an elevated
+        // process creates objects owned by the Administrators group, so a
+        // pipe made by our own (elevated) primary carries that owner.
+        let user = token_sid(token, TOKEN_USER_CLASS);
+        let default_owner = token_sid(token, TOKEN_OWNER_CLASS);
         CloseHandle(token);
-        if !ok {
-            return false;
-        }
-        // TOKEN_USER { SID_AND_ATTRIBUTES { PSID Sid; DWORD Attributes } }
-        let me = *(buf.as_ptr() as *const *mut c_void);
         let (mut owner, mut sd) = (std::ptr::null_mut(), std::ptr::null_mut());
         let rc = GetSecurityInfo(
             handle,
@@ -281,7 +285,12 @@ fn owned_by_me(handle: Handle) -> bool {
             std::ptr::null_mut(),
             &mut sd,
         );
-        let same = rc == 0 && !owner.is_null() && EqualSid(owner, me) != 0;
+        let same = rc == 0
+            && !owner.is_null()
+            && [user, default_owner].iter().flatten().any(|buf| {
+                let sid = *(buf.as_ptr() as *const *mut c_void);
+                EqualSid(owner, sid) != 0
+            });
         if !sd.is_null() {
             LocalFree(sd);
         }

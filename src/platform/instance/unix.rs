@@ -65,6 +65,13 @@ fn private_dir(dir: &Path, create: bool) -> io::Result<()> {
     Ok(())
 }
 
+/// FNV-1a, 64 bit: a stable short name for a long path.
+fn fnv(s: &str) -> u64 {
+    s.bytes().fold(0xcbf2_9ce4_8422_2325u64, |h, b| {
+        (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
+    })
+}
+
 pub(crate) fn endpoint(app_id: &str, runtime: &Path, create: bool) -> io::Result<Endpoint> {
     // The runtime root is given by the system or the app: follow it, but
     // only use it directly when it is private (XDG_RUNTIME_DIR is 0700).
@@ -82,7 +89,18 @@ pub(crate) fn endpoint(app_id: &str, runtime: &Path, create: bool) -> io::Result
         private_dir(&b, create)?;
         b
     };
-    let dir = base.join(app_id);
+    let mut dir = base.join(app_id);
+    if dir.join("instance.sock").as_os_str().len() > MAX_SOCKET_PATH {
+        // A socket path has to fit sun_path (104 bytes on macOS, whose
+        // per-user temp dir is long): use a short private dir in /tmp named
+        // after the runtime dir and the app id.
+        let short = Path::new("/tmp").join(format!("fltk-omarchy-{}", euid()));
+        private_dir(&short, create)?;
+        dir = short.join(format!(
+            "{:016x}",
+            fnv(&format!("{}\0{app_id}", runtime.display()))
+        ));
+    }
     private_dir(&dir, create)?;
     let sock = dir.join("instance.sock");
     if sock.as_os_str().len() > MAX_SOCKET_PATH {

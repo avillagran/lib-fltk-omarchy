@@ -774,7 +774,11 @@ mod tests {
     impl TempRuntime {
         fn new() -> TempRuntime {
             static N: AtomicU32 = AtomicU32::new(0);
-            let p = std::env::temp_dir().join(format!("fo-ipc-{}-{}", std::process::id(), N.fetch_add(1, Ordering::Relaxed)));
+            // A short root: socket paths must fit sun_path, and some systems
+            // have long per-user temp dirs.
+            let tmp = std::env::temp_dir();
+            let root = if cfg!(unix) && tmp.as_os_str().len() > 24 && std::path::Path::new("/tmp").is_dir() { PathBuf::from("/tmp") } else { tmp };
+            let p = root.join(format!("fo-ipc-{}-{}", std::process::id(), N.fetch_add(1, Ordering::Relaxed)));
             std::fs::create_dir(&p).unwrap();
             #[cfg(unix)]
             {
@@ -908,6 +912,31 @@ mod tests {
         drop(server);
         // The primary removes its own socket on exit.
         assert!(std::fs::symlink_metadata(&sock).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn long_runtime_dirs_use_a_short_socket_path() {
+        use std::os::unix::fs::PermissionsExt;
+        let rt = TempRuntime::new();
+        let mut deep = rt.0.clone();
+        for k in 0..6 {
+            deep = deep.join(format!("a-rather-long-directory-name-{k}"));
+            std::fs::create_dir(&deep).unwrap();
+            std::fs::set_permissions(&deep, std::fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        let (tx, rx) = mpsc::channel();
+        let server = primary(Options::new("dev.test.long").runtime_dir(&deep).hop(tx));
+        assert!(server.is_listening(), "{:?}", server.unavailable_reason());
+        let ep = server.endpoint().to_string();
+        assert!(ep.len() <= 100 && ep.starts_with("/tmp/fltk-omarchy-"), "{ep}");
+        let client = Options::new("dev.test.long").runtime_dir(&deep).client();
+        assert!(call_pumped(&rx, client, Request::new("ping", &[])).is_ok());
+        drop(server);
+        // Remove what the test made in /tmp, file by file (never recursively).
+        let dir = std::path::Path::new(&ep).parent().unwrap().to_path_buf();
+        let _ = std::fs::remove_file(dir.join("instance.lock"));
+        let _ = std::fs::remove_dir(&dir);
     }
 
     #[cfg(unix)]
