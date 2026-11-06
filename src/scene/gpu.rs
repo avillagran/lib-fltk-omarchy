@@ -101,7 +101,7 @@ impl PreparedScene {
             let paint = match command {
                 Command::Fill { radius: 0, color, .. } => Paint::Solid((*color).into()),
                 Command::AlphaFill { color, alpha, .. } => Paint::Solid(Color::from(*color).with_alpha(alpha.clamp(0.0, 1.0) as f32)),
-                Command::Image { image, .. } if image.width() == rect.w as u32 && image.height() == rect.h as u32 => Paint::Image(Texture::straight(image.clone()), 1.0),
+                Command::Image { image, .. } => Paint::Image(Texture::straight(image.resampled(rect.w as u32, rect.h as u32).map_err(|e|e.to_string())?), 1.0),
                 Command::Layer { layer, opacity, .. } => Paint::Image(Texture::straight(layer.image().ok_or("scene layer raster failed")?), *opacity as f32 / 255.0),
                 Command::Shader { program, uniforms, .. } => Paint::Shader(program.glsl().to_owned(), *uniforms),
                 _ => {

@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **Deterministic scene image scaling**: `Image::resampled` shares
+  pixel-center bilinear filtering in premultiplied alpha between CPU replay
+  and GPU preparation. Image samples stay unchanged when moved or clipped;
+  GPU upload no longer reconstructs scaled-image alpha from native captures.
+  Worker-safe immutable results, one shared cache up to 8 MiB per resource,
+  64 MiB output limit and explicit cache release. Expanded read-back keeps
+  the existing maximum difference of two levels per RGB channel.
+
 - **Scoped scene order and hit testing**: `raise_node` lifts a keyed layer
   within its parent clip without new resources, and `hit_node` returns the
   topmost keyed rectangular target through ancestor clips and group opacity.

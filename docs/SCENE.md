@@ -326,10 +326,16 @@ natively in GL. `scene::shader(rect, &program, &uniforms)` records a shared
 into bounded RGBA. Logical size follows the target rectangle. On the GPU,
 the renderer can override time independently of the retained scene.
 
-Text runs, rounded primitives, isolated layers and scaled source images
-currently use native CPU raster fallbacks uploaded once as RGBA textures.
-Scaled images use the native resampler during preparation to preserve CPU
-sampling parity. Direct native fallback textures preserve the black pass's
+Text runs, rounded primitives and isolated layers currently use native
+CPU raster fallbacks uploaded once as RGBA textures.
+Source images use the same deterministic pixel-center bilinear resampler
+in CPU replay and GPU preparation. Filtering happens in premultiplied alpha;
+returned public resources remain straight RGBA. CPU draws the result 1:1
+in logical units, avoiding a destination-dependent native scaling transform.
+`Image::resampled(w,h)` is also usable from workers. One result up to 8 MiB
+is shared across clones; output is limited to 64 MiB, larger results are
+uncached, and `Image::clear_cache` releases the optional shared result.
+Direct native fallback textures preserve the black pass's
 premultiplied RGB instead of unpremultiplying and premultiplying it again;
 that round trip otherwise loses color precision at overlapping edges.
 Public `Image` and isolated-layer resources remain straight RGBA. GL
