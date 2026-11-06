@@ -404,6 +404,8 @@ struct Data {
     expanded: State<bool>,
     pick: Hook<(), Vec<PathBuf>>,
     attach: RefCell<Option<Button>>,
+    /// `page_keys_to`: the transcript that takes page keys while the text fits.
+    pages: RefCell<Option<crate::text::RichText>>,
 }
 
 /// The row under the input: `lead` (flexible) holds the attach button
@@ -489,6 +491,7 @@ impl Composer {
             expanded: State::new(false),
             pick: Hook::default(),
             attach: RefCell::new(None),
+            pages: RefCell::new(None),
         });
         let me = Composer {
             inner,
@@ -772,6 +775,14 @@ impl Composer {
     /// Chips are in the text as their own text; see [`Composer::expanded_text`].
     pub fn on_submit(self, f: impl FnMut(String) + 'static) -> Self {
         self.d.submit.set(f);
+        self
+    }
+
+    /// While the text fits (no scrolling inside the composer), PageUp /
+    /// PageDown scroll `view` by most of a screen and Mod+Home / Mod+End go
+    /// to its start / end (following it), without leaving the composer.
+    pub fn page_keys_to(self, view: &crate::text::RichText) -> Self {
+        *self.d.pages.borrow_mut() = Some(view.clone());
         self
     }
 
@@ -1162,6 +1173,22 @@ impl Composer {
         }
         if plain && matches!(k, Key::Up | Key::Down) && self.history_key(k) {
             return true;
+        }
+        // While the text fits, page keys scroll the transcript beside us
+        // (Rune: a composer that fits passes them to the message list).
+        let mod_only = crate::keys::is_primary(m) && (m & !crate::keys::PRIMARY).is_empty();
+        if (plain && matches!(k, Key::PageUp | Key::PageDown)) || (mod_only && matches!(k, Key::Home | Key::End)) {
+            let view = self.d.pages.borrow().clone();
+            if let Some(v) = view.filter(|_| self.area.fits()) {
+                let page = (v.h() as i64 * 4 / 5).max(1);
+                match k {
+                    Key::PageUp => v.scroll_to(v.scroll_offset() - page),
+                    Key::PageDown => v.scroll_to(v.scroll_offset() + page),
+                    Key::Home => v.scroll_to(0),
+                    _ => v.follow_end(),
+                }
+                return true;
+            }
         }
         if crate::keys::is_primary(m)
             && m.contains(Shortcut::Shift)

@@ -311,7 +311,7 @@ for o3's chat views. What to adopt, in order:
 | 5 | **Done, partly** (`RichText::pace_words`: a trailing partial word from a sender waits ≤ 80 ms; big backlogs are not split into extra frames). Stream pacing at word boundaries: backlogs under 512 chars at once, else ~24 ms chunks cut at words; hold back a trailing partial word | `research/18` | S | yes (fewer reflows) |
 | 6 | Native Mermaid (flowchart, sequence, state) as polygons/polylines + labels drawn with `gfx` in an embed, instead of a 150–240 MB helper | `crates/rune-mermaid` (layered layout, cubic routing) | L | yes |
 | 7 | Diff annotations under lines and line comments (`on_comment(range)`), selection by (side, line) | `rune-kit/src/diff` | M | yes |
-| 8 | A composer that fits passes PageUp/PageDown/Home/End to the transcript | rune README | S | yes |
+| 8 | **Done** (`Composer::page_keys_to`). A composer that fits passes PageUp/PageDown/Home/End to the transcript | rune README | S | yes |
 | 9 | Chips in read-only text, matching the composer's | `el/pills.rs` | S–M | yes |
 | 10 | `task::Latest<T>`: latest-wins background requests with debounce (`@` search) | `latest.rs` | S | yes |
 | 11 | Frame log (paint / wall / CPU per frame) and a warning when a UI callback blocks | `RUNE_FRAME_LOG` | S | yes |

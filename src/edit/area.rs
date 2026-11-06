@@ -575,6 +575,11 @@ impl TextArea {
         text_box(0, 0, self.inner.w(), self.inner.h()).3
     }
 
+    /// True when the whole text is in view (nothing to scroll inside).
+    pub fn fits(&self) -> bool {
+        self.st.borrow().lay.height <= self.view_h()
+    }
+
     fn sync_now(&self) {
         let w = self.text_w();
         self.st.borrow_mut().sync(w);

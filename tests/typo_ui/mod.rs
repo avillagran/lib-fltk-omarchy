@@ -217,4 +217,37 @@ pub fn checks(run: &mut dyn FnMut(&str, Check)) {
         fltk::window::DoubleWindow::delete((*win).clone());
         Ok(())
     });
+
+    run("composer: page keys scroll the transcript while the text fits", &|_| {
+        use fltk_omarchy::edit::Composer;
+        use fltk_omarchy::focus::press;
+        use fltk_omarchy::layout::FlexExt;
+        use fltk_omarchy::text::RichText;
+        let mut win = AppWindow::new("Pages", 420, 360);
+        let mut body = win.body();
+        let rt = RichText::new().stick_to_bottom(true);
+        body.add(&*rt);
+        let composer = Composer::new().page_keys_to(&rt);
+        body.fit(&*composer);
+        win.end();
+        win.show();
+        for k in 0..80 {
+            rt.append_markdown(&format!("Paragraph {k} with words enough to wrap once."));
+        }
+        let r2 = rt.clone();
+        pump_until(|| r2.w() > 0 && r2.is_at_bottom());
+        let _ = composer.clone().take_focus();
+        fltk_omarchy::focus::type_text("hi");
+        let end = rt.scroll_offset();
+        press("PageUp");
+        check(rt.scroll_offset() < end && !rt.is_following(), &format!("PageUp scrolls up: {end} -> {}", rt.scroll_offset()))?;
+        press("Mod+Home");
+        check(rt.scroll_offset() == 0, "Mod+Home goes to the start")?;
+        press("Mod+End");
+        pump_until(|| r2.is_at_bottom());
+        check(rt.is_following() && rt.is_at_bottom(), "Mod+End follows the end again")?;
+        check(composer.value().contains("hi"), "the typed text stays")?;
+        fltk::window::DoubleWindow::delete((*win).clone());
+        Ok(())
+    });
 }
