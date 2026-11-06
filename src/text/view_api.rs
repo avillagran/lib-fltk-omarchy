@@ -125,7 +125,7 @@ impl RichText {
                 None => {
                     let j = i.msgs.len();
                     let start = i.store.len();
-                    i.insert_msg(j, Arc::from(key), Vec::new(), None);
+                    i.insert_msg(j, key, Vec::new(), None);
                     set_content(i, j, content);
                     i.reveal_from(start);
                     return;
@@ -179,7 +179,7 @@ impl RichText {
             let src = i.msgs[j].src;
             i.remove_msg(j);
             let to = to.min(i.msgs.len());
-            i.insert_msg(to, Arc::from(key), blocks, stream);
+            i.insert_msg(to, key, blocks, stream);
             i.msgs[to].src = src;
             true
         })
@@ -192,7 +192,7 @@ impl RichText {
                 Some(j) => j,
                 None => {
                     let j = i.msgs.len();
-                    i.insert_msg(j, Arc::from(key), Vec::new(), None);
+                    i.insert_msg(j, key, Vec::new(), None);
                     j
                 }
             };
@@ -729,7 +729,7 @@ fn insert(i: &mut Inner, at: usize, key: &str, content: Message) {
         i.remove_msg(j);
     }
     let at = at.min(i.msgs.len());
-    i.insert_msg(at, Arc::from(key), Vec::new(), None);
+    i.insert_msg(at, key, Vec::new(), None);
     set_content(i, at, content);
 }
 
@@ -750,12 +750,12 @@ where
     let wanted: std::collections::HashSet<&str> = want.iter().map(String::as_str).collect();
     // Removals first (from the end: fewer bytes move).
     for j in (0..i.msgs.len()).rev() {
-        if !wanted.contains(&*i.msgs[j].key) {
+        if !wanted.contains(i.msgs[j].key.to_string().as_str()) {
             i.remove_msg(j);
         }
     }
     for (n, key) in want.iter().enumerate() {
-        let here = i.msgs.get(n).is_some_and(|m| *m.key == **key);
+        let here = i.msgs.get(n).is_some_and(|m| m.key.is(key));
         if here {
             continue;
         }
@@ -767,12 +767,12 @@ where
                 let stream = i.msgs[j].stream.take();
                 let src = i.msgs[j].src;
                 i.remove_msg(j);
-                i.insert_msg(n, Arc::from(key.as_str()), blocks, stream);
+                i.insert_msg(n, key.as_str(), blocks, stream);
                 i.msgs[n].src = src;
             }
             None => {
                 let content = m.with_at(n, render);
-                i.insert_msg(n, Arc::from(key.as_str()), Vec::new(), None);
+                i.insert_msg(n, key.as_str(), Vec::new(), None);
                 if let Some(c) = content {
                     set_content(&mut i, n, c);
                 }
@@ -805,7 +805,7 @@ mod tests {
             Some(j) => j,
             None => {
                 let j = i.msgs.len();
-                i.insert_msg(j, Arc::from(key), Vec::new(), None);
+                i.insert_msg(j, key, Vec::new(), None);
                 j
             }
         };
@@ -823,13 +823,13 @@ mod tests {
         }
         assert_eq!(i.counts.prefix(i.counts.len()) as usize, n, "counts");
         for j in 0..i.msgs.len() {
-            let key = i.msgs[j].key.clone();
+            let key = i.msgs[j].key.to_string();
             assert_eq!(i.key_index(&key), Some(j));
         }
     }
 
     fn texts(i: &Inner, key: &str) -> Vec<String> {
-        let j = i.msgs.iter().position(|m| &*m.key == key).unwrap();
+        let j = i.msgs.iter().position(|m| m.key.is(key)).unwrap();
         let s = i.msg_start(j);
         (s..s + i.msg_len(j)).map(|k| i.store.text(k).to_string()).collect()
     }
@@ -842,7 +842,7 @@ mod tests {
         insert(&mut i, 0, "z", Message::markdown("oldest"));
         insert(&mut i, 2, "card", Message::embed("card-1", 90, "Ran 3 commands"));
         lay(&mut i);
-        let keys: Vec<&str> = i.msgs.iter().map(|m| &*m.key).collect();
+        let keys: Vec<String> = i.msgs.iter().map(|m| m.key.to_string()).collect();
         assert_eq!(keys, ["z", "a", "card", "b"]);
         consistent(&mut i);
         // Replace in the middle: only that message's blocks change.
@@ -854,7 +854,7 @@ mod tests {
         let j = i.key_index("card").unwrap();
         i.remove_msg(j);
         insert(&mut i, 0, "card", Message::embed("card-1", 90, "Ran 3 commands"));
-        assert_eq!(i.msgs[0].key.as_ref(), "card");
+        assert!(i.msgs[0].key.is("card"));
         assert_eq!(i.embed_blocks("card-1"), vec![0]);
         let j = i.key_index("z").unwrap();
         i.remove_msg(j);

@@ -217,11 +217,51 @@ struct Press {
     moved: bool,
 }
 
+/// A message key: the app's, or a number for sections added without one
+/// (shown as `"\u{1}N"`; no allocation per message for long legacy
+/// transcripts).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum MsgKey {
+    Auto(u64),
+    Named(Arc<str>),
+}
+
+impl MsgKey {
+    fn auto_of(s: &str) -> Option<u64> {
+        s.strip_prefix('\u{1}').and_then(|n| n.parse().ok())
+    }
+
+    pub fn is(&self, s: &str) -> bool {
+        match self {
+            MsgKey::Named(k) => **k == *s,
+            MsgKey::Auto(n) => MsgKey::auto_of(s) == Some(*n),
+        }
+    }
+}
+
+impl From<&str> for MsgKey {
+    fn from(s: &str) -> MsgKey {
+        match MsgKey::auto_of(s) {
+            Some(n) => MsgKey::Auto(n),
+            None => MsgKey::Named(Arc::from(s)),
+        }
+    }
+}
+
+impl std::fmt::Display for MsgKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MsgKey::Named(k) => f.write_str(k),
+            MsgKey::Auto(n) => write!(f, "\u{1}{n}"),
+        }
+    }
+}
+
 /// One message (a row of a transcript): a run of consecutive blocks.
 pub(super) struct Msg {
-    pub key: Arc<str>,
+    pub key: MsgKey,
     /// Open Markdown stream: pushes re-parse only its tail.
-    pub stream: Option<MarkdownStream>,
+    pub stream: Option<Box<MarkdownStream>>,
     /// Length and hash of the Markdown it was set from: a later value that
     /// extends it streams only the new text.
     pub src: Option<(usize, u64)>,
@@ -278,7 +318,7 @@ pub(super) struct Inner {
     keys_dirty: bool,
     auto_key: u64,
     /// The section `push_markdown` streams into.
-    open: Option<Arc<str>>,
+    open: Option<MsgKey>,
     width: i32,
     typo: Typo,
     avg_char: f32,
@@ -774,16 +814,33 @@ impl Inner {
     // ---------------------------------------------------------- messages
 
     fn key_index(&mut self, key: &str) -> Option<usize> {
+        if let Some(n) = MsgKey::auto_of(key) {
+            return self.index_of(&MsgKey::Auto(n));
+        }
         if self.keys_dirty {
             self.keys = self
                 .msgs
                 .iter()
                 .enumerate()
-                .map(|(j, m)| (m.key.clone(), j))
+                .filter_map(|(j, m)| match &m.key {
+                    MsgKey::Named(k) => Some((k.clone(), j)),
+                    MsgKey::Auto(_) => None,
+                })
                 .collect();
             self.keys_dirty = false;
         }
         self.keys.get(key).copied()
+    }
+
+    fn index_of(&mut self, key: &MsgKey) -> Option<usize> {
+        match key {
+            // Sections without a key are nearly always the newest.
+            MsgKey::Auto(_) => self.msgs.iter().rposition(|m| m.key == *key),
+            MsgKey::Named(k) => {
+                let k = k.clone();
+                self.key_index(&k)
+            }
+        }
     }
 
     fn msg_start(&self, j: usize) -> usize {
@@ -802,13 +859,14 @@ impl Inner {
         Some(self.counts.find(k as i64))
     }
 
-    fn new_key(&mut self) -> Arc<str> {
+    fn new_key(&mut self) -> MsgKey {
         self.auto_key += 1;
-        Arc::from(format!("\u{1}{}", self.auto_key))
+        MsgKey::Auto(self.auto_key)
     }
 
     /// Inserts message `key` at message index `j` with these blocks.
-    fn insert_msg(&mut self, j: usize, key: Arc<str>, blocks: Vec<Block>, stream: Option<MarkdownStream>) {
+    fn insert_msg(&mut self, j: usize, key: impl Into<MsgKey>, blocks: Vec<Block>, stream: Option<Box<MarkdownStream>>) {
+        let key: MsgKey = key.into();
         let j = j.min(self.msgs.len());
         let start = self.msg_start(j);
         let n = blocks.len();
@@ -826,8 +884,10 @@ impl Inner {
         } else {
             self.counts.splice(j, 0, &[n as i64]);
         }
-        if j + 1 == self.msgs.len() && !self.keys_dirty {
-            self.keys.insert(key, j);
+        if j + 1 == self.msgs.len() {
+            if let (MsgKey::Named(k), false) = (key, self.keys_dirty) {
+                self.keys.insert(k, j);
+            }
         } else {
             self.keys_dirty = true;
         }
@@ -853,10 +913,17 @@ impl Inner {
         let start = self.msg_start(j);
         let len = self.msg_len(j);
         self.splice(start, len, Vec::new());
+        let last = j + 1 == self.msgs.len();
         let m = self.msgs.remove(j);
         self.counts.splice(j, 1, &[]);
-        self.keys_dirty = true;
-        if self.open.as_deref() == Some(&*m.key) {
+        match (&m.key, last) {
+            (MsgKey::Named(k), true) => {
+                self.keys.remove(k);
+            }
+            (MsgKey::Auto(_), true) => {}
+            _ => self.keys_dirty = true,
+        }
+        if self.open.as_ref() == Some(&m.key) {
             self.open = None;
         }
     }
@@ -869,7 +936,7 @@ impl Inner {
         let opts = self.opts.clone();
         let s = self.msgs[j]
             .stream
-            .get_or_insert_with(|| MarkdownStream::with_options(opts));
+            .get_or_insert_with(|| Box::new(MarkdownStream::with_options(opts)));
         let u = s.push(more);
         self.set_msg_blocks(j, u.keep, u.blocks);
     }
@@ -890,7 +957,7 @@ impl Inner {
         let mut s = MarkdownStream::with_options(self.opts.clone());
         let u = s.push(md);
         self.set_msg_blocks(j, 0, u.blocks);
-        self.msgs[j].stream = Some(s);
+        self.msgs[j].stream = Some(Box::new(s));
         self.msgs[j].src = Some((md.len(), fnv(FNV0, md.as_bytes())));
     }
 
@@ -899,7 +966,7 @@ impl Inner {
         if more.is_empty() {
             return;
         }
-        let j = match self.open.clone().and_then(|k| self.key_index(&k)) {
+        let j = match self.open.clone().and_then(|k| self.index_of(&k)) {
             Some(j) => j,
             None => {
                 let key = self.new_key();
@@ -917,7 +984,7 @@ impl Inner {
         self.close_open();
         let key = self.new_key();
         let j = self.msgs.len();
-        let s = MarkdownStream::with_options(self.opts.clone());
+        let s = Box::new(MarkdownStream::with_options(self.opts.clone()));
         self.insert_msg(j, key.clone(), Vec::new(), Some(s));
         self.open = Some(key);
         j
@@ -926,7 +993,7 @@ impl Inner {
     /// Closes the open section (frees its parser state).
     fn close_open(&mut self) {
         if let Some(k) = self.open.take() {
-            if let Some(j) = self.key_index(&k) {
+            if let Some(j) = self.index_of(&k) {
                 self.msgs[j].stream = None;
                 self.msgs[j].src = None;
             }
