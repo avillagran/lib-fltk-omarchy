@@ -26,6 +26,56 @@ pub(crate) fn cpu_scope<T>(f: impl FnOnce() -> T) -> T {
     let _reset = Reset(CPU_SCOPE.with(|s| s.replace(true)));
     f()
 }
+pub(crate) fn cpu_only() -> bool {
+    CPU_SCOPE.with(Cell::get)
+}
+
+/// ImageSurface::draw also traverses native subwindows after widget
+/// drawing. A childless proxy invokes CPU drawing without that second GL
+/// print pass. It never changes native window visibility or context state.
+pub(crate) fn draw_cpu_widget<W: WidgetExt>(
+    surface: &fltk::surface::ImageSurface,
+    source: &W,
+    x: i32,
+    y: i32,
+) {
+    let mut source = source.as_base_widget();
+    let Some(parent) = source.parent() else {
+        // Preserve native printing for standalone windows/widgets. Window
+        // CPU references use AppWindow::snapshot and its attached roots.
+        surface.draw(&source, x, y);
+        return;
+    };
+    let previous = Group::try_current();
+    Group::set_current(None::<&Group>);
+    let mut proxy = fltk::widget::Widget::default()
+        .with_pos(source.x(), source.y())
+        .with_size(source.w(), source.h());
+    if let Some(g) = previous {
+        g.begin();
+    }
+    proxy.draw(move |_| {
+        let old = source.damage_type();
+        cpu_scope(|| parent.draw_child(&mut source));
+        if !source.was_deleted() && old != Damage::empty() {
+            source.set_damage_type(if old.contains(Damage::Child) {
+                Damage::All
+            } else {
+                old
+            });
+        }
+    });
+    struct Delete(fltk::widget::Widget);
+    impl Drop for Delete {
+        fn drop(&mut self) {
+            if !self.0.was_deleted() {
+                fltk::widget::Widget::delete(self.0.clone());
+            }
+        }
+    }
+    let _delete = Delete(proxy.clone());
+    surface.draw(&proxy, x, y);
+}
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SurfaceStats {
@@ -36,6 +86,9 @@ pub struct SurfaceStats {
     pub texture_bytes: usize,
     pub gpu_preparations: u64,
     pub gpu_scene_uploads: u64,
+    pub overlay_captures: u64,
+    pub overlay_uploads: u64,
+    pub overlay_texture_bytes: usize,
 }
 struct State {
     scene: Rc<Scene>,
@@ -48,6 +101,8 @@ struct State {
     ring: bool,
     backend: Backend,
     error: Option<String>,
+    #[cfg(feature = "gpu")]
+    overlay_retry: Option<u64>,
     gpu_renderer: Option<String>,
     time: Option<f32>,
     pace: Option<Pace>,
@@ -117,6 +172,8 @@ impl Surface {
             ring: false,
             backend: Backend::Cpu,
             error: None,
+            #[cfg(feature = "gpu")]
+            overlay_retry: None,
             gpu_renderer: None,
             time: None,
             pace: None,
@@ -533,6 +590,10 @@ fn invalidate(st: &Rc<RefCell<State>>) {
     s.dirty = true;
     s.revision = s.revision.wrapping_add(1);
     s.error = None;
+    #[cfg(feature = "gpu")]
+    {
+        s.overlay_retry = None;
+    }
 }
 fn scene_time(s: &State) -> Option<f32> {
     s.time.or_else(|| {
@@ -580,8 +641,16 @@ fn draw(g: &mut Group, st: &Rc<RefCell<State>>) {
     if g.w() <= 0 || g.h() <= 0 {
         return;
     }
+    #[cfg(feature = "gpu")]
+    if st
+        .borrow()
+        .overlay_retry
+        .is_some_and(|revision| revision != crate::overlay::layers_revision())
+    {
+        invalidate(st);
+    }
     let shown = g.visible_r() && g.top_window().is_some_and(|w| w.shown());
-    let offscreen = CPU_SCOPE.with(Cell::get);
+    let offscreen = cpu_only();
     let ring = crate::focus::show_ring(g);
     let rebuild = {
         let s = st.borrow();
@@ -638,11 +707,15 @@ fn draw(g: &mut Group, st: &Rc<RefCell<State>>) {
             if let Some(mut win) = win {
                 if !win.was_deleted() {
                     win.resize(g.x(), g.y(), g.w(), g.h());
-                    if !win.visible() {
-                        win.show();
+                    if native::prepare_overlay(g, st) {
+                        if !win.visible() {
+                            win.show();
+                        }
+                        win.redraw();
+                        gpu = true;
+                    } else {
+                        native::hide(st);
                     }
-                    win.redraw();
-                    gpu = true;
                 }
             }
         }
@@ -718,11 +791,14 @@ mod native {
         owner: std::rc::Weak<RefCell<State>>,
         pending_scene: bool,
         readbacks: Vec<Readback>,
+        bridge: super::super::bridge::Cache,
+        pending_overlay: bool,
     }
     impl Drop for Gl {
         fn drop(&mut self) {
             if let Some(owner) = self.owner.upgrade() {
                 owner.borrow_mut().stats.texture_bytes = 0;
+                owner.borrow_mut().stats.overlay_texture_bytes = 0;
             }
             if let Some(renderer) = self.renderer.take() {
                 if !self.win.was_deleted()
@@ -839,8 +915,15 @@ mod native {
             .as_ref()
             .and_then(|n| n.gl.upgrade().map(|gl| (n.win.clone(), gl)));
         if let Some((mut win, gl)) = native {
-            if !win.was_deleted() && win.visible() {
+            if !win.was_deleted() {
                 let mut gl = gl.borrow_mut();
+                if !win.visible()
+                    && gl.renderer.is_none()
+                    && gl.ctx.is_none()
+                    && gl.bridge.capture.is_none()
+                {
+                    return;
+                }
                 if let Some(renderer) = gl.renderer.take() {
                     if win.context_valid()
                         && win.context().is_some_and(|c| c as usize == gl.context)
@@ -854,11 +937,14 @@ mod native {
                 gl.ctx = None;
                 gl.context = 0;
                 gl.pending_scene = true;
+                gl.bridge = super::super::bridge::Cache::default();
+                gl.pending_overlay = true;
                 drop(gl);
                 {
                     let mut s = st.borrow_mut();
                     s.dirty = true;
                     s.stats.texture_bytes = 0;
+                    s.stats.overlay_texture_bytes = 0;
                     s.revision = s.revision.wrapping_add(1);
                 }
                 win.hide();
@@ -890,6 +976,47 @@ mod native {
             }
             Err(error) => s.error = Some(error),
         }
+    }
+    pub fn prepare_overlay(g: &Group, st: &Rc<RefCell<State>>) -> bool {
+        let gl = st.borrow().native.as_ref().and_then(|n| n.gl.upgrade());
+        let Some(gl) = gl else { return false };
+        // Widget draw callbacks can update the surface; no state or GL
+        // borrow may span those callbacks.
+        let mut bridge = std::mem::take(&mut gl.borrow_mut().bridge);
+        let update = bridge.update(g);
+        gl.borrow_mut().bridge = bridge;
+        match update {
+            Ok(update) => {
+                gl.borrow_mut().pending_overlay |= update.changed;
+                if update.captured {
+                    st.borrow_mut().stats.overlay_captures += 1;
+                }
+                true
+            }
+            Err(error) => {
+                st.borrow_mut().error = Some(error);
+                st.borrow_mut().overlay_retry = Some(crate::overlay::layers_revision());
+                false
+            }
+        }
+    }
+    fn failed_frame(win: &GlWindow, owner: &Rc<RefCell<State>>, error: String, overlay: bool) {
+        owner.borrow_mut().error = Some(error);
+        owner.borrow_mut().overlay_retry = overlay.then(crate::overlay::layers_revision);
+        let (mut window, weak, parent) = (win.clone(), Rc::downgrade(owner), win.parent());
+        app::add_timeout3(0.0, move |_| {
+            if let Some(st) = weak.upgrade() {
+                hide(&st);
+                st.borrow_mut().dirty = true;
+            } else if !window.was_deleted() {
+                window.hide();
+            }
+            if let Some(mut parent) = parent.clone() {
+                if !parent.was_deleted() {
+                    parent.redraw();
+                }
+            }
+        });
     }
     fn with_ring(scene: &Scene, ring: bool, w: i32, h: i32) -> Scene {
         let mut scene = scene.clone();
@@ -971,6 +1098,8 @@ mod native {
                 owner: Rc::downgrade(&st),
                 pending_scene: true,
                 readbacks: Vec::new(),
+                bridge: super::super::bridge::Cache::default(),
+                pending_overlay: true,
             }));
             let s = gl.clone();
             win.draw(move |w| render(w, &s));
@@ -999,6 +1128,10 @@ mod native {
                     gl: Rc::downgrade(&gl),
                 });
                 s.ready = true;
+            }
+            if !prepare_overlay(&group, &st) {
+                group.redraw();
+                return;
             }
             win.show();
             group.redraw();
@@ -1060,28 +1193,31 @@ mod native {
                 Ok(renderer) => {
                     gl.renderer = Some(renderer);
                     gl.pending_scene = false;
+                    gl.pending_overlay = true;
                     win.set_context_valid(true);
                     owner.borrow_mut().stats.gpu_scene_uploads += 1;
                 }
                 Err(error) => {
-                    owner.borrow_mut().error = Some(error);
                     drop(gl);
-                    let (mut w, s, parent) = (win.clone(), Rc::downgrade(&owner), win.parent());
-                    app::add_timeout3(0.0, move |_| {
-                        if !w.was_deleted() {
-                            w.hide();
-                        }
-                        if let Some(s) = s.upgrade() {
-                            s.borrow_mut().dirty = true;
-                        }
-                        if let Some(mut p) = parent.clone() {
-                            if !p.was_deleted() {
-                                p.redraw();
-                            }
-                        }
-                    });
+                    failed_frame(win, &owner, error, false);
                     return;
                 }
+            }
+        }
+        if gl.pending_overlay {
+            let Gl {
+                renderer, bridge, ..
+            } = &mut *gl;
+            if let Some(renderer) = renderer {
+                if let Err(error) = unsafe { renderer.update_overlay(bridge.capture.as_ref()) } {
+                    drop(gl);
+                    failed_frame(win, &owner, error, true);
+                    return;
+                }
+                if bridge.capture.is_some() {
+                    owner.borrow_mut().stats.overlay_uploads += 1;
+                }
+                gl.pending_overlay = false;
             }
         }
         if let Some(renderer) = &gl.renderer {
@@ -1105,6 +1241,7 @@ mod native {
             let mut s = owner.borrow_mut();
             s.stats.gpu_frames += 1;
             s.stats.texture_bytes = renderer.texture_bytes();
+            s.stats.overlay_texture_bytes = renderer.overlay_bytes();
         }
         let ctx = gl.ctx.clone();
         let mut results: Vec<Box<dyn FnOnce()>> = Vec::new();

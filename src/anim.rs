@@ -228,6 +228,17 @@ pub fn now() -> Instant {
     CLOCK.with(|c| c.get()).unwrap_or_else(Instant::now)
 }
 
+/// A native transparency capture draws twice. Both passes must observe
+/// one animation time; preserve an outer deterministic test clock.
+#[cfg(feature="gpu")]
+pub(crate) fn sample_time<T>(f: impl FnOnce() -> T) -> T {
+    struct Restore(Option<Instant>);
+    impl Drop for Restore {fn drop(&mut self){CLOCK.with(|c|c.set(self.0));}}
+    let at=now();
+    let _restore=Restore(CLOCK.with(|c|c.replace(Some(at))));
+    f()
+}
+
 /// A controllable clock for tests and screenshots of intermediate frames.
 pub mod clock {
     use super::CLOCK;
@@ -797,6 +808,26 @@ pub fn pending() -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature="gpu")]
+    #[test]
+    fn sampled_time_restores_nested_and_unwinding_test_clocks() {
+        clock::freeze();let at=now();
+        sample_time(|| {
+            assert!(clock::frozen());
+            sample_time(||assert_eq!(now(),at));
+            assert_eq!(now(),at);
+        });
+        assert_eq!(now(),at);
+        let _=std::panic::catch_unwind(||sample_time(|| {
+            clock::advance(Duration::from_millis(10));
+            panic!("restore sampled time");
+        }));
+        assert_eq!(now(),at);
+        clock::resume();
+        sample_time(||assert!(clock::frozen()));
+        assert!(!clock::frozen());
+    }
 
     #[test]
     fn paced_schedule() {

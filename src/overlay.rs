@@ -23,6 +23,8 @@ thread_local! {
     // While a layer draws: its presence (0..1) and the card it painted.
     static DRAWING: Cell<f64> = const { Cell::new(1.0) };
     static CARD: Cell<Option<(i32, i32, i32, i32)>> = const { Cell::new(None) };
+    #[cfg(feature="gpu")]
+    static LAYER_REVISION: Cell<u64> = const { Cell::new(0) };
 }
 
 fn install_redraw_guard() {
@@ -31,6 +33,67 @@ fn install_redraw_guard() {
         // Do not depend on App::new or install a keyboard router as a side effect.
         app::add_check(|_| prepare_redraw());
     }
+}
+
+/// Also used by popup cards that build their own widget group.
+pub(crate) fn register_layer(layer: &Widget, modal: bool) {
+    install_redraw_guard();
+    LAYERS.with(|layers| layers.borrow_mut().push((layer.clone(), modal)));
+    #[cfg(feature="gpu")]
+    LAYER_REVISION.with(|r|r.set(r.get().wrapping_add(1)));
+}
+#[cfg(feature="gpu")]
+pub(crate) fn layers_revision() -> u64 {LAYER_REVISION.with(Cell::get)}
+
+/// Live root overlays above the containing root child, in actual paint
+/// order. Include closing layers for rendering, never their dead handles.
+#[cfg(feature = "gpu")]
+pub(crate) fn layers_over<W: WidgetExt>(widget: &W) -> Vec<Widget> {
+    let Some(win) = widget.top_window() else { return Vec::new() };
+    let mut root = widget.as_base_widget();
+    while let Some(parent) = root.parent() {
+        if parent.as_widget_ptr() == win.as_widget_ptr() { break; }
+        root = parent.as_base_widget();
+    }
+    let Some(group) = win.as_group() else { return Vec::new() };
+    let mut registered: Vec<Widget> = LAYERS.with(|l| l.borrow().iter().map(|(w,_)|w.clone()).collect());
+    MOTION.with(|m| registered.extend(m.borrow().iter().filter(|(_,_,closing)|*closing).map(|(w,_,_)|w.clone())));
+    registered.retain(|w| !w.was_deleted() && w.visible_r() && w.parent().is_some());
+    let mut above = false;
+    let mut layers = Vec::new();
+    for i in 0..group.children() {
+        let Some(child) = group.child(i) else { continue };
+        if child.as_widget_ptr() == root.as_widget_ptr() { above = true; continue; }
+        if above && registered.iter().any(|w| w.as_widget_ptr() == child.as_widget_ptr()) {
+            layers.push(child);
+        }
+    }
+    layers
+}
+
+/// FLTK starts native-child pointer dispatch at that child, skipping its
+/// parent's sibling overlays. Route eligible events through the normal
+/// top-level handler, preserving FLTK's pushed/belowmouse bookkeeping.
+#[cfg(feature = "gpu")]
+pub(crate) fn native_route(event: Event, window: app::WindowPtr) -> Option<(app::WindowPtr, i32, i32)> {
+    if window.is_null() || !matches!(event, Event::Push|Event::Released|Event::Move|Event::Drag|Event::Enter|Event::Leave|Event::MouseWheel|Event::DndEnter|Event::DndDrag|Event::DndLeave|Event::DndRelease|Event::KeyDown|Event::KeyUp|Event::Shortcut|Event::Focus) {return None;}
+    // SAFETY: the dispatcher received this live window from FLTK.
+    let native=unsafe {Widget::from_widget_ptr(window as _)};
+    let top=native.top_window()?;
+    if top.as_widget_ptr()==native.as_widget_ptr(){return None;}
+    let (mut dx,mut dy)=(0i32,0i32);
+    let mut ancestor=native.clone();
+    while ancestor.as_widget_ptr()!=top.as_widget_ptr(){
+        if ancestor.as_window().is_some(){dx=dx.saturating_add(ancestor.x());dy=dy.saturating_add(ancestor.y());}
+        ancestor=ancestor.parent()?.as_base_widget();
+    }
+    let (x,y)=(app::event_x().saturating_add(dx),app::event_y().saturating_add(dy));
+    let key=matches!(event,Event::KeyDown|Event::KeyUp|Event::Shortcut|Event::Focus);
+    let eligible=layers_over(&native).into_iter().filter(|w|w.active_r()).any(|layer|{
+        let modal=LAYERS.with(|l|l.borrow().iter().any(|(w,m)|*m && !w.was_deleted() && w.as_widget_ptr()==layer.as_widget_ptr()));
+        modal || (!key && ((x>=layer.x() && y>=layer.y() && x<layer.x()+layer.w() && y<layer.y()+layer.h()) || app::pushed().is_some_and(|w|w.inside(&layer))))
+    });
+    eligible.then_some((top.as_widget_ptr() as app::WindowPtr,dx,dy))
 }
 
 /// Called by the overlay's own shared pre-flush check. Plain FLTK windows
@@ -104,7 +167,7 @@ fn open_layer_of<A: WidgetExt>(anchor: &A, rect: Option<(i32, i32, i32, i32)>, m
     layer.resize(x, y, w, h);
     layer.set_frame(FrameType::NoBox);
     group.add(&layer);
-    LAYERS.with(|layers| layers.borrow_mut().push((layer.clone(), modal)));
+    register_layer(&layer, modal);
     if crate::anim::enabled() {
         // Fades in (Omarchy PopupCard: 180 ms Style.easeOut).
         let t = crate::anim::Tween::start(crate::anim::ms::POPUP_IN, crate::anim::Ease::EaseOut);
@@ -143,6 +206,8 @@ pub(crate) fn close_layer(layer: &Widget) {
     if closing {
         return;
     }
+    #[cfg(feature="gpu")]
+    LAYER_REVISION.with(|r|r.set(r.get().wrapping_add(1)));
     // SAFETY: a Fl_Window is a Fl_Widget.
     let win = layer.top_window().map(|w| unsafe { Widget::from_widget_ptr(w.as_widget_ptr()) });
     LAYERS.with(|layers| layers.borrow_mut().retain(|(l, _)| !l.was_deleted() && l.as_widget_ptr() != layer.as_widget_ptr()));
@@ -190,6 +255,8 @@ fn finish_close(layer: &Widget) {
         return;
     }
     let Some(mut parent) = layer.parent() else { return };
+    #[cfg(feature="gpu")]
+    LAYER_REVISION.with(|r|r.set(r.get().wrapping_add(1)));
     parent.remove(layer);
     parent.redraw();
     // SAFETY: a live widget pointer; fltk deletes it on the next loop turn.
@@ -213,6 +280,16 @@ pub(crate) fn presence(l: &Widget) -> f64 {
         crate::anim::request_redraw(l);
     }
     if closing { 1.0 - v } else { v }
+}
+
+#[cfg(feature="gpu")]
+pub(crate) fn capture_phase(l: &Widget) -> u64 {
+    let phase=MOTION.with(|m|m.borrow().iter().find(|(x,_,_)|alive_ptr(x)==l.as_widget_ptr() as usize).map(|(_,t,closing)|{
+        if !crate::anim::enabled(){return if *closing {0.0} else {1.0};}
+        let p=t.value().clamp(0.0,1.0);
+        if *closing {1.0-p} else {p}
+    })).unwrap_or(1.0);
+    phase.to_bits()
 }
 
 /// Sets a layer's draw: `f` paints it (its [`card`] and [`draw_scrim`]

@@ -1826,6 +1826,7 @@ impl PopupCard {
         }
         // SAFETY: the layer is a live widget; the copy only tracks it.
         let lw = unsafe { Widget::from_widget_ptr(layer.as_widget_ptr()) };
+        crate::overlay::register_layer(&lw, true);
         let state = Rc::new(RefCell::new(HandleState::open((x, y, w, h))));
         let handle = PopupHandle { layer: Some(lw.clone()), state: state.clone() };
         let (st, rect) = (state.clone(), (x, y, w, h));

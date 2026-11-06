@@ -154,6 +154,7 @@ fn intersection(a: Rect, b: Rect) -> Rect {
 }
 
 struct Draw { rect: Rect, clip: Rect, texture: Option<glow::Texture>, program: glow::Program, color: Color, uniforms: Option<Uniforms>, order: super::node::Order }
+struct Overlay { rect: Rect, texture: glow::Texture, bytes: usize }
 
 /// GL resources for one retained scene. Textures/programs upload only in
 /// `new`; draws update uniforms and submit quads, without CPU rasterizing.
@@ -168,6 +169,7 @@ pub struct Renderer {
     texture_bytes: usize,
     context_alive: bool,
     nodes: HashMap<NodeId, usize>,
+    overlay: Option<Overlay>,
 }
 
 impl Renderer {
@@ -178,7 +180,7 @@ impl Renderer {
     pub unsafe fn new(gl: Rc<glow::Context>, scene: PreparedScene) -> Result<Self, String> {
         let basic = link(&gl, FRAGMENT)?;
         let vao = match gl.create_vertex_array() { Ok(v) => v, Err(e) => { gl.delete_program(basic); return Err(e); } };
-        let mut renderer = Self { gl, basic, vao, textures: Vec::new(), programs: Vec::new(), draws: Vec::new(), texture_bytes: 0, context_alive: true, nodes: scene.nodes };
+        let mut renderer = Self { gl, basic, vao, textures: Vec::new(), programs: Vec::new(), draws: Vec::new(), texture_bytes: 0, context_alive: true, nodes: scene.nodes, overlay: None };
         let mut textures = HashMap::new();
         let mut programs = HashMap::new();
         for item in scene.items {
@@ -242,7 +244,39 @@ impl Renderer {
     // deleting old names in a different/new context would be unsafe.
     pub(crate) fn abandon_context(mut self) { self.context_alive = false; }
 
-    pub fn texture_bytes(&self) -> usize { self.texture_bytes }
+    pub fn texture_bytes(&self) -> usize { self.texture_bytes + self.overlay_bytes() }
+    pub(crate) fn overlay_bytes(&self) -> usize { self.overlay.as_ref().map_or(0, |o|o.bytes) }
+
+    /// Uses the existing basic program/VAO, independently of scene resources.
+    /// Same-size captures update one texture; removing the last layer frees it.
+    pub(super) unsafe fn update_overlay(&mut self, capture: Option<&super::bridge::Capture>) -> Result<(), String> {
+        let Some(capture) = capture else {
+            if let Some(overlay) = self.overlay.take() { self.gl.delete_texture(overlay.texture); }
+            return Ok(());
+        };
+        if self.texture_bytes.checked_add(capture.pixels.len()).map_or(true, |n|n>MAX_IMAGE_BYTES) {
+            return Err("scene and overlay texture budget exceeded (64 MiB)".into());
+        }
+        let max = self.gl.get_parameter_i32(glow::MAX_TEXTURE_SIZE);
+        if capture.rect.w>max || capture.rect.h>max { return Err("overlay exceeds GL texture size".into()); }
+        let old_size = self.overlay.as_ref().map(|o|(o.rect.w,o.rect.h));
+        let texture = match &self.overlay { Some(o)=>o.texture, None=>self.gl.create_texture()? };
+        self.gl.active_texture(glow::TEXTURE0);
+        self.gl.bind_texture(glow::TEXTURE_2D,Some(texture));
+        self.gl.pixel_store_i32(glow::UNPACK_ALIGNMENT,1);
+        self.gl.pixel_store_i32(glow::UNPACK_ROW_LENGTH,0);
+        self.gl.tex_parameter_i32(glow::TEXTURE_2D,glow::TEXTURE_MIN_FILTER,glow::LINEAR as i32);
+        self.gl.tex_parameter_i32(glow::TEXTURE_2D,glow::TEXTURE_MAG_FILTER,glow::LINEAR as i32);
+        self.gl.tex_parameter_i32(glow::TEXTURE_2D,glow::TEXTURE_WRAP_S,glow::CLAMP_TO_EDGE as i32);
+        self.gl.tex_parameter_i32(glow::TEXTURE_2D,glow::TEXTURE_WRAP_T,glow::CLAMP_TO_EDGE as i32);
+        if old_size == Some((capture.rect.w,capture.rect.h)) {
+            self.gl.tex_sub_image_2d(glow::TEXTURE_2D,0,0,0,capture.rect.w,capture.rect.h,glow::RGBA,glow::UNSIGNED_BYTE,glow::PixelUnpackData::Slice(Some(&capture.pixels)));
+        } else {
+            self.gl.tex_image_2d(glow::TEXTURE_2D,0,glow::RGBA8 as i32,capture.rect.w,capture.rect.h,0,glow::RGBA,glow::UNSIGNED_BYTE,glow::PixelUnpackData::Slice(Some(&capture.pixels)));
+        }
+        self.overlay = Some(Overlay {rect:capture.rect,texture,bytes:capture.pixels.len()});
+        Ok(())
+    }
 
     /// Moves one prepared primitive without rasterization, compilation or
     /// texture upload. Indexes follow current prepared paint order and can
@@ -334,6 +368,18 @@ impl Renderer {
             }
             gl.draw_arrays(glow::TRIANGLES, 0, 6);
         }
+        if let Some(o) = &self.overlay {
+            gl.scissor(0,0,pixels.0,pixels.1);
+            gl.use_program(Some(self.basic));
+            let loc = |s:&str|gl.get_uniform_location(self.basic,s);
+            gl.uniform_2_f32(loc("u_view").as_ref(),logical.0 as f32,logical.1 as f32);
+            gl.uniform_4_f32(loc("u_rect").as_ref(),o.rect.x as f32,o.rect.y as f32,o.rect.w as f32,o.rect.h as f32);
+            gl.uniform_1_i32(loc("u_image").as_ref(),1);
+            gl.uniform_1_i32(loc("u_tex").as_ref(),0);
+            gl.uniform_4_f32(loc("u_color").as_ref(),1.0,1.0,1.0,1.0);
+            gl.bind_texture(glow::TEXTURE_2D,Some(o.texture));
+            gl.draw_arrays(glow::TRIANGLES,0,6);
+        }
         gl.disable(glow::SCISSOR_TEST);
         gl.bind_vertex_array(None);
         gl.use_program(None);
@@ -346,6 +392,7 @@ impl Drop for Renderer {
         // SAFETY: new's contract requires our context current at destruction.
         unsafe {
             for t in &self.textures { self.gl.delete_texture(*t); }
+            if let Some(o)=&self.overlay { self.gl.delete_texture(o.texture); }
             for p in &self.programs { self.gl.delete_program(*p); }
             self.gl.delete_program(self.basic);
             self.gl.delete_vertex_array(self.vao);

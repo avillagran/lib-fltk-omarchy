@@ -26,6 +26,7 @@ def main():
     parser.add_argument("--cpu", action="store_true")
     parser.add_argument("--size", default="420x340")
     parser.add_argument("--no-shader-cache", action="store_true", help="disable NVIDIA/Mesa disk shader caches for a cold-compilation control")
+    parser.add_argument("--overlay", action="store_true", help="request the lava example's retained overlay workload")
     args = parser.parse_args()
     root = Path(__file__).resolve().parent.parent
     binary = Path(os.environ.get("SCENE_BENCH_BIN", root / "target/release/examples/scene_surface")).resolve()
@@ -45,6 +46,8 @@ def main():
     command = [str(binary), "--size", args.size, "--bench", str(report)]
     if args.cpu:
         command.append("--cpu")
+    if args.overlay:
+        command.append("--bench-overlay")
     if args.no_shader_cache:
         command = ["env", "__GL_SHADER_DISK_CACHE=0", "MESA_SHADER_CACHE_DISABLE=true"] + command
     # JSON quotes the Lua string; shlex quotes the separate shell arguments.
@@ -91,7 +94,7 @@ def main():
                     pass
         time.sleep(0.05)
     event_socket.close()
-    metadata = {"focus_change_events": focus_changes, "focus_unchanged_at_end": query("activewindow").get("address", "").removeprefix("0x") == before, "spawn_no_focus": True, "workspace": workspace, "shader_disk_cache_disabled": args.no_shader_cache, "memory": samples, "protocol": "Wayland", "report_exists": report.exists()}
+    metadata = {"focus_change_events": focus_changes, "focus_unchanged_at_end": query("activewindow").get("address", "").removeprefix("0x") == before, "spawn_no_focus": True, "workspace": workspace, "shader_disk_cache_disabled": args.no_shader_cache, "overlay_requested": args.overlay, "memory": samples, "protocol": "Wayland", "report_exists": report.exists()}
     if not report.exists() and pid:
         # Cancel only our verified time-limited diagnostic if it hangs; a
         # monitoring timeout must never silently launch another process.
@@ -107,6 +110,9 @@ def main():
     print(json.dumps(metadata))
     if report.exists():
         print(report.read_text())
+        data = json.loads(report.read_text())
+        if args.overlay and (not data.get("overlay") or (data.get("backend") == "Gpu" and not data.get("animation", {}).get("overlay_texture_bytes"))):
+            raise SystemExit("the selected binary did not provide the requested retained overlay workload")
     else:
         raise SystemExit("diagnostic did not complete; inspect benchmark.log")
     if focus_changes or not metadata["focus_unchanged_at_end"]:

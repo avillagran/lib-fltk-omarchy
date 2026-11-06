@@ -59,11 +59,26 @@ fn phase(
             "scene_builds": after.scene_builds-before.scene_builds,
             "preparations": after.gpu_preparations-before.gpu_preparations,
             "scene_uploads": after.gpu_scene_uploads-before.gpu_scene_uploads,
+        "overlay_captures": after.overlay_captures-before.overlay_captures,
+        "overlay_uploads": after.overlay_uploads-before.overlay_uploads,
+        "overlay_texture_bytes": after.overlay_texture_bytes,
         }),
     );
 }
 fn start(view: Surface, core: Rc<Core>, mut window: AppWindow, path: String) {
     anim::set_enabled(true);
+    let overlay = std::env::args().any(|a| a == "--bench-overlay");
+    if overlay {
+        // A critical toast is non-modal, stays for the full diagnostic and
+        // does not request focus on the user's hidden-workspace window.
+        fltk_omarchy::overlay::Notification::show(
+            &*view,
+            "",
+            &fltk_omarchy::tr!("Tasks"),
+            &fltk_omarchy::tr!("Ready for review"),
+            fltk_omarchy::overlay::Urgency::Critical,
+        );
+    }
     let phase_path = PathBuf::from(format!("{path}.phase"));
     std::fs::write(&phase_path, "warmup").expect("benchmark phase");
     let current = Rc::new(RefCell::new(sample(&view)));
@@ -105,6 +120,7 @@ fn start(view: Surface, core: Rc<Core>, mut window: AppWindow, path: String) {
             "backend".into(),
             serde_json::json!(format!("{:?}", view.active_backend())),
         );
+        r.insert("overlay".into(), serde_json::json!(overlay));
         r.insert("renderer".into(), serde_json::json!(view.renderer_name()));
         r.insert(
             "surface_size".into(),

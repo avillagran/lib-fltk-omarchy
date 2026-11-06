@@ -173,8 +173,14 @@ resources; tracked weak handles let the host update them without extending
 their lifetime beyond the native window. Known lost contexts abandon old
 names rather than deleting them in a different context.
 
-`AppWindow::snapshot` and `layer::capture` force scene surfaces through CPU
-replay, even after GL activation. Use `read_gpu_pixel` or `read_gpu_image`
+`AppWindow::snapshot` and widget-subtree `layer::capture` force scene surfaces
+through CPU replay, even after GL activation. Attached roots use a childless
+CPU draw proxy: FLTK otherwise traverses native subwindows a second time,
+which would print the GPU result over the CPU reference and double-composite
+overlays. The proxy leaves native visibility/context state unchanged.
+Standalone native-window printing retains FLTK's behavior; use the explicit
+AppWindow snapshot API for a CPU window reference.
+Use `read_gpu_pixel` or `read_gpu_image`
 for actual GL output. The latter asynchronously returns a top-to-bottom
 RGBA `Image` in physical framebuffer pixels, limited to 64 MiB. Its callback
 runs on a later UI turn outside native drawing; deleting the widget drops
@@ -187,6 +193,59 @@ separates scene builds, parent surface draws, CPU frames, GPU submissions,
 GPU preparations, scene uploads and retained texture bytes. Frame counts
 are not presentation callbacks; scene uploads count renderer creation,
 including resource recovery after context loss.
+
+## CPU widget overlays over a GPU surface
+
+Toolkit overlays above a mapped `Surface` are now composed into its actual
+GL framebuffer. This includes help, menus, dialogs, notifications and
+`PopupCard` CPU widget content. They keep their existing widgets, focus,
+keyboard/accessibility behavior and callbacks. A native-child event is
+remapped to the top-level window before FLTK routes it, preserving normal
+pressed/hover state and restoring coordinates afterward. Closing layers
+keep drawing during their exit and stop receiving input immediately.
+
+The bridge captures transparent premultiplied RGBA using black/white native
+passes at one sampled animation time. It crops unused transparent margins.
+Capture follows widget damage, layer identity/order, geometry, theme and
+motion phase. Identical bytes avoid another upload. One texture is updated
+independently of base scene resources, using the existing basic GL program.
+Shader-only frames reuse it without CPU capture, parent drawing, program
+creation or texture uploads. `overlay_captures`, `overlay_uploads` and
+`overlay_texture_bytes` expose that work in `SurfaceStats`; total
+`texture_bytes` includes the overlay. Closing the last overlay releases it.
+
+The capture and combined scene/overlay texture budgets are each bounded
+by 64 MiB. Capture needs temporary native RGB surfaces and CPU buffers as
+well. Modal scrims can make the crop cover the entire viewport; this stage
+does not make large full-window bitmap fallbacks cheap. Native overlay
+primitives/layers and atlases remain part of the full-window renderer work.
+Fades and dirty CPU controls currently recapture their changed bitmap.
+The fallback raster is at logical 1×; current full-image parity tests use
+scale 1, and the native glyph/HiDPI pipeline still needs its own gates.
+
+Native subwindows inside overlay content are not CPU-widget subtrees. An
+incompatible capture or resource limit reports `backend_error` and falls
+back to CPU, releasing old GPU resources. Overlay changes automatically
+retry a temporary overlay failure, so closing the incompatible content
+restores GL. Driver/base-scene errors retain the existing explicit retry
+through `invalidate`. This bridge supports overlays on explicitly managed
+scene regions; automatic ordinary full-window widget rendering is pending.
+
+The lava diagnostic accepts `script/scene-bench --overlay` (with
+`SCENE_BENCH_BIN` pointing to the built lava example). It adds a persistent
+non-modal notification without requesting keyboard focus. On NODE's
+RTX 3080 Ti, Wayland, 720×639, release, one sequential run per condition:
+GPU with overlay used 1.94 % of a core / 72.4 MiB active PSS, the same binary
+without the overlay 1.87 % / 70.0 MiB, and CPU with static floor/overlay
+5.98 % / 34.2 MiB. Both idle phases had zero frames (≤0.018 % CPU).
+The GPU notification used 47,120 texture bytes; reordering under it caused
+zero captures, overlay uploads or scene preparations. All runs recorded
+zero focus changes and completed 5-to-4 deletion. This small sample does
+not establish a precise incremental overlay CPU cost.
+
+The cache-disabled GPU overlay control used 117.5 MiB active PSS and
+120.9 MiB after the interaction, so the cold-memory gate remains unmet.
+Raw data: [scene-overlays-2026-11-06.json](scene-overlays-2026-11-06.json).
 
 `downgrade()` returns a `WeakSurface` for app controllers and completion
 handlers. `upgrade()` returns `None` once the native widget is deleted or
@@ -449,13 +508,14 @@ software GL renderer can prove correctness but not power consumption.
 - Scene clips are rectangular. Paths, shadows, rounded alpha
   surfaces and affine transforms still need common representations and
   CPU/GPU parity checks; GPU isolated-layer shaders remain pending.
-- There is no automatic per-widget scene cache, damage tracker, full-window
-  widget renderer, plain-FLTK texture bridge or renderer-selection policy
-  yet. The managed Surface hosts explicitly recorded scenes only.
+- CPU-widget overlays now have an automatic retained texture bridge over
+  managed surfaces. Automatic per-widget scene caches, a full-window
+  widget renderer/damage tracker and renderer-selection policy remain
+  pending. The managed Surface hosts explicitly recorded scene content.
   Existing GPU shaders remain `gfx::View`/`GpuView`, with their documented
   subwindow/composition limits.
 
-Next: add widget/overlay texture fallbacks, quad batching and text/image
+Next: integrate full-window widget rendering, quad batching and text/image
 atlases, then native isolated shader layers. Stable keyed updates and node
 motion are implemented. Extend the remaining common primitives. Measure real hardware at 4K/120 Hz before changing the
 default. Compare total process/driver memory and CPU, not submission time
@@ -505,9 +565,8 @@ the example adds English source keys and a Spanish catalog.
 Use arrows to select, Space to pick up/drop, arrows while held to reorder,
 Escape to restore the original slot, Enter/Delete/Backspace to complete,
 Mod+Shift+Up/Down to reorder and Mod+R to reset. Rapid input during settling
-waits for the current flight. The CPU example's F1 help uses the existing
-overlay. With GPU selected, in-window CPU overlays can still be obscured by
-the native GL child: the overlay bridge remains a required next step.
+waits for the current flight. F1 help uses the existing overlay on CPU and
+is composed above the live scene with GPU selected.
 
 GPU lava pulses only during interaction and stops after 450 ms. CPU lava
 is a cached static specialization of the same base shader, avoiding shader

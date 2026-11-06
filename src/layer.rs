@@ -57,7 +57,7 @@ pub fn capture<W: WidgetExt>(w: &W) -> Option<Canvas> {
         return None;
     }
     let bg = under(w);
-    picture(ww, hh, bg, |surf| surf.draw(w, 0, 0))
+    picture(ww, hh, bg, |surf| crate::scene::surface::draw_cpu_widget(surf, w, 0, 0))
 }
 
 fn picture(ww: i32, hh: i32, bg: Rgb, f: impl FnOnce(&fltk::surface::ImageSurface)) -> Option<Canvas> {
@@ -120,7 +120,7 @@ impl Layer {
                 for i in 0..g.children() {
                     if let Some(c) = g.child(i) {
                         if c.visible() {
-                            surf.draw(&c, c.x() - gx, c.y() - gy);
+                            crate::scene::surface::draw_cpu_widget(surf, &c, c.x() - gx, c.y() - gy);
                         }
                     }
                 }

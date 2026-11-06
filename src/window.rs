@@ -518,7 +518,7 @@ pub(crate) fn render(win: &mut DoubleWindow) -> std::io::Result<fltk::image::Rgb
     crate::scene::surface::cpu_scope(|| {
         for i in 0..win.children() {
             if let Some(c) = win.child(i) {
-                if c.visible() { surf.draw(&c, c.x(), c.y()); }
+                if c.visible() { crate::scene::surface::draw_cpu_widget(&surf, &c, c.x(), c.y()); }
             }
         }
     });

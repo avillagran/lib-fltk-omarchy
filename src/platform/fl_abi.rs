@@ -6,6 +6,32 @@
 
 use std::ffi::c_char;
 
+/// Remap a native subwindow event to its top-level window, preserving
+/// coordinates across nested dispatch and unwinding. UI thread only.
+#[cfg(feature = "gpu")]
+pub(crate) fn with_event_offset<T>(dx: i32, dy: i32, f: impl FnOnce() -> T) -> T {
+    struct Restore(i32, i32);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            // SAFETY: this scope runs on FLTK's UI thread.
+            unsafe {
+                FL_E_X = self.0;
+                FL_E_Y = self.1;
+            }
+        }
+    }
+    // SAFETY: FLTK owns these event globals; only this UI dispatch runs.
+    let restore = unsafe {
+        let old = Restore(FL_E_X, FL_E_Y);
+        FL_E_X = old.0.saturating_add(dx);
+        FL_E_Y = old.1.saturating_add(dy);
+        old
+    };
+    let value = f();
+    drop(restore);
+    value
+}
+
 #[cfg(not(target_env = "msvc"))]
 extern "C" {
     #[link_name = "_ZN2Fl8e_keysymE"]

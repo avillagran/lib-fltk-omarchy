@@ -67,6 +67,14 @@ impl Drop for DispatchScope {
 fn dispatch(ev: Event, win: app::WindowPtr) -> bool {
     let serial=NEXT_DISPATCH.with(|s|{let n=s.get();s.set(n.wrapping_add(1).max(1));n});
     let _scope=DispatchScope(CURRENT_DISPATCH.with(|s|s.replace(serial)));
+    #[cfg(feature="gpu")]
+    if let Some((top,dx,dy))=crate::overlay::native_route(ev,win){
+        return crate::platform::fl_abi::with_event_offset(dx,dy,||dispatch_one(ev,top));
+    }
+    dispatch_one(ev,win)
+}
+
+fn dispatch_one(ev: Event, win: app::WindowPtr) -> bool {
     match ev {
         Event::KeyDown => set_keyboard_mode(true),
         Event::Push => set_keyboard_mode(false),

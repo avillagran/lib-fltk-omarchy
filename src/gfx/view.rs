@@ -691,12 +691,17 @@ fn draw_ring(c: &mut Canvas, hit: &Option<Hit>, w: i32, h: i32) {
 
 fn draw(g: &mut Group, st: &Rc<RefCell<State>>) {
     #[cfg(feature = "gpu")]
-    if st.borrow().gpu {
+    let gpu_capture = st.borrow().gpu && crate::scene::surface::cpu_only();
+    #[cfg(not(feature = "gpu"))]
+    let gpu_capture = false;
+    #[cfg(feature = "gpu")]
+    if st.borrow().gpu && !crate::scene::surface::cpu_only() {
         draw_gpu(g, st);
         g.draw_children();
         return;
     }
-    let budget = st.borrow().budget;
+    if gpu_capture { st.borrow_mut().dirty = true; }
+    let budget = if gpu_capture { Duration::MAX } else { st.borrow().budget };
     let done = render(st, g.w(), g.h(), budget);
     if !done {
         let mut g2 = g.clone();
@@ -705,6 +710,8 @@ fn draw(g: &mut Group, st: &Rc<RefCell<State>>) {
     let t_blit = Instant::now();
     let mut s = st.borrow_mut();
     let s = &mut *s;
+    // A CPU capture must not consume a pending native overlay update.
+    if gpu_capture { s.dirty = true; }
     let (rw, rh) = (s.present.width() as i32, s.present.height() as i32);
     if rw == 0 || rh == 0 {
         return;

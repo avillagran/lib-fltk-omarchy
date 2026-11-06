@@ -12,6 +12,8 @@ mod layer;
 mod shader;
 mod node;
 mod motion;
+#[cfg(feature = "gpu")]
+mod bridge;
 pub use motion::NodeMotion;
 pub use node::{NodeError, NodeId};
 pub(crate) mod surface;

@@ -7,6 +7,8 @@ use std::path::Path;
 
 mod nodes;
 mod motion;
+#[cfg(feature="gpu")]
+mod overlays;
 
 type Check<'a> = &'a dyn Fn(&Path) -> Result<(), String>;
 
@@ -42,6 +44,8 @@ fn content(x: i32, y: i32) {
 pub fn checks(run: &mut dyn FnMut(&str, Check)) {
     nodes::checks(run);
     motion::checks(run);
+    #[cfg(feature="gpu")]
+    overlays::checks(run);
     run("scene surface bounded shader: final phase, restart, explicit time and reduced motion", &|shots| {
         use fltk_omarchy::{anim::{self, clock, Pace}, gfx::{sl, Uniforms}};
         use std::time::Duration;

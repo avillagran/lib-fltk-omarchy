@@ -6,6 +6,10 @@ The direction for the toolkit: high level, GPU capable where it pays off
 (GPUI-like scene rendering), and still the lightest option on idle and
 streaming loads.
 
+The 2026-11-06 continuation covers the complete plan. The renderer review
+now includes [Rune, GPUI and Flutter](RENDERER-RESEARCH.md), with pinned
+primary sources, concrete transfer ideas and verification gates.
+
 ## 1. Where o3-code is today
 
 | | Today (QML + Rust) | Port target |
@@ -190,9 +194,12 @@ protocol). P1 is needed for feature parity. P2 can wait or stay outside.
 ## 4. GPU rendering, the efficient way
 
 Decision already on record (2026-10-28): the interface is designed once;
-the toolkit decides whether the CPU or the GPU paints it. Today only
-`gfx::View` shaders can run on the GPU (a GL subwindow per view, +35–40 MB
-PSS for the driver, blocked until the window is on an output on Wayland).
+the toolkit decides whether the CPU or the GPU paints it. GPU support now
+covers portable `gfx::View` shaders and explicit composed `scene::Surface`
+regions, including retained CPU-widget overlays. Full-window widget
+rendering and automatic renderer policy remain below; CPU stays the
+default for managed scenes. [Current measurements](SCENE.md) distinguish
+warm rendering from cold shader compilation.
 
 Proposal, in order:
 
@@ -291,7 +298,7 @@ on the GPU backend than on the CPU backend; idle stays 0 %; total PSS
 | P1 10 `FrameView`: shared-memory frames (memfd/shm/file mapping, triple buffer, pipe/FIFO/event wake-ups), input events with Qt mapping, resize/zoom/copy, PNG/BMP file mode for gradual migration (`frame`, docs/FRAMES.md) | merged |
 | P1 11 video and audio (`media::Video` / `media::Audio`, feature `playback`, system ffmpeg) | merged; Linux verified, macOS/Windows type-checked |
 | P1 20 math (`text::math`, `MarkdownOptions::with_math`: Unicode text like o3, no math layout engine) | merged |
-| Section 4 shared painter / GPU scene | CPU command list plus immutable RGBA resources and bounded raster-backed damage replay implemented (`scene`, [SCENE.md](SCENE.md)); low-level single-framebuffer GL compositor/read-back spike implemented; managed `scene::Surface` added; atlases, native layers, widget/overlay bridge and policy pending |
+| Section 4 shared painter / GPU scene | CPU command list, immutable RGBA resources, bounded damage replay, managed `scene::Surface`, keyed motion and live lava example implemented ([SCENE.md](SCENE.md)); CPU widget overlays now compose over managed GL regions with native-child input routing. Full-window widget rendering, atlases, native isolated layers and policy remain pending |
 
 Verified locally on the merged branch: unit, doc and UI tests on X11
 (default, `a11y`, `images`, `qr`), CI clippy, platform rustfmt,
@@ -322,13 +329,17 @@ for o3's chat views. What to adopt, in order:
 Not adopted: spring-driven growth of every row (each animation frame is a
 repaint on the CPU backend).
 
-Where this toolkit is already ahead: O(log n) height index (Fenwick) vs a
+The earlier chat-view comparison recorded: O(log n) height index (Fenwick) vs a
 prefix-sum rebuild per height change; streaming keeps only the open tail's
 source (1.5 B per Markdown byte) vs rebuilding and hashing the whole message
 per update; idle 0 % CPU at 12.6–26.9 MB PSS vs ~34 MB RSS / 92–95 MB
 footprint; a 1.78 MB minimal binary vs 9.3 MB; scrolls move pixels instead
 of re-emitting every glyph; one-document transcript (selection, find, a11y
 across messages); code/table actions, alerts, math in Markdown.
+
+Those measurements belong to that earlier review's Rune snapshot and
+workloads. They are not measurements of the current pinned Rune/GPUI/Flutter
+revisions in [the renderer review](RENDERER-RESEARCH.md).
 
 
 ## 9. Lava UI reference and next work (2026-11-06)
@@ -355,7 +366,9 @@ Continue section 4 without changing the CPU default:
    The `lava` example now implements live pointer/keyboard reorder,
    root drag previews, falling removal and a bounded GPU shader pulse.
    Its tests include full actual GPU read-back versus CPU replay.
-   Next: CPU widget/overlay texture bridge, batched quads, glyph/image atlases and
+   The CPU-widget overlay bridge now retains textures independently of the
+   scene and routes native-child events through the top-level window.
+   Next: full-window widget rendering, batched quads, glyph/image atlases and
    native isolated shader layers.
 4. A live version of the interaction now runs in `examples/lava.rs`.
    [Measurements](SCENE.md#interactive-lava-example) cover the actual

@@ -1,5 +1,6 @@
 //! Interactive lava reference: --cpu, --snapshot PATH, --size WIDTHxHEIGHT.
 //! --bench PATH runs the same controller without taking keyboard focus.
+//! Add --bench-overlay for a retained non-modal notification.
 //! Use a private display for scripted input; never the focused desktop.
 #[path = "support/lava_bench.rs"]
 mod lava_bench;
