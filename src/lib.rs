@@ -36,6 +36,7 @@ pub mod popups;
 #[cfg(feature = "qr")]
 pub mod qr;
 pub mod scroll;
+pub mod scene;
 pub mod shortcuts;
 pub mod sidebar;
 pub mod split;

@@ -282,7 +282,7 @@ on the GPU backend than on the CPU backend; idle stays 0 %; total PSS
 | P1 9 native diff viewer (`diff`: parser, `DiffView`, `DiffFiles`; docs/DIFF.md) | merged |
 | P1 12 splitter (`split::Split`) | merged |
 | P1 13 reorder in plain lists (`List::reorderable`) | merged |
-| P1 14 nested scroll hand-off (`Scroll::passes`) | merged for List, Table, Tree; RichText and NavTree pending |
+| P1 14 nested scroll hand-off (`Scroll::passes`) | merged for List, Table, Tree, RichText, NavTree and TextArea |
 | P1 17 keys: command tables, record, repeat, suspend | merged |
 | P1 18 font weights, letter spacing, named and terminal colors, project colors | merged |
 | P1 19 charts (`chart`), QR codes (`qr`, feature), masked input (`TextField::mask`) | merged |
@@ -291,7 +291,7 @@ on the GPU backend than on the CPU backend; idle stays 0 %; total PSS
 | P1 10 `FrameView`: shared-memory frames (memfd/shm/file mapping, triple buffer, pipe/FIFO/event wake-ups), input events with Qt mapping, resize/zoom/copy, PNG/BMP file mode for gradual migration (`frame`, docs/FRAMES.md) | merged |
 | P1 11 video and audio (`media::Video` / `media::Audio`, feature `playback`, system ffmpeg) | merged; Linux verified, macOS/Windows type-checked |
 | P1 20 math (`text::math`, `MarkdownOptions::with_math`: Unicode text like o3, no math layout engine) | merged |
-| Section 4 GPU scene | not started |
+| Section 4 shared painter / GPU scene | first CPU command-list slice implemented (`scene`, [SCENE.md](SCENE.md)); GL scene, atlases, composition and policy pending |
 
 Verified locally on the merged branch: unit, doc and UI tests on X11
 (default, `a11y`, `images`, `qr`), CI clippy, platform rustfmt,
@@ -329,3 +329,30 @@ per update; idle 0 % CPU at 12.6–26.9 MB PSS vs ~34 MB RSS / 92–95 MB
 footprint; a 1.78 MB minimal binary vs 9.3 MB; scrolls move pixels instead
 of re-emitting every glyph; one-document transcript (selection, find, a11y
 across messages); code/table actions, alerts, math in Markdown.
+
+
+## 9. Lava UI reference and next work (2026-11-06)
+
+The supplied `lava.mp4` is a useful composition acceptance case: reorderable
+cards above a shader background, a dragged/falling row, translucent layers,
+and a short effect on deletion. [SCENE.md](SCENE.md#video-reference-lavamp4-2026-11-06)
+separates existing components from the missing rendering path.
+
+Continue section 4 without changing the CPU default:
+
+1. Shared painter: the first CPU slice now records fills, borders, text,
+   alpha fills and balanced clips. Prove immediate/replay and damage parity.
+2. Complete scene primitives (paths, images, transforms, shadows, isolated
+   opacity, shader layers) and an invalidation lifecycle for widget caches.
+3. One GL scene surface: batched quads, glyph/image atlases, CPU widget
+   texture bridge and shader composition. Verify read-back parity.
+4. Exercise a live version of the video interaction; measure CPU, GPU and
+   total PSS at normal and high-refresh resolutions. Keep effects bounded,
+   respect reduced motion and stop when hidden. The recorded video is a
+   visual reference, not a rendering benchmark.
+5. Real o3 protocol spike and full-window renderer policy retain the gates
+   above; the synthetic shell and static card demo do not close those gates.
+
+The portal file dialogs and Rust application template/generator have also
+been integrated into `o3-port`. The preceding `bab1db8` CI passed all six
+jobs; that result predates the shared-painter changes.

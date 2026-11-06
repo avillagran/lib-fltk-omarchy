@@ -1,0 +1,188 @@
+//! Retained drawing commands for the toolkit's shared painter.
+//!
+//! This is the first step toward a window-wide CPU/GPU scene. Recording
+//! intercepts `paint` helpers only, not arbitrary FLTK drawing or widgets.
+//! Replay currently uses the existing CPU painter; it creates no timers,
+//! GL contexts or pixel buffers. Record again after theme, font, language,
+//! scale or layout changes. Coordinates are FLTK logical window units.
+
+use crate::{paint, theme::Rgb};
+use fltk::{draw, enums::{Align, Font}};
+use std::cell::RefCell;
+
+/// A logical rectangle. Non-positive dimensions describe an empty region.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Rect {
+    pub x: i32,
+    pub y: i32,
+    pub w: i32,
+    pub h: i32,
+}
+
+impl Rect {
+    pub const fn new(x: i32, y: i32, w: i32, h: i32) -> Self { Self { x, y, w, h } }
+
+    pub fn intersects(self, other: Self) -> bool {
+        self.w > 0 && self.h > 0 && other.w > 0 && other.h > 0
+            && (self.x as i64) < other.x as i64 + other.w as i64
+            && (other.x as i64) < self.x as i64 + self.w as i64
+            && (self.y as i64) < other.y as i64 + other.h as i64
+            && (other.y as i64) < self.y as i64 + self.h as i64
+    }
+}
+
+/// Backend-neutral commands in paint order. Text remains logical text
+/// with its font, rather than a raster image; glyph shaping/atlases are
+/// future backend work. Clips are balanced by [`clip`].
+#[derive(Debug, Clone)]
+pub enum Command {
+    Fill { rect: Rect, radius: i32, color: Rgb },
+    Stroke { rect: Rect, radius: i32, width: i32, color: Rgb },
+    Text { rect: Rect, text: String, font: Font, size: i32, color: Rgb, align: Align },
+    SpacedText { rect: Rect, text: String, size: i32, weight: paint::Weight, spacing: f64, color: Rgb, align: Align },
+    AlphaFill { rect: Rect, color: Rgb, alpha: f64 },
+    PushClip(Rect),
+    PopClip,
+}
+
+impl Command {
+    fn bounds(&self) -> Option<Rect> {
+        match self {
+            Self::Fill { rect, .. } | Self::Stroke { rect, .. } | Self::Text { rect, .. }
+                | Self::AlphaFill { rect, .. } | Self::SpacedText { rect, .. } => Some(*rect),
+            _ => None,
+        }
+    }
+}
+
+/// A retained display list. Ordinary paint calls without recording keep
+/// their immediate CPU path and do not allocate a command list.
+#[derive(Debug, Clone, Default)]
+pub struct Scene {
+    commands: Vec<Command>,
+}
+
+thread_local! {
+    static RECORDING: RefCell<Option<Scene>> = const { RefCell::new(None) };
+}
+
+// Restores the outer recorder on normal return and on unwind. A nested
+// recording is isolated; use Scene::append to include it explicitly.
+struct Restore(Option<Scene>);
+impl Drop for Restore {
+    fn drop(&mut self) {
+        RECORDING.with(|r| { *r.borrow_mut() = self.0.take(); });
+    }
+}
+
+/// Called lazily: strings are copied only when a scene is being recorded.
+pub(crate) fn record(command: impl FnOnce() -> Command) -> bool {
+    RECORDING.with(|r| {
+        let mut r = r.borrow_mut();
+        if let Some(s) = r.as_mut() {
+            s.commands.push(command());
+            true
+        } else { false }
+    })
+}
+
+impl Scene {
+    /// Records shared `paint` calls from `f`, without painting them. Text
+    /// measurement still needs FLTK on the main thread. This does not
+    /// capture raw `fltk::draw` calls: use [`clip`] for recorded clipping.
+    pub fn record<T>(f: impl FnOnce() -> T) -> (Self, T) {
+        let restore = Restore(RECORDING.with(|r| r.replace(Some(Scene::default()))));
+        let value = f();
+        let scene = RECORDING.with(|r| r.borrow_mut().take().unwrap());
+        drop(restore);
+        (scene, value)
+    }
+
+    pub fn commands(&self) -> &[Command] { &self.commands }
+
+    /// Copies another list, preserving its order and balanced clips.
+    pub fn append(&mut self, scene: &Scene) { self.commands.extend_from_slice(&scene.commands); }
+
+    /// Replays on the current FLTK drawing surface, respecting its clip.
+    pub fn draw(&self) { self.replay(None); }
+
+    /// Replays only within `damage`, leaving all other pixels untouched.
+    /// Off-region primitives are skipped; clip commands always execute.
+    /// The caller must include the background and every intersecting
+    /// layer in the list (including both old and new bounds after a move).
+    pub fn draw_damage(&self, damage: Rect) { self.replay(Some(damage)); }
+
+    fn replay(&self, damage: Option<Rect>) {
+        if damage.is_some_and(|r| r.w <= 0 || r.h <= 0) { return; }
+        let _restore = Restore(RECORDING.with(|r| r.replace(None)));
+        let _damage_clip = damage.map(ClipGuard::new);
+        for command in &self.commands {
+            if let (Some(bounds), Some(damage)) = (command.bounds(), damage) {
+                if !bounds.intersects(damage) { continue; }
+            }
+            match command {
+                Command::Fill { rect: r, radius, color } => paint::fill(r.x, r.y, r.w, r.h, *radius, *color),
+                Command::Stroke { rect: r, radius, width, color } => paint::stroke(r.x, r.y, r.w, r.h, *radius, *width, *color),
+                Command::Text { rect, text, font, size, color, align } => paint::text_font(text, *rect, *size, *font, *color, *align),
+                Command::SpacedText { rect: r, text, size, weight, spacing, color, align } => {
+                    paint::text_spaced(text, r.x, r.y, r.w, r.h, *size, *weight, *spacing, *color, *align);
+                }
+                Command::AlphaFill { rect: r, color, alpha } => paint::alpha_fill(r.x, r.y, r.w, r.h, *color, *alpha),
+                Command::PushClip(r) => draw::push_clip(r.x, r.y, r.w.max(0), r.h.max(0)),
+                Command::PopClip => draw::pop_clip(),
+            }
+        }
+    }
+}
+
+struct ClipGuard { recorded: bool }
+impl ClipGuard {
+    fn new(r: Rect) -> Self {
+        let recorded = record(|| Command::PushClip(r));
+        if !recorded { draw::push_clip(r.x, r.y, r.w.max(0), r.h.max(0)); }
+        Self { recorded }
+    }
+}
+impl Drop for ClipGuard {
+    fn drop(&mut self) {
+        if self.recorded { record(|| Command::PopClip); } else { draw::pop_clip(); }
+    }
+}
+
+/// A balanced clip scope, for immediate painting and recorded scenes.
+/// Restores the previous clip even when `f` unwinds.
+pub fn clip<T>(rect: Rect, f: impl FnOnce() -> T) -> T {
+    let _guard = ClipGuard::new(rect);
+    f()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn recording_is_nested_and_unwind_safe() {
+        let (outer, ()) = Scene::record(|| {
+            paint::fill(0, 0, 20, 20, 3, Rgb(0));
+            let (inner, ()) = Scene::record(|| clip(Rect::new(1, 1, 2, 2), || {
+                paint::fill(0, 0, 5, 5, 0, Rgb(1));
+            }));
+            assert_eq!(inner.commands().len(), 3);
+            assert!(std::panic::catch_unwind(|| {
+                Scene::record(|| panic!("restore recorder"));
+            }).is_err());
+            paint::fill(0, 0, 3, 3, 0, Rgb(2));
+        });
+        assert_eq!(outer.commands().len(), 2);
+        assert!(!record(|| Command::PopClip));
+    }
+
+    #[test]
+    fn intersection_does_not_overflow_or_include_empty_rects() {
+        let a = Rect::new(i32::MAX - 1, 0, 100, 10);
+        assert!(a.intersects(Rect::new(i32::MAX, 1, 2, 2)));
+        assert!(!a.intersects(Rect::new(i32::MIN, 0, 100, 10)));
+        assert!(!a.intersects(Rect::new(i32::MAX, 0, 0, 10)));
+        assert!(!Rect::new(0, 0, 2, 2).intersects(Rect::new(2, 0, 2, 2)));
+    }
+}

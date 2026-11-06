@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **Shared painter foundation** (`scene`): record the existing `paint`
+  fills, rounded borders, text/spacing, rectangular alpha fills and clips
+  into a retained command list; CPU replay with damage clipping/culling.
+  Normal painting stays immediate, without a command-list allocation.
+  Pixel parity checks and a static `scene_cards` example with snapshot and
+  benchmark modes. This is the first window-scene slice, not a GPU scene
+  backend; paths/images/layers/GL composition remain pending. docs/SCENE.md.
+
 - **File dialogs through xdg-desktop-portal** (`dialog`): `open_files`,
   `save_file` (the UI keeps running) and `*_async` (answer on the UI
   thread), `Request` with filters, folder, accept label; portal first on

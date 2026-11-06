@@ -4,6 +4,7 @@
 
 pub use crate::anim::Look;
 use crate::theme::{Rgb, StateStyle, Theme};
+use crate::scene::{self, Command, Rect};
 use fltk::draw;
 use fltk::enums::{Align, Font};
 
@@ -22,6 +23,7 @@ pub fn fill(x: i32, y: i32, w: i32, h: i32, radius: i32, color: Rgb) {
     if w <= 0 || h <= 0 {
         return;
     }
+    if scene::record(|| Command::Fill { rect: Rect::new(x, y, w, h), radius, color }) { return; }
     draw::set_draw_color(color.fl());
     let r = radius.min(w / 2).min(h / 2);
     if r > 0 { draw::draw_rounded_rectf(x, y, w, h, r) } else { draw::draw_rectf(x, y, w, h) }
@@ -29,6 +31,8 @@ pub fn fill(x: i32, y: i32, w: i32, h: i32, radius: i32, color: Rgb) {
 
 /// Inner stroke of `width` pixels (Qt Rectangle border semantics).
 pub fn stroke(x: i32, y: i32, w: i32, h: i32, radius: i32, width: i32, color: Rgb) {
+    if w <= 0 || h <= 0 || width <= 0 { return; }
+    if scene::record(|| Command::Stroke { rect: Rect::new(x, y, w, h), radius, width, color }) { return; }
     draw::set_draw_color(color.fl());
     for i in 0..width.max(0) {
         let (xx, yy, ww, hh) = (x + i, y + i, w - 2 * i, h - 2 * i);
@@ -131,9 +135,8 @@ pub fn font_weight(weight: Weight) -> Font {
 /// [`text`] with a [`Weight`].
 pub fn text_weight(s: &str, x: i32, y: i32, w: i32, h: i32, size: i32, weight: Weight, color: Rgb, align: Align) {
     draw::set_font(font_weight(weight), size);
-    draw::set_draw_color(color.fl());
     let fitted = elide(s, w);
-    draw::draw_text2(&escape(&fitted), x, y, w, h, align | Align::Inside | Align::Clip);
+    text_font(&fitted, Rect::new(x, y, w, h), size, font_weight(weight), color, align);
 }
 
 /// Width of `s` with a [`Weight`].
@@ -152,6 +155,7 @@ pub fn text_spaced(s: &str, x: i32, y: i32, w: i32, h: i32, size: i32, weight: W
     let chars: Vec<String> = unicode_segmentation::UnicodeSegmentation::graphemes(s, true).map(str::to_string).collect();
     let widths: Vec<f64> = chars.iter().map(|c| draw::width(c)).collect();
     let total = widths.iter().sum::<f64>() + spacing * chars.len().saturating_sub(1) as f64;
+    if scene::record(|| Command::SpacedText { rect: Rect::new(x, y, w, h), text: s.to_owned(), size, weight, spacing, color, align }) { return total.ceil() as i32; }
     let mut cx = if align.contains(Align::Right) {
         x as f64 + w as f64 - total
     } else if align.contains(Align::Left) {
@@ -172,9 +176,16 @@ pub fn text_spaced(s: &str, x: i32, y: i32, w: i32, h: i32, size: i32, weight: W
 
 /// Text in a box with alignment; clipped and single-line unless `Align::Wrap`.
 pub fn text(s: &str, x: i32, y: i32, w: i32, h: i32, size: i32, bold: bool, color: Rgb, align: Align) {
-    draw::set_font(font(bold), size);
+    text_font(s, Rect::new(x, y, w, h), size, font(bold), color, align);
+}
+
+/// Shared text primitive used by immediate painting and scene replay.
+pub(crate) fn text_font(s: &str, r: Rect, size: i32, font: Font, color: Rgb, align: Align) {
+    if r.w <= 0 || r.h <= 0 { return; }
+    if scene::record(|| Command::Text { rect: r, text: s.to_owned(), font, size, color, align }) { return; }
+    draw::set_font(font, size);
     draw::set_draw_color(color.fl());
-    draw::draw_text2(&escape(s), x, y, w, h, align | Align::Inside | Align::Clip);
+    draw::draw_text2(&escape(s), r.x, r.y, r.w, r.h, align | Align::Inside | Align::Clip);
 }
 
 /// Like [`text`] but cuts with "…" when it does not fit (Text.ElideRight).
@@ -227,6 +238,7 @@ pub fn alpha_fill(x: i32, y: i32, w: i32, h: i32, color: Rgb, alpha: f64) {
     if w <= 0 || h <= 0 {
         return;
     }
+    if scene::record(|| Command::AlphaFill { rect: Rect::new(x, y, w, h), color, alpha }) { return; }
     let a = (alpha.clamp(0.0, 1.0) * 255.0).round() as u8;
     if let Ok(mut img) = fltk::image::RgbImage::new(&[color.r(), color.g(), color.b(), a], 1, 1, fltk::enums::ColorDepth::Rgba8) {
         img.scale(w, h, false, true);
