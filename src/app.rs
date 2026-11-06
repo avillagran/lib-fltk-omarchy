@@ -187,6 +187,8 @@ fn watch_loop(stop: Arc<AtomicBool>) {
             theme::reload();
             crate::glass::reload();
             crate::tooltip::reload_settings();
+            // Omarchy's Setup > Language writes ~/.config/omarchy/language.
+            crate::i18n::system_changed();
         });
     });
 }

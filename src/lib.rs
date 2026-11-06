@@ -20,6 +20,8 @@ pub mod list;
 pub mod mask;
 #[cfg(feature = "images")]
 pub mod media;
+#[cfg(feature = "mermaid")]
+pub mod mermaid;
 pub mod model;
 pub mod navtree;
 pub(crate) mod motion;

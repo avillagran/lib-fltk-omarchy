@@ -47,6 +47,8 @@ mod transcript_ui;
 mod diff_ui;
 mod frame_ui;
 mod testkit_ui;
+#[cfg(feature = "mermaid")]
+mod mermaid_ui;
 
 const COLORS_A: &str = "accent = \"#e68e0d\"\nbackground = \"#121212\"\nforeground = \"#bebebe\"\nred = \"#d35f5f\"\n";
 const COLORS_B: &str = "accent = \"#33ccff\"\nbackground = \"#1a1b26\"\nforeground = \"#c0caf5\"\nred = \"#f7768e\"\n";
@@ -2026,6 +2028,8 @@ fn main() {
     diff_ui::checks(&mut run);
     frame_ui::checks(&mut run);
     testkit_ui::checks(&mut run);
+    #[cfg(feature = "mermaid")]
+    mermaid_ui::checks(&mut run);
     #[cfg(feature = "a11y")]
     a11y_checks(&mut run);
     #[cfg(feature = "a11y")]

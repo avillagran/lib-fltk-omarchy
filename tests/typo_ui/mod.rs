@@ -318,4 +318,71 @@ pub fn checks(run: &mut dyn FnMut(&str, Check)) {
         fltk::window::DoubleWindow::delete((*win).clone());
         Ok(())
     });
+
+    run("i18n: follows Omarchy's Setup > Language file, unless the app picked a language", &|_| {
+        use fltk_omarchy::i18n;
+        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("build/test-ui/xdg-config");
+        std::fs::create_dir_all(root.join("omarchy")).map_err(|e| e.to_string())?;
+        std::fs::write(root.join("omarchy/language"), "da\n").map_err(|e| e.to_string())?;
+        let old = std::env::var_os("XDG_CONFIG_HOME");
+        std::env::set_var("XDG_CONFIG_HOME", &root);
+        let result = (|| -> Result<(), String> {
+            check(i18n::system_locales().first().map(String::as_str) == Some("da"), &format!("system languages start with Omarchy's: {:?}", i18n::system_locales()))?;
+            i18n::follow_system();
+            check(i18n::current().starts_with("da"), &format!("following: {}", i18n::current()))?;
+            std::fs::write(root.join("omarchy/language"), "es-MX\n").map_err(|e| e.to_string())?;
+            fltk_omarchy::i18n::load_omarchy_catalog("es-MX", r#"{"Hello": "Hola"}"#).map_err(|e| e.to_string())?;
+            // The watcher calls this on the UI thread; call it directly here.
+            i18n::refresh_system_language();
+            check(i18n::current().starts_with("es-mx"), &format!("switched live: {}", i18n::current()))?;
+            check(fltk_omarchy::tr!("Hello") == "Hola", "app catalog in Omarchy's format")?;
+            i18n::set_locale("en");
+            std::fs::write(root.join("omarchy/language"), "fr\n").map_err(|e| e.to_string())?;
+            i18n::refresh_system_language();
+            check(i18n::current() == "en", &format!("an app's own choice stays: {}", i18n::current()))?;
+            Ok(())
+        })();
+        match old {
+            Some(v) => std::env::set_var("XDG_CONFIG_HOME", v),
+            None => std::env::remove_var("XDG_CONFIG_HOME"),
+        }
+        let _ = std::fs::remove_file(root.join("omarchy/language"));
+        fltk_omarchy::i18n::set_locale("en");
+        result
+    });
+
+    run("Omarchy keys: ? opens the shortcut overlay, q in a field types, Q asks with unsaved work", &|_| {
+        use fltk_omarchy::focus::{press, type_text};
+        use fltk_omarchy::layout::FlexExt;
+        use fltk_omarchy::widgets::TextField;
+        let mut win = AppWindow::new("Keys", 420, 260);
+        let mut body = win.body();
+        let field = TextField::new();
+        body.fit(&*field);
+        let btn = fltk_omarchy::widgets::Button::new("Main");
+        body.fit(&*btn);
+        win.end();
+        win.show();
+        win.help_overlay("Shortcuts", || vec![("General".to_string(), vec![("?".to_string(), "Shortcuts".to_string()), ("Q".to_string(), "Quit".to_string())])]);
+        win.quit_key(|| true);
+        let f2 = field.clone();
+        pump_until(|| f2.w() > 0);
+        let layers = |w: &AppWindow| w.children();
+        let base = layers(&win);
+        let _ = btn.clone().take_focus();
+        type_text("?");
+        check(layers(&win) > base, "? opened the overlay")?;
+        press("Escape");
+        pump_until(|| layers(&win) == base);
+        let mut input = field.input();
+        let _ = input.take_focus();
+        type_text("q");
+        check(field.value() == "q" && layers(&win) == base, &format!("q typed into the field: {:?}", field.value()))?;
+        let _ = btn.clone().take_focus();
+        press("q");
+        check(layers(&win) > base, "Q with unsaved work asks first")?;
+        press("Escape");
+        fltk::window::DoubleWindow::delete((*win).clone());
+        Ok(())
+    });
 }
