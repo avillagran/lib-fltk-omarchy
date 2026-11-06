@@ -2952,6 +2952,10 @@ fn handle(w: &mut Widget, inn: &Rc<RefCell<Inner>>, hooks: &Hooks, ev: Event) ->
             let line = i.typo.line_h(i.typo.body) as f64;
             let delta = app::event_dy_value() as f64 * 3.0 * line;
             let top = i.top;
+            // At an edge the wheel goes to the scroll area around the view.
+            if i.motion.passes(top, delta, max) {
+                return false;
+            }
             i.top = i.motion.wheel(top, delta, max);
             i.anchor = i.locate(i.top);
             if delta < 0.0 {

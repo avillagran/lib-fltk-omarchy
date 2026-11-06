@@ -810,6 +810,11 @@ impl TextArea {
                 let dy = app::event_dy_value();
                 {
                     let mut s = self.st.borrow_mut();
+                    // At an edge the wheel goes to the scroll area around us.
+                    let max = (s.lay.height - vh).max(0);
+                    if dy == 0 || (dy < 0 && s.scroll <= 0) || (dy > 0 && s.scroll >= max) {
+                        return false;
+                    }
                     s.scroll += dy * lh * 2;
                     s.clamp_scroll(vh);
                 }

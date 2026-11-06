@@ -109,4 +109,42 @@ pub fn checks(run: &mut dyn FnMut(&str, Check)) {
         fltk::window::DoubleWindow::delete((*win).clone());
         Ok(())
     });
+
+    run("rich text: the wheel goes to the scroll area around it at its end", &|_| {
+        use fltk_omarchy::text::RichText;
+        let mut win = AppWindow::new("Nested text", 360, 300);
+        let mut body = win.body();
+        let mut outer = fltk::group::Scroll::default();
+        outer.set_type(fltk::group::ScrollType::Vertical);
+        body.add(&outer);
+        outer.begin();
+        let mut rt = RichText::new();
+        rt.resize(0, 0, 300, 150);
+        let mut tail = fltk::frame::Frame::default();
+        tail.resize(0, 150, 300, 600);
+        outer.end();
+        win.end();
+        win.show();
+        let o2 = outer.clone();
+        pump_until(|| o2.w() > 0 && o2.h() > 100);
+        rt.resize(outer.x(), outer.y(), 300, 150);
+        tail.resize(outer.x(), outer.y() + 150, 300, 600);
+        for k in 0..30 {
+            rt.append_markdown(&format!("Paragraph {k} with enough words to take a line or two."));
+        }
+        outer.redraw();
+        fltk::app::wait_for(0.01).ok();
+        let (x, y) = (rt.x() + 40, rt.y() + 60);
+        for _ in 0..80 {
+            if rt.is_at_bottom() {
+                break;
+            }
+            focus::wheel_at(&*win, x, y, 1);
+        }
+        check(rt.is_at_bottom() && outer.yposition() == 0, &format!("the text scrolls to its end first (outer {})", outer.yposition()))?;
+        focus::wheel_at(&*win, x, y, 1);
+        check(outer.yposition() > 0, "at its end the wheel scrolls the outer area")?;
+        fltk::window::DoubleWindow::delete((*win).clone());
+        Ok(())
+    });
 }

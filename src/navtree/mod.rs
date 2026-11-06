@@ -2157,6 +2157,11 @@ impl NavTree {
             let mut s = self.st.borrow_mut();
             let cur = s.scroll.clamp(0, max) as i64;
             let dy = app::event_dy_value() as f64 * rh as f64;
+            // In the window (not the floating rail), at an edge the wheel
+            // goes to the scroll area around the tree.
+            if !inside && s.wheel.passes(cur, dy, max as i64) {
+                return false;
+            }
             s.scroll = s.wheel.wheel(cur, dy, max as i64) as i32;
         }
         self.redraw_all();
