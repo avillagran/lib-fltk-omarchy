@@ -311,7 +311,10 @@ pub(super) struct Inner {
     embeds: Option<HashMap<Arc<str>, Vec<usize>>>,
     /// Embeds and images in view at the last paint.
     shown: Vec<Arc<str>>,
+    /// Someone listens to embed visibility.
     track: bool,
+    /// Someone resolves images.
+    want_images: bool,
     images: HashMap<Arc<str>, ImageState>,
     image_max_h: i32,
     painter: Option<Painter>,
@@ -369,6 +372,7 @@ impl Inner {
             embeds: None,
             shown: Vec::new(),
             track: false,
+            want_images: false,
             images: HashMap::new(),
             image_max_h: 320,
             painter: None,
@@ -2073,7 +2077,11 @@ fn draw_view(w: &mut Widget, i: &mut Inner, t: &Theme) {
     }
     let max = i.max_top();
     let top = i.top;
-    i.top = i.motion.position(top, max);
+    let moved = i.motion.position(top, max);
+    if moved != top {
+        i.top = moved;
+        i.anchor = i.locate(moved);
+    }
     i.ensure_visible(&mut m);
     if i.motion.running() {
         crate::anim::request_redraw(w);
@@ -2083,9 +2091,14 @@ fn draw_view(w: &mut Widget, i: &mut Inner, t: &Theme) {
     crate::glass::fill(w.x(), w.y(), w.w(), w.h(), 0, under);
     let sel = i.sel_range();
     let ring = crate::focus::show_ring(w);
+    let focused = ring || crate::focus::is_focused(w);
     let bx = w.x() + i.pad;
     let clip = (w.y(), w.y() + w.h());
-    for k in i.visible() {
+    let vis = i.visible();
+    let painter = i.painter.clone();
+    let mut pictures: Vec<(Arc<str>, i32, i32, i32, i32)> = Vec::new();
+    let foot = i.foot_h();
+    for k in vis.clone() {
         let by = i.screen_y(k, w.y());
         let Some((b, l)) = i.laid(k) else { continue };
         let range = sel.and_then(|(a, b)| {
@@ -2096,29 +2109,129 @@ fn draw_view(w: &mut Widget, i: &mut Inner, t: &Theme) {
             let e0 = if k == b.block { b.offset } else { usize::MAX };
             Some(s0..e0)
         });
+        let hover = i.hover.filter(|h| h.block() == k);
+        let focus = if focused { i.focus.filter(|h| h.block() == k) } else { None };
+        let marks: Vec<(Range<usize>, bool)> = match &i.find {
+            Some(f) => {
+                let p = f.matches.partition_point(|(b, _)| *b < k);
+                f.matches[p..]
+                    .iter()
+                    .take_while(|(b, _)| *b == k)
+                    .enumerate()
+                    .map(|(n, (_, r))| (r.clone(), f.current == Some(p + n)))
+                    .collect()
+            }
+            None => Vec::new(),
+        };
+        // Embeds and resolved images: one box, drawn by the app or here.
+        let unit = match &b.kind {
+            BlockKind::Embed(_) => true,
+            BlockKind::Image { .. } => l.lines.is_empty(),
+            _ => false,
+        };
+        if unit {
+            let (x, y, ww, hh) = (bx + l.left, by, l.box_w, l.height);
+            let text = b.text();
+            let whole = range.as_ref().is_some_and(|r| r.start == 0 && r.end >= text.len().max(1));
+            let id = i.store.embed_id(k).unwrap_or("");
+            let mut boxed = (x, ww);
+            let state = match &b.kind {
+                BlockKind::Image { src } => {
+                    let left = l.left - i.typo.list_w;
+                    let avail = l.box_w + i.typo.list_w;
+                    let (dw, _) = i.image_size(src, avail).unwrap_or((avail, hh));
+                    boxed = (bx + left, dw);
+                    i.images.get(src.as_str())
+                }
+                _ => None,
+            };
+            let (x, ww) = boxed;
+            draw::push_clip(x, y.max(clip.0), ww, (y + hh).min(clip.1) - y.max(clip.0));
+            match state {
+                Some(ImageState::Pixels(..)) => pictures.push((Arc::from(id), x, y, ww, hh)),
+                Some(ImageState::Painted(_)) | None if painter.is_some() => {
+                    if let Some(p) = &painter {
+                        let mut ep = EmbedPaint {
+                            id,
+                            text,
+                            x,
+                            y,
+                            w: ww,
+                            h: hh,
+                            hovered: hover.is_some(),
+                            focused: focus.is_some(),
+                            selected: whole,
+                            image: state.is_some(),
+                            theme: t,
+                            under,
+                        };
+                        if let Ok(mut f) = p.try_borrow_mut() {
+                            f(&mut ep);
+                        }
+                    }
+                }
+                _ => {
+                    // No painter, or a size without pixels: a placeholder.
+                    let surface = t.palette.lighter_background;
+                    crate::glass::fill(x, y, ww, hh, t.radius.min(8), surface);
+                    paint::stroke(x, y, ww, hh, t.radius.min(8), 1, t.palette.foreground.over(under, 0.12));
+                    let dim = t.palette.foreground.darker(1.4);
+                    if state.is_some() {
+                        paint::glyph(IMAGE, x, y, ww, hh / 2 + i.typo.body, i.typo.body * 2, dim);
+                        paint::text_elided(text, x + 4, y + hh / 2 + i.typo.body, ww - 8, i.typo.line_h(i.typo.small), i.typo.small, false, dim, Align::Center);
+                    } else {
+                        paint::text_elided(text, x + i.typo.code_pad, y, ww - 2 * i.typo.code_pad, hh.min(i.typo.line_h(i.typo.body) * 2), i.typo.body, false, dim, Align::Left);
+                    }
+                }
+            }
+            if whole {
+                paint::alpha_fill(x, y, ww, hh, t.palette.foreground, t.controls.selection_fill_alpha);
+            }
+            if let Some((_, cur)) = marks.first() {
+                paint::stroke(x, y, ww, hh, t.radius.min(8), 2, if *cur { t.palette.accent } else { t.palette.yellow });
+            }
+            if focus.is_some() {
+                paint::stroke(x, y, ww, hh, t.radius.min(8), t.controls.focus.border_width.max(1), t.palette.accent);
+            }
+            draw::pop_clip();
+            continue;
+        }
         let prev_quote = if k > 0 { i.store.shape(k - 1).quote } else { 0 };
-        let gap = i.gap(k);
+        let fresh = |at: &Instant| at.elapsed().as_secs_f32() < 1.5;
         let ctx = BlockCtx {
             t,
             ty: &i.typo,
             under,
             sel: range,
-            hover: i.hover.filter(|h| h.block() == k),
-            focus: if ring || crate::focus::is_focused(w) {
-                i.focus.filter(|h| h.block() == k)
-            } else {
-                None
-            },
+            hover,
+            focus,
             copied: i
                 .copied
-                .is_some_and(|(b, at)| b == k && at.elapsed().as_secs_f32() < 1.5),
+                .is_some_and(|(c, at)| c == Target::Copy { block: k } && fresh(&at)),
             prev_quote,
-            gap,
+            gap: i.gap(k),
             clip,
             color: None,
+            actions: i.actions_of(k),
+            copied_slot: match i.copied {
+                Some((Target::Action { block, slot }, at)) if block == k && fresh(&at) => Some(slot),
+                _ => None,
+            },
+            foot: if matches!(b.kind, BlockKind::Table(_)) { foot } else { 0 },
+            marks: &marks,
         };
         draw_block(&ctx, b, l, bx, by, &mut m);
     }
+    for (src, x, y, ww, hh) in pictures {
+        if let Some(ImageState::Pixels(_, _, img)) = i.images.get_mut(&src) {
+            draw::push_clip(x, y.max(clip.0), ww, (y + hh).min(clip.1) - y.max(clip.0));
+            img.scale(ww, hh, false, true);
+            img.draw(x, y, ww, hh);
+            draw::pop_clip();
+        }
+    }
+    place_hosted(w, i, &vis);
+    track_visible(i, &vis);
     // A new message fading in over what is under it.
     if let Some((start, tw)) = i.reveal {
         if tw.done() || !crate::anim::enabled() || start >= i.store.len() {
@@ -2132,13 +2245,13 @@ fn draw_view(w: &mut Widget, i: &mut Inner, t: &Theme) {
             crate::anim::request_redraw(w);
         }
     }
-    // Scrollbar.
+    // Scrollbar (above the bottom inset).
     let content = i.content_h();
     if content > w.h() as i64 {
-        let track = w.h();
+        let track = (w.h() - i.inset).max(24);
         let thumb = ((w.h() as f64 / content as f64) * track as f64).max(24.0) as i32;
         let maxt = i.max_top().max(1);
-        let tyy = w.y() + ((i.top as f64 / maxt as f64) * (track - thumb) as f64) as i32;
+        let tyy = w.y() + ((i.top as f64 / maxt as f64) * (track - thumb).max(0) as f64) as i32;
         paint::fill(
             w.x() + w.w() - BAR,
             tyy,
@@ -2161,6 +2274,106 @@ fn draw_view(w: &mut Widget, i: &mut Inner, t: &Theme) {
             c,
         );
     }
+}
+
+/// Moves hosted widgets over their embeds in view and hides the others.
+fn place_hosted(w: &Widget, i: &mut Inner, vis: &Range<usize>) {
+    if i.hosted.is_empty() {
+        return;
+    }
+    if i.host.is_none() {
+        let Some(win) = w.window() else { return };
+        let Some(mut win) = fltk::group::Group::from_dyn_widget_ptr(win.as_widget_ptr()) else { return };
+        let cur = fltk::group::Group::try_current();
+        fltk::group::Group::set_current(None::<&fltk::group::Group>);
+        let mut g = fltk::group::Group::new(w.x(), w.y(), w.w(), w.h(), None);
+        g.end();
+        g.set_frame(FrameType::NoBox);
+        g.set_clip_children(true);
+        if let Some(c) = cur {
+            fltk::group::Group::set_current(Some(&c));
+        }
+        win.add(&g);
+        i.host = Some(g);
+    }
+    let Some(mut g) = i.host.clone() else { return };
+    let h = (w.h() - i.inset).max(0);
+    if (g.x(), g.y(), g.w(), g.h()) != (w.x(), w.y(), w.w() - BAR - 2, h) {
+        g.widget_resize(w.x(), w.y(), w.w() - BAR - 2, h);
+    }
+    let hosted = i.hosted.clone();
+    for (id, mut wid) in hosted {
+        if wid.was_deleted() {
+            continue;
+        }
+        if wid.parent().map(|p| p.as_widget_ptr()) != Some(g.as_widget_ptr()) {
+            g.add(&wid);
+        }
+        let rect = i
+            .embed_blocks(&id)
+            .into_iter()
+            .find(|k| vis.contains(k))
+            .and_then(|k| i.laid(k).map(|(_, l)| (k, l.left, l.box_w, l.height)))
+            .map(|(k, left, bw, bh)| (w.x() + i.pad + left, i.screen_y(k, w.y()), bw, bh));
+        match rect {
+            Some((x, y, ww, hh)) if y < w.y() + h && y + hh > w.y() => {
+                if (wid.x(), wid.y(), wid.w(), wid.h()) != (x, y, ww, hh) {
+                    wid.resize(x, y, ww, hh);
+                }
+                if !wid.visible() {
+                    wid.show();
+                }
+            }
+            _ => {
+                if wid.visible() {
+                    wid.hide();
+                }
+            }
+        }
+    }
+    g.redraw();
+}
+
+/// Queues "entered / left the view" for embeds and images, and the first
+/// request of an image source.
+fn track_visible(i: &mut Inner, vis: &Range<usize>) {
+    if !i.track && !i.want_images {
+        return;
+    }
+    let y0 = i.top - i.pad as i64;
+    let y1 = y0 + (i.view_h - i.inset) as i64;
+    let mut now: Vec<Arc<str>> = Vec::new();
+    for k in vis.clone() {
+        let Some(id) = i.store.embed_id(k) else { continue };
+        let top = i.heights.prefix(k) + i.gap(k) as i64;
+        let bottom = i.heights.prefix(k + 1);
+        if bottom <= y0 || top >= y1 {
+            continue;
+        }
+        if i.want_images && i.store.is_image(k) && !i.images.contains_key(id) {
+            let src: Arc<str> = Arc::from(id);
+            i.images.insert(src.clone(), ImageState::Requested);
+            i.notes.push(Note::Image(src));
+        }
+        if i.track && !now.iter().any(|n| **n == *id) {
+            now.push(Arc::from(id));
+        }
+    }
+    if !i.track {
+        return;
+    }
+    let old = std::mem::take(&mut i.shown);
+    for id in &old {
+        if !now.contains(id) {
+            i.notes.push(Note::Hidden(id.clone()));
+        }
+    }
+    for id in &now {
+        if !old.contains(id) {
+            i.notes.push(Note::Shown(id.clone()));
+        }
+    }
+    i.shown = now;
 }
 
 pub(super) struct BlockCtx<'a> {
@@ -2474,7 +2687,7 @@ const IMAGE: &str = "\u{f02e9}";
 
 // --------------------------------------------------------------- events
 
-fn handle(w: &mut Widget, inn: &Rc<RefCell<Inner>>, link: &LinkFn, ev: Event) -> bool {
+fn handle(w: &mut Widget, inn: &Rc<RefCell<Inner>>, hooks: &Hooks, ev: Event) -> bool {
     let mut m = FltkMetrics::default();
     let (wx, wy) = (w.x(), w.y());
     match ev {
@@ -2531,17 +2744,20 @@ fn handle(w: &mut Widget, inn: &Rc<RefCell<Inner>>, link: &LinkFn, ev: Event) ->
                 i.thumb = Some((ey, top));
                 return true;
             }
-            if let Some(Target::Copy { block }) = i.target_at(wx, wy, ex, ey, &mut m) {
-                let text = i.store.text(block).to_string();
-                i.copied = Some((block, Instant::now()));
-                drop(i);
-                app::copy(&text);
-                let mut ww = w.clone();
-                app::add_timeout3(1.6, move |_| {
-                    if !ww.was_deleted() {
-                        ww.redraw()
+            if let Some(t @ (Target::Copy { .. } | Target::Action { .. } | Target::Embed { .. })) =
+                i.target_at(wx, wy, ex, ey, &mut m)
+            {
+                let at = match t {
+                    Target::Embed { block } => {
+                        let l = i.laid(block).map_or(0, |(_, l)| l.left);
+                        Some((ex - (wx + i.pad + l), ey - i.screen_y(block, wy)))
                     }
-                });
+                    _ => None,
+                };
+                i.focus = None;
+                i.activate(t, at);
+                drop(i);
+                redraw_soon(w);
                 w.redraw();
                 return true;
             }
@@ -2602,10 +2818,8 @@ fn handle(w: &mut Widget, inn: &Rc<RefCell<Inner>>, link: &LinkFn, ev: Event) ->
             if let Some((y0, top0)) = i.thumb {
                 let content = i.content_h() as f64;
                 let max = i.max_top();
-                i.top = (top0 + ((ey - y0) as f64 * content / w.h().max(1) as f64) as i64)
-                    .clamp(0, max);
+                i.set_top(top0 + ((ey - y0) as f64 * content / w.h().max(1) as f64) as i64);
                 let top = i.top;
-                i.motion.jump(top);
                 i.stuck = i.stick && top >= max;
                 drop(i);
                 w.redraw();
@@ -2654,9 +2868,7 @@ fn handle(w: &mut Widget, inn: &Rc<RefCell<Inner>>, link: &LinkFn, ev: Event) ->
             }
             drop(i);
             if let Some(url) = press.filter(|p| !p.moved).and_then(|p| p.link) {
-                if let Some(f) = link.borrow_mut().as_mut() {
-                    f(&url);
-                }
+                call(&hooks.link, |f| f(&url));
             }
             w.redraw();
             true
@@ -2668,6 +2880,7 @@ fn handle(w: &mut Widget, inn: &Rc<RefCell<Inner>>, link: &LinkFn, ev: Event) ->
             let delta = app::event_dy_value() as f64 * 3.0 * line;
             let top = i.top;
             i.top = i.motion.wheel(top, delta, max);
+            i.anchor = i.locate(i.top);
             if delta < 0.0 {
                 i.stuck = false;
             } else if i.stick && top as f64 + delta >= max as f64 - 1.0 {
@@ -2677,7 +2890,7 @@ fn handle(w: &mut Widget, inn: &Rc<RefCell<Inner>>, link: &LinkFn, ev: Event) ->
             w.redraw();
             true
         }
-        Event::KeyDown => key(w, inn, link),
+        Event::KeyDown => key(w, inn, hooks),
         _ => false,
     }
 }
@@ -2699,7 +2912,7 @@ fn word_at(t: &str, at: usize) -> (usize, usize) {
     (at, at)
 }
 
-fn key(w: &mut Widget, inn: &Rc<RefCell<Inner>>, link: &LinkFn) -> bool {
+fn key(w: &mut Widget, inn: &Rc<RefCell<Inner>>, hooks: &Hooks) -> bool {
     let k = app::event_key();
     let state = app::event_state();
     let command = app::is_event_command();
@@ -2709,6 +2922,15 @@ fn key(w: &mut Widget, inn: &Rc<RefCell<Inner>>, link: &LinkFn) -> bool {
     {
         let top = i.top;
         i.motion.jump(top);
+    }
+    // Find: F3 / Shift+F3, Mod+G / Shift+Mod+G.
+    if i.find.as_ref().is_some_and(|f| !f.matches.is_empty())
+        && ((k == Key::F3 && !command && !alt) || (command && !alt && k == Key::from_char('g')))
+    {
+        i.find_step(if shift { -1 } else { 1 });
+        drop(i);
+        w.redraw();
+        return true;
     }
     if command && !alt {
         if k == Key::from_char('c') {
@@ -2738,7 +2960,7 @@ fn key(w: &mut Widget, inn: &Rc<RefCell<Inner>>, link: &LinkFn) -> bool {
         }
     }
     let line = i.typo.line_h(i.typo.body) as i64;
-    let page = (w.h() as i64 - line).max(line);
+    let page = (i.usable_h() as i64 - line).max(line);
     let used = match k {
         Key::Up => i.scroll_by(-line),
         Key::Down => i.scroll_by(line),
@@ -2751,8 +2973,7 @@ fn key(w: &mut Widget, inn: &Rc<RefCell<Inner>>, link: &LinkFn) -> bool {
         }
         Key::End => {
             let max = i.max_top();
-            i.top = max;
-            i.motion.jump(max);
+            i.set_top(max);
             i.stuck = i.stick;
             true
         }
@@ -2779,30 +3000,11 @@ fn key(w: &mut Widget, inn: &Rc<RefCell<Inner>>, link: &LinkFn) -> bool {
             return used;
         }
         Key::Enter | Key::KPEnter => {
-            let Some(t) = i.focus else { return false };
-            match t {
-                Target::Copy { block } => {
-                    let text = i.store.text(block).to_string();
-                    i.copied = Some((block, Instant::now()));
-                    drop(i);
-                    app::copy(&text);
-                    let mut ww = w.clone();
-                    app::add_timeout3(1.6, move |_| {
-                        if !ww.was_deleted() {
-                            ww.redraw()
-                        }
-                    });
-                }
-                Target::Link { .. } => {
-                    let url = i.link_of(t);
-                    drop(i);
-                    if let (Some(url), Some(f)) = (url, link.borrow_mut().as_mut()) {
-                        f(&url);
-                    }
-                }
+            if i.focus.is_none() {
+                return false;
             }
-            w.redraw();
-            return true;
+            drop(i);
+            return activate_focus(w, inn, hooks);
         }
         Key::Escape => {
             let had = i.sel.take().is_some() | i.focus.take().is_some();
@@ -2815,7 +3017,7 @@ fn key(w: &mut Widget, inn: &Rc<RefCell<Inner>>, link: &LinkFn) -> bool {
         _ if k == Key::from_char(' ') && i.focus.is_some() => {
             drop(i);
             // Space activates like Enter.
-            return activate_focus(w, inn, link);
+            return activate_focus(w, inn, hooks);
         }
         _ => return false,
     };
@@ -2826,30 +3028,29 @@ fn key(w: &mut Widget, inn: &Rc<RefCell<Inner>>, link: &LinkFn) -> bool {
     used
 }
 
-fn activate_focus(w: &mut Widget, inn: &Rc<RefCell<Inner>>, link: &LinkFn) -> bool {
-    let (t, url, code) = {
-        let i = inn.borrow();
+fn activate_focus(w: &mut Widget, inn: &Rc<RefCell<Inner>>, hooks: &Hooks) -> bool {
+    let url = {
+        let mut i = inn.borrow_mut();
         let Some(t) = i.focus else { return false };
-        (
-            t,
-            i.link_of(t),
-            matches!(t, Target::Copy { .. }).then(|| i.store.text(t.block()).to_string()),
-        )
+        i.activate(t, None)
     };
-    if let Some(code) = code {
-        app::copy(&code);
-        inn.borrow_mut().copied = Some((t.block(), Instant::now()));
-        let mut ww = w.clone();
-        app::add_timeout3(1.6, move |_| {
-            if !ww.was_deleted() {
-                ww.redraw()
-            }
-        });
-    } else if let (Some(url), Some(f)) = (url, link.borrow_mut().as_mut()) {
-        f(&url);
+    if let Some(url) = url {
+        call(&hooks.link, |f| f(&url));
+    } else {
+        redraw_soon(w);
     }
     w.redraw();
     true
+}
+
+/// Redraws after the "copied" check mark has had its moment.
+fn redraw_soon(w: &Widget) {
+    let mut ww = w.clone();
+    app::add_timeout3(1.6, move |_| {
+        if !ww.was_deleted() {
+            ww.redraw()
+        }
+    });
 }
 
 /// Scrolls so the target's block line is fully in view.
@@ -2860,24 +3061,27 @@ fn reveal(i: &mut Inner, t: Target, w: &Widget) {
     };
     let (y, h) = match t {
         Target::Copy { .. } => (0, i.typo.code_header),
+        Target::Action { .. } if l.table.is_some() => (l.height - i.typo.code_header, i.typo.code_header),
+        Target::Action { .. } => (0, i.typo.code_header),
+        Target::Embed { .. } => (0, l.height.min(i.usable_h())),
         Target::Link { run, .. } => l
             .lines
             .iter()
             .find(|ln| l.frags_of(ln).iter().any(|f| f.run as usize == run))
             .map_or((0, l.height), |ln| (ln.y, ln.h)),
     };
+    let _ = w;
     let top_y = i.heights.prefix(k) + i.gap(k) as i64 + y as i64 + i.pad as i64;
-    let view = w.h() as i64;
-    if top_y < i.top {
-        i.top = top_y - i.pad as i64;
-    } else if top_y + h as i64 > i.top + view {
-        i.top = top_y + h as i64 - view + i.pad as i64;
+    let view = i.usable_h() as i64;
+    let mut top = i.top;
+    if top_y < top {
+        top = top_y - i.pad as i64;
+    } else if top_y + h as i64 > top + view {
+        top = top_y + h as i64 - view + i.pad as i64;
     }
     let max = i.max_top();
-    i.top = i.top.clamp(0, max);
-    let top = i.top;
-    i.motion.jump(top);
-    i.stuck = i.stick && top >= max;
+    i.set_top(top);
+    i.stuck = i.stick && i.top >= max;
 }
 
 #[cfg(test)]
