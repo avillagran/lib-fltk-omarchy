@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **Native Mermaid diagrams** (`mermaid`, feature `mermaid`, off by
+  default, no dependencies): flowcharts, sequence and state diagrams
+  parsed, laid out (layered layout and cubic edge routing adapted from
+  Rune's `rune-mermaid`, MIT) and drawn with `gfx` and theme fonts in
+  theme roles. `mermaid::render` → size + backend-neutral scene,
+  `MermaidView`, `RichText::native_mermaid` (closed fences become
+  diagrams under the code header with a Show source action; open fences
+  stay code while streaming). Bounded input, errors as values.
+  docs/MERMAID.md.
 - **Single instance and app IPC** (`instance`): `acquire` /
   `acquire_or_forward` (a second launch forwards its arguments and
   exits), `Server::handle` (function + string args → string reply, run on

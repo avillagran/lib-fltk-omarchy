@@ -80,6 +80,10 @@ a11y = ["dep:accesskit", "dep:accesskit_consumer", "dep:accesskit_unix", "dep:ac
 # Image decoding and display (`media`: PNG, JPEG, GIF, WebP). Off by
 # default; fltk keeps `no-images` either way. See docs/MEDIA.md.
 images = ["dep:png", "dep:gif", "dep:zune-jpeg", "dep:image-webp"]
+# Native Mermaid diagrams (`mermaid`: flowchart, sequence, state) drawn
+# with the CPU `gfx` canvas; no new dependencies. Off by default. See
+# docs/MERMAID.md.
+mermaid = []
 # Video and audio playback (`media::Video`, `media::Audio`) through the
 # system ffmpeg/ffprobe binaries as child processes: no native libraries.
 # Off by default; builds on `images`. See docs/MEDIA.md.
@@ -110,6 +114,10 @@ required-features = ["gpu"]
 [[example]]
 name = "a11y_check"
 required-features = ["a11y"]
+
+[[example]]
+name = "mermaid"
+required-features = ["mermaid"]
 
 [[example]]
 name = "media"
