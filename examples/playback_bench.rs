@@ -78,10 +78,12 @@ fn main() {
     let pss_idle = pss_kib(std::process::id());
     video.set_file(Some(std::path::Path::new(&file)));
     // Probe (the player is shown), then Play and time the first frame.
+    let t_probe = Instant::now();
     let end = Instant::now() + Duration::from_secs(10);
     while video.state() != PlayState::Paused && Instant::now() < end {
-        wait(0.01);
+        wait(0.002);
     }
+    let probe_ms = t_probe.elapsed().as_secs_f64() * 1000.0;
     // Wait for the poster frame and its process to finish.
     while (video.stats().frames == 0 || media::playback::live_processes() > 0) && Instant::now() < end {
         wait(0.01);
@@ -137,7 +139,7 @@ fn main() {
     let reaped_on_close = media::playback::live_processes() == 0 && children().iter().all(|(_, n)| n != "ffmpeg");
     let n = samples.max(1);
     let line = format!(
-        "{{\"file\":{:?},\"box\":[{bw},{bh}],\"frame\":[{},{}],\"audio\":{:?},\"first_frame_ms\":{:.1},\"fps\":{:.1},\"cpu_app_pct\":{:.1},\"cpu_ffmpeg_pct\":{:.1},\"children\":{:?},\"pss_idle_mib\":{:.1},\"pss_app_mib\":{:.1},\"pss_ffmpeg_mib\":{:.1},\"reaped_after_stop\":{reaped},\"live_before_close\":{playing_again},\"reaped_after_window_close\":{reaped_on_close}}}",
+        "{{\"file\":{:?},\"box\":[{bw},{bh}],\"frame\":[{},{}],\"audio\":{:?},\"probe_ms\":{probe_ms:.1},\"first_frame_ms\":{:.1},\"fps\":{:.1},\"cpu_app_pct\":{:.1},\"cpu_ffmpeg_pct\":{:.1},\"children\":{:?},\"pss_idle_mib\":{:.1},\"pss_app_mib\":{:.1},\"pss_ffmpeg_mib\":{:.1},\"reaped_after_stop\":{reaped},\"live_before_close\":{playing_again},\"reaped_after_window_close\":{reaped_on_close}}}",
         file,
         st.frame_size.0,
         st.frame_size.1,
