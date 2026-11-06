@@ -192,7 +192,7 @@ operation started from a menu.
 | ButtonGroup | one Tab stop; Left / Right change the selection |
 | TextField | typing; Enter submits |
 | TextArea | typing (input methods through `Fl::compose`); arrows, Home / End (line), Mod+Home / End (text; Cmd+Up / Down on macOS); Ctrl+Left / Right words (Alt on macOS, Cmd+Left / Right line ends); Shift extends; PageUp / PageDown; Backspace / Delete, with Ctrl (Alt on macOS) a word; Mod+A / C / X / V, Mod+Z, Mod+Shift+Z or Mod+Y; Enter new line; Esc clears the selection; Tab leaves (`TabKey` to type tabs) |
-| Composer | the TextArea keys; Enter sends, Shift+Enter new line (`SendKey::ModEnter` swaps them), Mod+Enter sends, Mod+Shift+Enter alternate send. Completion list open: Up / Down, PageUp / PageDown, Enter or Tab accept, Esc closes (the input keeps focus). Attachment chips: one Tab stop, Left / Right, Delete removes, Enter opens |
+| Composer | the TextArea keys; Enter sends, Shift+Enter new line (`SendKey::ModEnter` swaps them), Mod+Enter sends, Mod+Shift+Enter alternate send; expanded editor (`.expanded`): Enter new line, Mod+Enter sends; with `.history`: Up on the first line / Down on the last line walk the prompts sent before (the draft comes back past the newest); Mod+Shift+A attaches files (`.attach_button()`). Completion list open: Up / Down, PageUp / PageDown, Enter or Tab accept, Esc closes (the input keeps focus). Attachment chips: one Tab stop, Left / Right, Delete removes, Enter opens |
 | NumberField | Up / Down |
 | Slider | Left / Right / Up / Down |
 | TabBar | anywhere: Ctrl+Tab, Ctrl+Shift+Tab, Ctrl+PageDown, Ctrl+PageUp. Focused: Left / Right / Home / End, Delete closes |
@@ -211,7 +211,9 @@ operation started from a menu.
 | Table | the KeyboardPanel keys; Enter activates |
 | Tree | the KeyboardPanel keys, plus Right (expand / first child) and Left (collapse / parent) |
 | Sidebar | Tab focuses and expands it; Up / Down, PageUp / PageDown, Home / End (skip plain headers, disabled and folded rows); Enter / Space pick (fold a collapsible header); Left / Right fold / unfold a header; Delete: the row's secondary action (eject); Menu or Shift+F10: context menu at the row; Esc collapses |
-| NavTree | the Sidebar keys, plus: Right opens a folded row or goes to its first child, Left folds an open row or goes to its parent; typing jumps to the next row whose title starts with the typed letters (Space activates unless you are typing); Delete runs the row's first enabled action; in the search field Down goes to the results and Enter opens the best match |
+| NavTree | the Sidebar keys, plus: Right opens a folded row or goes to its first child, Left folds an open row or goes to its parent; typing jumps to the next row whose title starts with the typed letters (Space activates unless you are typing); Delete runs the row's first enabled action; the cursor row shows its hover actions; Menu / Shift+F10 open the context menu (or, with `.action_menu(true)`, a menu of the row's actions); Esc closes a hover preview card first; in the search field Down goes to the results and Enter opens the best match |
+| ShelfResizer | Up / Down: the shelf below grows / shrinks by 20 px; Home: default height (also a double click) |
+
 | ShortcutHelp | Up / Down, PageUp / PageDown, Home / End (bounded); Esc / F1 close |
 | KeyboardPanel | Up / Down (Left / Right in a grid), with Ctrl (cursor only), Shift (range), Ctrl+Shift (add range); PageUp / PageDown, Home / End; Ctrl+Space, Ctrl+A; Enter |
 

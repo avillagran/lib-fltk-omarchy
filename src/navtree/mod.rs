@@ -19,6 +19,12 @@
 //!   `attention`), and a `summary` while a parent is folded.
 //! - **Sections** ([`NavItem::section`]): caption, count, header actions,
 //!   foldable. **Separators** ([`NavItem::separator`]).
+//! - **o3 thread rows**: [`NavItem::card`] (three lines: overline,
+//!   badges and status; title and note; [`Meta`] icons), slim rows with
+//!   [`NavItem::trailing`] / [`NavItem::status`] text that the hover
+//!   actions replace, [`NavTree::tree_guides`], a delayed hover card
+//!   ([`NavTree::preview`]), [`NavTree::action_menu`], and shelves with
+//!   their own heights ([`ShelfResizer`]).
 //! - **Custom rows**: [`NavTree::renderer`] paints items whose
 //!   [`NavItem::renderer`] names it (variable height).
 //! - **Search**: [`NavTree::search`] adds a filter field (or call

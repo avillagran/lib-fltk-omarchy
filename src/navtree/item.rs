@@ -80,10 +80,10 @@ pub enum RowStyle {
     /// optional detail and usage lines.
     #[default]
     Line,
-    /// o3's thread card, up to three lines: icon + [`NavItem::overline`]
-    /// + badges + trailing text (or the hover actions) on top; the title
-    /// and its [`NavItem::note`] in the middle; [`NavItem::meta`] (or the
-    /// detail) at the bottom.
+    /// o3's thread card, up to three lines: the icon, the
+    /// [`NavItem::overline`], badges and the trailing text (or the hover
+    /// actions) on top; the title and its [`NavItem::note`] in the
+    /// middle; [`NavItem::meta`] (or the detail) at the bottom.
     Card,
 }
 

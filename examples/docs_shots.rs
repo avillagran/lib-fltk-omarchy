@@ -11,7 +11,7 @@ use fltk_omarchy::overlay::{ConfirmDialog, Dropdown, Menu, MenuItem, Notificatio
 use fltk_omarchy::popups::{OperationToast, PopupItem, PopupMenu, SearchableDropdown, ShortcutHelp};
 use fltk_omarchy::panel::KeyboardPanel;
 use fltk_omarchy::model::ListModel;
-use fltk_omarchy::navtree::{Badge, ColorRole, NavItem, NavTree, Reorder, RowAction};
+use fltk_omarchy::navtree::{Badge, ColorRole, Meta, NavItem, NavTree, Reorder, RowAction};
 use fltk_omarchy::text::{RichLabel, RichText};
 use fltk_omarchy::paint;
 use std::rc::Rc;
@@ -110,6 +110,26 @@ fn main() {
     let _ = composer.area().take_focus();
     composer.area().type_text("Review @src");
     save(&mut win, &dir, "composer");
+
+    // ---- composer: prompt history, expanded editor, attach button, bottom row
+    let (win, mut col) = frame(600, 130);
+    let history = State::new(vec!["Explain the diff".to_string()]);
+    let expanded = State::new(false);
+    let composer = Composer::new()
+        .history(&history)
+        .expanded(&expanded)
+        .on_submit(|text| println!("send {text}"))
+        .on_files(|paths| println!("attach {paths:?}"))
+        .attach_button()
+        .toolbar(|row| {
+            row.fit(&*Button::new("Model").bordered());
+            row.fit(&*Button::new("Full access").bordered());
+        })
+        .toolbar_end(|row| {
+            row.fit(&*Button::icon(glyph::SETTINGS, "").tooltip("Model options"));
+        });
+    col.fit(&*composer);
+    save(&mut done(win, col), &dir, "composer-o3");
 
     // ---- toggles
     let (win, mut col) = frame(600, 214);
@@ -282,6 +302,52 @@ fn main() {
         side.set_query(query);
         save(&mut done(win, col), &dir, name);
     }
+
+    // ---- navtree: o3 thread cards, slim rows, guides, hover actions, preview card
+    let (win, mut col) = frame(600, 330);
+    let threads = ListModel::new(|t: &NavItem| t.key.clone());
+    let settle = RowAction::new("settle", glyph::CHECK, "Mark settled").on_hover();
+    let branch = "\u{f062c}"; // Nerd Font source-branch
+    threads.extend([
+        NavItem::section("active", "Active").count("2"),
+        NavItem::row("t1", glyph::FOLDER, "Fix the bar").parent("active").card()
+            .overline("omarchy").status(glyph::LOADING, "Working 2m", ColorRole::Yellow)
+            .badge(Badge::icon(glyph::BOOKMARK, "Pinned", ColorRole::Dim))
+            .meta(Meta::new(branch, "feature/bar-icons")).meta(Meta::new(glyph::MONITOR, ""))
+            .action(settle.clone()),
+        NavItem::row("t1/a", glyph::LOADING, "Subagent").parent("t1").trailing("1m"),
+        NavItem::row("t2", glyph::FOLDER, "Theme picker").parent("active").card()
+            .overline("omarchy").status(glyph::CHECK, "Done", ColorRole::Green).note("5m")
+            .action(settle.clone()),
+        NavItem::section("settled", "Settled"),
+        NavItem::row("t3", glyph::FOLDER, "Sync engine").parent("settled")
+            .trailing("2d").dimmed().action(settle),
+    ]);
+    let thread = State::new("t1".to_string());
+    let mut row = layout::row();
+    let side = NavTree::new(&threads, &thread)
+        .widths(48, 300)
+        .tree_guides(true)
+        .action_menu(true)
+        .preview(240, |key, col| {
+            col.fit(&*Label::styled(key, TextStyle::Caption).bold());
+            col.fit(&*Label::styled("omarchy · this computer", TextStyle::Caption).tone(Tone::Dim));
+            true
+        });
+    row.fit(&*side);
+    let mut content = layout::column();
+    content.fit(&*Label::styled("Fix the bar", TextStyle::Title));
+    content.end();
+    row.end();
+    col.fixed(&row, 300);
+    side.set_pinned(true);
+    let mut win = done(win, col);
+    // picture: the pointer on "Theme picker" (its actions replace "Done"), its card open
+    if let Some((x, y, w, h)) = side.item_rect("t2") {
+        fltk_omarchy::focus::hover_at(&win, x + w / 2, y + h - 10);
+    }
+    side.show_preview("t2");
+    save(&mut win, &dir, "navtree-cards");
 
     // ---- dropdown (open)
     let (win, mut col) = frame(600, 210);

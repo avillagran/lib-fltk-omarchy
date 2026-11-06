@@ -149,8 +149,47 @@ cleared; Ctrl+Z brings the text back), Shift+Enter is a new line
 Mod+Shift+Enter is `.on_alternate_submit`. Without `on_submit`, Enter is
 just a new line. The send button is dimmed while there is nothing to send;
 with `.busy(&State<bool>)` true and an empty draft it becomes a **stop**
-button (`.on_stop`). `.toolbar(|row| ..)` adds a row of the app's buttons
-under the input.
+button (`.on_stop`). `.toolbar(|row| ..)` adds the app's widgets (model,
+permission and branch pickers, a dictation level ring) at the start of a
+row under the input, `.toolbar_end(|row| ..)` at its end (a context meter,
+draft status, an expand button); the row mirrors right to left and Tab
+goes input → send → the row's widgets in the order they were added.
+
+**o3's extras:** `.history(&State<Vec<String>>)` (prompts sent before,
+newest first): Up on the input's first line shows the previous prompt
+(the draft being written is kept), Down on the last line the next one,
+and past the newest the draft comes back; typing, sending or a new list
+go back to the draft (`browsing_history()`, `history_step(up)`).
+`.expanded(&State<bool>)` is o3's full-height editor: while true, Enter
+is a new line and Mod+Enter sends, and the send button's tooltip shows
+the key that sends ("Send · Enter" / "Send · Ctrl+Enter";
+`effective_send_key()`). `.attach_button()` puts a paperclip at the
+start of the row (also Mod+Shift+A in the input) that opens the system
+file chooser (fltk's native chooser, several files); the picked paths go
+to `.on_files` like drops. `.on_pick_files(|| paths)` replaces the
+chooser (a portal, a remote picker, tests); `pick_files()` opens it from
+an app shortcut.
+
+![composer o3](components/composer-o3.png)
+
+```rust
+let history = State::new(vec!["Explain the diff".to_string()]);
+let expanded = State::new(false);
+let composer = Composer::new()
+    .history(&history)
+    .expanded(&expanded)
+    .on_submit(|text| println!("send {text}"))
+    .on_files(|paths| println!("attach {paths:?}"))
+    .attach_button()
+    .toolbar(|row| {
+        row.fit(&*Button::new("Model").bordered());
+        row.fit(&*Button::new("Full access").bordered());
+    })
+    .toolbar_end(|row| {
+        row.fit(&*Button::icon(glyph::SETTINGS, "").tooltip("Model options"));
+    });
+col.fit(&*composer);
+```
 
 **Completions**: `.trigger(char, Trigger::WordStart | LineStart, |query,
 reply| ..)`. `@` and `$` start a query at the start of a word, `/` only at
@@ -185,7 +224,10 @@ Mouse: click, Shift+click, drag (scrolls at the edges), double click a
 word or chip, triple click a paragraph, middle click pastes the primary
 selection, right click opens Undo / Redo / Cut / Copy / Paste / Select all,
 wheel and scrollbar drag. **Keys (Composer):** the TextArea keys, plus
-Enter / Shift+Enter / Mod+Enter / Mod+Shift+Enter as above; with the list
+Enter / Shift+Enter / Mod+Enter / Mod+Shift+Enter as above (expanded:
+Enter is a new line); with `.history`, Up on the first line / Down on the
+last line walk the prompts; Mod+Shift+A attaches files (with
+`.attach_button()`); with the list
 open: Up/Down, PageUp/PageDown, Enter, Tab, Esc. Shift+Tab from the input
 reaches the attachment chips: Left/Right choose, Delete removes, Enter
 opens.
@@ -540,6 +582,81 @@ col.fixed(&row, 360);
 side.set_pinned(true);
 ```
 
+**o3's thread rows.** `.card()` lays a row out as o3's thread card
+(82 px with the default tokens): the icon, `.overline(project)`, badges
+(`Badge::icon(glyph, label, role)` for a pin) and the status on top, the
+title and its `.note(age)` in the middle, `.meta(Meta::new(glyph, text))`
+entries at the bottom (the first one with text, a branch, takes the free
+width and is elided in the middle; the ones after it go to the end: host,
+provider). A plain row is o3's slim row (settled threads, sub-threads).
+`.trailing(text)` or `.status(glyph, text, role)` put a time or a state
+at the end of the first line; the hover-only actions take its place while
+the row is hovered or has the keyboard cursor (Delete runs the first one;
+`.action_menu(true)` makes right-click, Menu and Shift+F10 list them when
+the app has no `on_context`). Heights follow the item: a card that
+becomes slim moves the rows below it. `.tree_guides(true)` draws a line
+under each parent's icon through its children. `.preview(width, |key,
+col| ..)` opens a card with app-built widgets beside a row the pointer
+rests on (500 ms); it stays while the pointer is on the row or the card,
+closes 140 ms after it left both, and at once on scroll, click, key,
+context menu or when the row goes away. It never takes focus
+(`show_preview(key)`, `hide_preview()`, `preview_key()`). In the picture
+the pointer is on "Theme picker" (its action replaces "Done") and its card
+is open:
+
+![navtree cards](components/navtree-cards.png)
+
+```rust
+let threads = ListModel::new(|t: &NavItem| t.key.clone());
+let settle = RowAction::new("settle", glyph::CHECK, "Mark settled").on_hover();
+let branch = "\u{f062c}"; // Nerd Font source-branch
+threads.extend([
+    NavItem::section("active", "Active").count("2"),
+    NavItem::row("t1", glyph::FOLDER, "Fix the bar").parent("active").card()
+        .overline("omarchy").status(glyph::LOADING, "Working 2m", ColorRole::Yellow)
+        .badge(Badge::icon(glyph::BOOKMARK, "Pinned", ColorRole::Dim))
+        .meta(Meta::new(branch, "feature/bar-icons")).meta(Meta::new(glyph::MONITOR, ""))
+        .action(settle.clone()),
+    NavItem::row("t1/a", glyph::LOADING, "Subagent").parent("t1").trailing("1m"),
+    NavItem::row("t2", glyph::FOLDER, "Theme picker").parent("active").card()
+        .overline("omarchy").status(glyph::CHECK, "Done", ColorRole::Green).note("5m")
+        .action(settle.clone()),
+    NavItem::section("settled", "Settled"),
+    NavItem::row("t3", glyph::FOLDER, "Sync engine").parent("settled")
+        .trailing("2d").dimmed().action(settle),
+]);
+let thread = State::new("t1".to_string());
+let mut row = layout::row();
+let side = NavTree::new(&threads, &thread)
+    .widths(48, 300)
+    .tree_guides(true)
+    .action_menu(true)
+    .preview(240, |key, col| {
+        col.fit(&*Label::styled(key, TextStyle::Caption).bold());
+        col.fit(&*Label::styled("omarchy · this computer", TextStyle::Caption).tone(Tone::Dim));
+        true
+    });
+row.fit(&*side);
+let mut content = layout::column();
+content.fit(&*Label::styled("Fix the bar", TextStyle::Title));
+content.end();
+row.end();
+col.fixed(&row, 300);
+side.set_pinned(true);
+```
+
+**Shelves** (o3's Working, Snoozed and Settled lists, each with its own
+height): a column of `NavTree`s, one per list, with a
+`navtree::ShelfResizer::new(name, &State<i32>, default)` above each
+shelf and `.shelf(&*tree)` to bind the shelf's height. Drag the grip up
+to grow the shelf below; Up/Down change it by 20 px, Home or a double
+click restore the default; `.range(min, max)` (60–1200 by default). The
+grip is a Tab stop with the Slider role. A single `NavTree` with
+collapsible sections is the other way (one scroll, one Tab stop, no
+per-section height). `examples/navtree_o3.rs` has both: 231 threads in
+cards and slim rows, the search field, the 260–600 px width edge and two
+shelves.
+
 Strings in these snippets are literals for brevity; in an app they come
 from its catalog (`tr!`, `trn!("+{count} sub-threads", n)`).
 
@@ -549,7 +666,9 @@ rows); Right opens a folded row (or goes to its first child), Left folds
 an open one (or goes to the parent); Enter or Space activates a row (folds
 a section); typing jumps to the next row whose title starts with the
 typed letters; Delete runs the row's first enabled action; Menu or
-Shift+F10 opens its context menu; Esc collapses the rail. In the search
+Shift+F10 opens its context menu (or the list of its actions with
+`.action_menu(true)`); the keyboard cursor row shows its hover actions;
+Esc closes a preview card, then collapses the rail. In the search
 field: Down goes to the results, Enter opens the best match. Right to
 left, Left and Right swap.
 
@@ -1095,7 +1214,7 @@ with an area limit and a time budget, and shape hit-testing: all in
 | TextField | `widgets::TextField` | `new()`, `password()`, `.placeholder()`, `.bind()`, `.on_change()`, `.on_submit()`, `type_text()`, `input()` |
 | NumberField | `widgets::NumberField` | `new(&State<i64>, from, to, step)` |
 | multi-line input | `edit::TextArea` | `new()`, `.placeholder()`, `.lines(min, max)`, `.bind()`, `.on_change()`, `.on_key()`, `.read_only()`, `.tab_key()`, `value`, `set_value`, `reset`, `insert_chip`, `chips`, `expanded_text`, `undo`/`redo`, `caret_rect`, `caret_on_first_line` |
-| chat composer | `edit::Composer` | `new()`, `.bind()`, `.busy()`, `.trigger(c, Trigger::.., \|q, reply\| ..)`, `.on_submit()`, `.on_alternate_submit()`, `.on_stop()`, `.on_files()`, `.send_key()`, `.toolbar(\|row\| ..)`, `attachments()`, `area()`, `submit()` |
+| chat composer | `edit::Composer` | `new()`, `.bind()`, `.busy()`, `.trigger(c, Trigger::.., \|q, reply\| ..)`, `.on_submit()`, `.on_alternate_submit()`, `.on_stop()`, `.on_files()`, `.send_key()`, `.toolbar(\|row\| ..)`, `.toolbar_end(\|row\| ..)`, `.history(&State<Vec<String>>)`, `.expanded(&State<bool>)`, `.attach_button()`, `.on_pick_files()`, `pick_files()`, `attachments()`, `area()`, `submit()` |
 | ToggleSwitch / Toggle | `widgets::ToggleSwitch`, `widgets::Toggle` | `new(&State<bool>)`, `new(title, description, &State<bool>)` |
 | PanelSlider / progress | `widgets::Slider`, `widgets::Progress` | `new(&State<f64>, min, max, step)`, `new(&State<f64>)` |
 | text tokens | `widgets::Label` | `new`, `styled(text, TextStyle::..)`, `section(..)`, `.bold()`, `.tone()`, `.center()`, `.right()`, `.bind()` |
@@ -1118,7 +1237,8 @@ with an area limit and a time budget, and shape hit-testing: all in
 | PanelToolTip | `tooltip` | automatic for `.tooltip()` / `.bind_tooltip()` / `set_tooltip`; `show(&w)`, `hide()`, `shown()`, `settings()`, `set_settings(..)` |
 | custom visuals | `gfx::View`, `gfx::Path`, `gfx::Paint`, `gfx::sl` | `View::new(w, h).paint(\|c, u\| ..)` / `.shader(sl::Shader)` / `.animate(Rate::Display)` / `.hit_shape(Hit::Fill(path))` / `.on_click(f)` — [SHADERS.md](SHADERS.md) |
 | navigation rail | `widgets::Sidebar` | `new(items, &State<usize>)`, `SidebarItem::new / header` + `.key .detail .usage .secondary .badge .dimmed .disabled .busy .collapsible .footer`, `.on_activate .on_secondary .on_context .on_drop_files .accept_drop .on_section_toggle .mode .widths .bind_pinned`, `set_items`, `item_rect` |
-| navigation tree | `navtree::NavTree` | `new(&ListModel<String, NavItem>, &State<String>)`, `NavItem::row / section / separator`, `Badge`, `RowAction`, `.search .matcher .renderer .reorder .on_move .on_action .on_context .on_drop_files .resizable .bind_width .side .header .footer_widget`, `reveal`, `scroll_to`, `pause_updates`, `set_presence`, `open_menu`, `move_item` |
+| navigation tree | `navtree::NavTree` | `new(&ListModel<String, NavItem>, &State<String>)`, `NavItem::row / section / separator`, `.card() .overline() .trailing() .status() .note() .meta(Meta)`, `Badge` (`icon`), `RowAction`, `.tree_guides .action_menu .preview(w, \|key, col\| ..)`, `ShelfResizer`, `.search
+ .matcher .renderer .reorder .on_move .on_action .on_context .on_drop_files .resizable .bind_width .side .header .footer_widget`, `reveal`, `scroll_to`, `pause_updates`, `set_presence`, `open_menu`, `move_item` |
 | window | `AppWindow` | `new`, `header().action(..)`, `body()`, `end()`, `show()`, `set_mode()`, `shortcut()`, `snapshot()` |
 
 Interior corners are an app preference: `theme::set_corners(Corners::Omarchy |
