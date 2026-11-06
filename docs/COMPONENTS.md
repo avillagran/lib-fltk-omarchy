@@ -655,11 +655,82 @@ or laying out again.
 `RichLabel` is one paragraph of inline Markdown at its natural size, for
 headers, rows and toasts; with links it is a Tab stop.
 
+### Transcript host (o3)
+
+One `RichText` holds a whole conversation: Markdown messages and app-drawn
+cards share the virtualization, selection, find and screen reader tree.
+`examples/transcript.rs` is an o3-style conversation
+(`-- --snapshot <png>` renders it offscreen).
+
+```rust
+use fltk_omarchy::text::{BlockAction, ImageData, Message, MarkdownOptions, RichText};
+let chat = RichText::new()
+    .stick_to_bottom(true)
+    .bottom_inset(composer_h)                        // the last line stays above an overlaid composer
+    .markdown_options(MarkdownOptions::default().with_path_links()) // `src/lib.rs:12` → file://…
+    .on_link(|url| open(url))                        // any scheme as written: t3-thread://, file://
+    .embed_painter(|p| paint::fill(p.x, p.y, p.w, p.h, 8, p.theme.palette.lighter_background))
+    .on_embed_visibility(|id, visible| lazy_load(id, visible))
+    .code_actions(|lang, _code| if lang == "mermaid" { vec![BlockAction::new("diagram", &tr!("Show diagram"))] } else { vec![] })
+    .table_actions(true)                             // Copy as Markdown / Copy as CSV (built in)
+    .on_block_action(|e| run(&e.action, &e.message, e.index, &e.text))
+    .on_image(|src| decode_later(src))               // then chat.set_image(src, ImageData::Rgba { .. })
+    .on_follow_change(|following| jump_button.set_visible(!following));
+chat.set_message("m1", Message::markdown("**You**\n\nHi"));        // insert or replace by key
+chat.set_message("act-7", Message::embed("act-7", 64, "Ran 3 commands"));
+chat.set_message("m2", Message::markdown(&row.text));             // re-sent whole: only the new text is parsed
+chat.prepend_messages(older);                                     // history above: the view stays still
+let saved = chat.scroll_anchor();                                 // (key, pixel offset, at_end)
+chat.restore_scroll(&saved.unwrap());
+```
+
+- **Messages by key**: `set_message` (insert or replace; Markdown that
+  extends the previous value streams, O(tail)), `insert_message(at, ..)`,
+  `prepend_messages`, `remove_message`, `move_message`,
+  `push_message_markdown`, `finish_message`, `message_keys`,
+  `message_blocks`, `message_at(block)`. Or `bind_model(&ListModel, render)`:
+  updates re-render only changed items, inserts / removals / moves become
+  message operations. Edits move only the bytes after them (in a
+  transcript: the newest messages). About 48 bytes per message.
+- **Embeds**: `Block::embed(id, height, text)` reserves `height` pixels; the
+  `embed_painter` draws it (theme colors from `EmbedPaint::theme`) or
+  `host_widget(id, &widget)` keeps a real widget over it while it is in
+  view (clipped to the view and the inset, hidden otherwise).
+  `set_embed_height` changes it later without moving what is on screen;
+  `on_embed_visibility` reports entering and leaving the view;
+  `on_embed_activate` makes embeds Tab stops (Enter, Space, click with the
+  position). The text is what selection, find, copy and screen readers see.
+- **Scrolling**: the view keeps the content at its top still whenever
+  heights change above it (layout, embeds, images, prepends), unless it
+  follows the end. `scroll_anchor` / `restore_scroll` by message key,
+  `follow_end`, `is_following`, `on_follow_change`, `set_bottom_inset`,
+  `scroll_to_message`, `scroll_to_pos`.
+- **Actions**: `code_actions(|lang, code| ..)` adds app buttons to each
+  code block header, before the copy button; `table_actions(true)` adds a
+  footer with Copy as Markdown and Copy as CSV, `extra_table_actions` more
+  buttons. All reach `on_block_action` with the action id, the message key,
+  the block's index in it, the language and the code (or the table as
+  Markdown / CSV). `text::table_markdown` / `table_csv` convert any table
+  block.
+- **Images**: with `on_image` (or `MarkdownOptions::with_images`) an
+  `![alt](src)` becomes its own block: alt text linked to `src` until the
+  app answers `set_image(src, ImageData::Size | Rgba | Painted | Failed)`,
+  then a placeholder of that size or the pixels (at most the column wide
+  and `image_max_height`). Requested once, when it first comes into view.
+- **Find and selection**: `find(query)` highlights every match
+  (case-insensitive, new text included) and scrolls the current one into
+  view; `find_next` / `find_prev` (F3 / Shift+F3, Mod+G / Shift+Mod+G),
+  `find_count`, `find_current`, `find_match`, `clear_find`.
+  `selection_rect()` places a floating Quote button, `on_selection_change`,
+  `select_text(range)` / `text_offset` / `text_pos` /
+  `message_text_range(key)` in `plain_text()` offsets.
+
 **Keys:** Up/Down, PageUp/PageDown, Home/End scroll (End follows the
-stream again); Tab and Shift+Tab go through the links and code copy
-buttons in view, then on to the next control; Enter or Space opens the
-link (`on_link`) or copies the code; Ctrl+A selects all, Ctrl+C copies
-(Cmd on macOS); Esc clears the selection. Mouse: drag selects across
+stream again); Tab and Shift+Tab go through the links, code header and
+table footer actions, code copy buttons and activatable embeds in view,
+then on to the next control; Enter or Space opens the link (`on_link`) or
+runs the action; F3 / Shift+F3 move between find matches; Ctrl+A selects
+all, Ctrl+C copies (Cmd on macOS); Esc clears the selection. Mouse: drag selects across
 blocks, double click a word, triple click a block; the pointer is a hand
 over links.
 
@@ -668,9 +739,9 @@ its lines follow the Unicode bidi algorithm (mixed Arabic, Latin and
 numbers in visual order; selection follows the screen); see
 [I18N.md](I18N.md#bidirectional-text).
 
-**Limits:** long code lines wrap (no horizontal scrolling); images show as
-their alt text with the link; the scrollbar stays on the right in a
-right-to-left language.
+**Limits:** long code lines wrap (no horizontal scrolling); images decode
+in the app (`set_image` takes RGBA); embeds span the column; the
+scrollbar stays on the right in a right-to-left language.
 
 ## PopupMenu (Preferences / Actions / context menus)
 
