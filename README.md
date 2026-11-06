@@ -53,6 +53,11 @@ limit and a time budget per draw. Pictures, API and measured cost:
 
 ![shapes and shaders](docs/components/gfx-gallery.png)
 
+**Diagrams** (optional `mermaid` feature): Mermaid flowcharts, sequence
+and state diagrams drawn natively with `gfx` in theme colors, as a
+`MermaidView` or inside a chat transcript (`RichText::native_mermaid`),
+no web view. See [docs/MERMAID.md](docs/MERMAID.md).
+
 - **Theme**: reads `~/.local/state/omarchy/current/theme/{colors,shell}.toml`
   and `~/.config/omarchy/shell.toml` with the same keys and defaults as
   omarchy-shell, Hyprland rounding/gaps, the `monospace` font; follows
@@ -110,6 +115,7 @@ cargo run --example app_shell    # Preferences/Actions menus, tabs, search, F1 h
 cargo run --example docs_shots -- docs/components   # re-render the pictures of docs/COMPONENTS.md
 cargo run --example shaders      # shapes, gradients, effects, animated CPU shaders
 cargo run --example richtext     # Markdown chat transcript (-- --stream streams a reply)
+cargo run --features mermaid --example mermaid   # native Mermaid diagrams (-- --snapshot dir, -- --bench)
 cargo run --release --example playground   # every component in one window, actions logged to build/playground.log
 cargo run --release --features gpu --example gpu_bench -- check build/gpu-check.json   # GPU shader pixel check
 cargo test --offline             # unit + doc + main-thread UI tests

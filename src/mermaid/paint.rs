@@ -29,6 +29,9 @@ pub fn color(role: Role, t: &Theme, under: Rgb) -> Rgb {
     }
 }
 
+/// Most canvas pixels one picture holds (32 MB of RGBA).
+const MAX_PIXELS: f32 = 8_000_000.0;
+
 /// A rendered picture of a diagram's shapes, kept while the diagram, the
 /// pixel density, the theme and the color under it are the same. Text is
 /// drawn on top at every paint (FLTK text is crisp at any density).
@@ -48,8 +51,10 @@ impl Picture {
     /// Draws `d` with its top left at (x, y), `unit` canvas pixels per
     /// widget pixel (`native::pixels_per_unit`), over `under`.
     pub fn draw(&mut self, d: &Diagram, x: i32, y: i32, unit: f32, under: Rgb) {
-        let unit = if unit.is_finite() { unit.clamp(1.0, 4.0) } else { 1.0 };
         let (w, h) = (d.width.ceil().max(1.0) as i32, d.height.ceil().max(1.0) as i32);
+        // At most MAX_PIXELS per picture: huge diagrams render coarser.
+        let fit = (MAX_PIXELS / (w as f32 * h as f32)).sqrt();
+        let unit = if unit.is_finite() { unit.clamp(1.0, 4.0).min(fit).max(0.25) } else { 1.0 };
         let (pw, ph) = (((w as f32) * unit).round() as i32, ((h as f32) * unit).round() as i32);
         let key = {
             let mut hs = std::collections::hash_map::DefaultHasher::new();
@@ -106,7 +111,8 @@ pub fn rasterize(d: &Diagram, pw: usize, ph: usize, unit: f32, t: &Theme, under:
                             c.stroke(&polygon(&seg, false), &st, col(*role));
                         }
                     }
-                    _ => c.stroke(&polygon(points, *closed), &st, col(*role)),
+                    _ if !*closed => c.stroke(&polygon(&simplify(points, 0.3 / unit), false), &st, col(*role)),
+                    _ => c.stroke(&polygon(points, true), &st, col(*role)),
                 }
             }
             _ => {}
@@ -124,6 +130,38 @@ fn polygon(points: &[[f32; 2]], closed: bool) -> Path {
         p = p.close();
     }
     p
+}
+
+/// `pts` with the points that bend it less than `eps` dropped
+/// (Ramer–Douglas–Peucker): flattened curves stroke as a few long
+/// segments, so the joins of many short ones do not speckle thin lines.
+fn simplify(pts: &[[f32; 2]], eps: f32) -> Vec<[f32; 2]> {
+    if pts.len() < 3 {
+        return pts.to_vec();
+    }
+    let mut keep = vec![false; pts.len()];
+    keep[0] = true;
+    keep[pts.len() - 1] = true;
+    let mut stack = vec![(0usize, pts.len() - 1)];
+    while let Some((a, b)) = stack.pop() {
+        if b <= a + 1 {
+            continue;
+        }
+        let (mut far, mut at) = (0.0f32, a);
+        for (i, p) in pts.iter().enumerate().take(b).skip(a + 1) {
+            let d = super::common::seg_dist(*p, pts[a], pts[b]);
+            if d > far {
+                far = d;
+                at = i;
+            }
+        }
+        if far > eps {
+            keep[at] = true;
+            stack.push((a, at));
+            stack.push((at, b));
+        }
+    }
+    pts.iter().zip(keep).filter(|(_, k)| *k).map(|(p, _)| *p).collect()
 }
 
 /// The "on" pieces of a dashed polyline.
@@ -199,6 +237,14 @@ pub fn draw_text(d: &Diagram, x: i32, y: i32, t: &Theme, under: Rgb) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn simplify_keeps_corners_and_drops_flat_points() {
+        let line: Vec<[f32; 2]> = (0..=10).map(|i| [i as f32, 0.0]).collect();
+        assert_eq!(simplify(&line, 0.3), vec![[0.0, 0.0], [10.0, 0.0]]);
+        let corner = [[0.0, 0.0], [5.0, 0.0], [5.0, 5.0]];
+        assert_eq!(simplify(&corner, 0.3).len(), 3);
+    }
 
     #[test]
     fn dashes_alternate() {
