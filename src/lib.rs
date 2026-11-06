@@ -23,6 +23,8 @@ pub mod platform;
 pub mod panel;
 pub mod png;
 pub mod popups;
+#[cfg(feature = "qr")]
+pub mod qr;
 pub mod scroll;
 pub mod shortcuts;
 pub mod sidebar;

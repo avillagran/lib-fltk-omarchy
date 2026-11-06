@@ -251,5 +251,5 @@ on the GPU backend than on the CPU backend; idle stays 0 %; total PSS
 | P1 14 nested scroll hand-off (`Scroll::passes`; List, Table, Tree) | merged; RichText and NavTree after their merges |
 | P1 17 keys: command tables, record, repeat, suspend | merged |
 | P1 18 font weights, letter spacing, named and terminal colors, project colors | merged |
-| P1 19 charts (`chart`) | merged; masked input and QR pending |
+| P1 19 charts (`chart`), QR codes (`qr`, feature) | merged; masked input pending |
 | P1 9–11, 15, 16, 20 | not started |

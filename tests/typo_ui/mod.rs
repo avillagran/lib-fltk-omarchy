@@ -52,4 +52,46 @@ pub fn checks(run: &mut dyn FnMut(&str, Check)) {
         fltk::window::DoubleWindow::delete((*win).clone());
         Ok(())
     });
+
+    #[cfg(feature = "qr")]
+    run("qr: dark modules on a light card with the quiet zone", &|shots| {
+        use fltk_omarchy::layout::FlexExt;
+        use fltk_omarchy::qr::{modules, Qr, QUIET};
+        use fltk_omarchy::State;
+        let text = "https://example.com/pair?code=123456";
+        let link = State::new(text.to_string());
+        let mut win = AppWindow::new("QR", 300, 300);
+        let mut body = win.body();
+        let mut code = Qr::new(&link).accessible_label("Pairing code");
+        code.set_size(200, 200);
+        body.fit(&*code);
+        win.end();
+        win.show();
+        let c2 = code.clone();
+        pump_until(|| c2.w() > 0);
+        let p = shots.join("qr.png");
+        win.clone().snapshot(&p).map_err(|e| e.to_string())?;
+        let m = modules(text).ok_or("no modules")?;
+        let n = (m.len() + 2 * QUIET) as i32;
+        let unit = code.w().min(code.h()) / n;
+        let side = unit * n;
+        let (x0, y0) = (code.x() + (code.w() - side) / 2, code.y() + (code.h() - side) / 2);
+        let (fg, bg) = theme::with(|t| (t.palette.foreground, t.palette.background));
+        let at = |r: usize, c: usize| pixel(&p, x0 + (c + QUIET) as i32 * unit + unit / 2, y0 + (r + QUIET) as i32 * unit + unit / 2);
+        let same = |a: [u8; 3], b: theme::Rgb| a[0].abs_diff(b.r()) <= 2 && a[1].abs_diff(b.g()) <= 2 && a[2].abs_diff(b.b()) <= 2;
+        let mut wrong = 0;
+        for (r, row) in m.iter().enumerate() {
+            for (c, on) in row.iter().enumerate() {
+                if !same(at(r, c)?, if *on { bg } else { fg }) {
+                    wrong += 1;
+                }
+            }
+        }
+        check(wrong == 0, &format!("{wrong} modules differ from the code"))?;
+        let quiet = pixel(&p, x0 + unit * 2, y0 + unit * 2)?;
+        check(same(quiet, fg), "quiet zone is the light card")?;
+        link.set("x".repeat(5000));
+        fltk::window::DoubleWindow::delete((*win).clone());
+        Ok(())
+    });
 }

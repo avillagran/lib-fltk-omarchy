@@ -63,7 +63,8 @@
     "Suggestions": "Suggestions",
     "Searching…": "Searching…",
     "No results": "No results",
-    "Sidebar": "Sidebar"
+    "Sidebar": "Sidebar",
+    "Too long for a QR code": "Too long for a QR code"
   },
   "es": {
     "Cancel": "Cancelar",
@@ -129,7 +130,8 @@
     "Suggestions": "Sugerencias",
     "Searching…": "Buscando…",
     "No results": "Sin resultados",
-    "Sidebar": "Barra lateral"
+    "Sidebar": "Barra lateral",
+    "Too long for a QR code": "Demasiado largo para un código QR"
   },
   "pt": {
     "Cancel": "Cancelar",
@@ -195,7 +197,8 @@
     "Suggestions": "Sugestões",
     "Searching…": "Pesquisando…",
     "No results": "Nenhum resultado",
-    "Sidebar": "Barra lateral"
+    "Sidebar": "Barra lateral",
+    "Too long for a QR code": "Longo demais para um código QR"
   },
   "fr": {
     "Cancel": "Annuler",
@@ -261,7 +264,8 @@
     "Suggestions": "Suggestions",
     "Searching…": "Recherche…",
     "No results": "Aucun résultat",
-    "Sidebar": "Barre latérale"
+    "Sidebar": "Barre latérale",
+    "Too long for a QR code": "Trop long pour un code QR"
   },
   "de": {
     "Cancel": "Abbrechen",
@@ -327,7 +331,8 @@
     "Suggestions": "Vorschläge",
     "Searching…": "Suche…",
     "No results": "Keine Ergebnisse",
-    "Sidebar": "Seitenleiste"
+    "Sidebar": "Seitenleiste",
+    "Too long for a QR code": "Zu lang für einen QR-Code"
   },
   "it": {
     "Cancel": "Annulla",
@@ -393,7 +398,8 @@
     "Suggestions": "Suggerimenti",
     "Searching…": "Ricerca…",
     "No results": "Nessun risultato",
-    "Sidebar": "Barra laterale"
+    "Sidebar": "Barra laterale",
+    "Too long for a QR code": "Troppo lungo per un codice QR"
   },
   "nl": {
     "Cancel": "Annuleren",
@@ -459,7 +465,8 @@
     "Suggestions": "Suggesties",
     "Searching…": "Zoeken…",
     "No results": "Geen resultaten",
-    "Sidebar": "Zijbalk"
+    "Sidebar": "Zijbalk",
+    "Too long for a QR code": "Te lang voor een QR-code"
   },
   "pl": {
     "Cancel": "Anuluj",
@@ -527,7 +534,8 @@
     "Suggestions": "Podpowiedzi",
     "Searching…": "Wyszukiwanie…",
     "No results": "Brak wyników",
-    "Sidebar": "Pasek boczny"
+    "Sidebar": "Pasek boczny",
+    "Too long for a QR code": "Za długie na kod QR"
   },
   "ru": {
     "Cancel": "Отмена",
@@ -595,7 +603,8 @@
     "Suggestions": "Подсказки",
     "Searching…": "Поиск…",
     "No results": "Ничего не найдено",
-    "Sidebar": "Боковая панель"
+    "Sidebar": "Боковая панель",
+    "Too long for a QR code": "Слишком длинно для QR-кода"
   },
   "uk": {
     "Cancel": "Скасувати",
@@ -663,7 +672,8 @@
     "Suggestions": "Підказки",
     "Searching…": "Пошук…",
     "No results": "Нічого не знайдено",
-    "Sidebar": "Бічна панель"
+    "Sidebar": "Бічна панель",
+    "Too long for a QR code": "Задовго для QR-коду"
   },
   "ja": {
     "Cancel": "キャンセル",
@@ -728,7 +738,8 @@
     "Suggestions": "候補",
     "Searching…": "検索中…",
     "No results": "結果なし",
-    "Sidebar": "サイドバー"
+    "Sidebar": "サイドバー",
+    "Too long for a QR code": "QR コードには長すぎます"
   },
   "ko": {
     "Cancel": "취소",
@@ -793,7 +804,8 @@
     "Suggestions": "제안",
     "Searching…": "검색 중…",
     "No results": "결과 없음",
-    "Sidebar": "사이드바"
+    "Sidebar": "사이드바",
+    "Too long for a QR code": "QR 코드로 만들기에 너무 깁니다"
   },
   "zh": {
     "Cancel": "取消",
@@ -858,7 +870,8 @@
     "Suggestions": "建议",
     "Searching…": "正在搜索…",
     "No results": "无结果",
-    "Sidebar": "侧边栏"
+    "Sidebar": "侧边栏",
+    "Too long for a QR code": "内容过长，无法生成二维码"
   },
   "ar": {
     "Cancel": "إلغاء",
@@ -928,7 +941,8 @@
     "Suggestions": "اقتراحات",
     "Searching…": "جارٍ البحث…",
     "No results": "لا توجد نتائج",
-    "Sidebar": "الشريط الجانبي"
+    "Sidebar": "الشريط الجانبي",
+    "Too long for a QR code": "أطول من أن يُعرض في رمز QR"
   },
   "tr": {
     "Cancel": "İptal",
@@ -994,7 +1008,8 @@
     "Suggestions": "Öneriler",
     "Searching…": "Aranıyor…",
     "No results": "Sonuç yok",
-    "Sidebar": "Kenar çubuğu"
+    "Sidebar": "Kenar çubuğu",
+    "Too long for a QR code": "QR kod için çok uzun"
   },
   "sv": {
     "Cancel": "Avbryt",
@@ -1060,7 +1075,8 @@
     "Suggestions": "Förslag",
     "Searching…": "Söker…",
     "No results": "Inga resultat",
-    "Sidebar": "Sidofält"
+    "Sidebar": "Sidofält",
+    "Too long for a QR code": "För långt för en QR-kod"
   },
   "da": {
     "Cancel": "Annuller",
@@ -1126,7 +1142,8 @@
     "Suggestions": "Forslag",
     "Searching…": "Søger…",
     "No results": "Ingen resultater",
-    "Sidebar": "Sidepanel"
+    "Sidebar": "Sidepanel",
+    "Too long for a QR code": "For langt til en QR-kode"
   },
   "no": {
     "Cancel": "Avbryt",
@@ -1192,7 +1209,8 @@
     "Suggestions": "Forslag",
     "Searching…": "Søker…",
     "No results": "Ingen resultater",
-    "Sidebar": "Sidepanel"
+    "Sidebar": "Sidepanel",
+    "Too long for a QR code": "For langt for en QR-kode"
   },
   "fi": {
     "Cancel": "Peruuta",
@@ -1258,7 +1276,8 @@
     "Suggestions": "Ehdotukset",
     "Searching…": "Haetaan…",
     "No results": "Ei tuloksia",
-    "Sidebar": "Sivupalkki"
+    "Sidebar": "Sivupalkki",
+    "Too long for a QR code": "Liian pitkä QR-koodiksi"
   },
   "cs": {
     "Cancel": "Zrušit",
@@ -1325,6 +1344,7 @@
     "Suggestions": "Návrhy",
     "Searching…": "Hledání…",
     "No results": "Žádné výsledky",
-    "Sidebar": "Postranní panel"
+    "Sidebar": "Postranní panel",
+    "Too long for a QR code": "Příliš dlouhé pro QR kód"
   }
 }

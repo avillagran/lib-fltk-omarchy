@@ -93,6 +93,8 @@ jobs:
           env -u WAYLAND_DISPLAY xvfb-run -a -s "-screen 0 1280x800x24" cargo test --locked --features gpu
       - name: a11y feature (AccessKit; tree checks without a bus)
         run: env -u WAYLAND_DISPLAY xvfb-run -a -s "-screen 0 1280x800x24" cargo test --locked --features a11y
+      - name: qr feature
+        run: env -u WAYLAND_DISPLAY xvfb-run -a -s "-screen 0 1280x800x24" cargo test --locked --features qr
 
   linux-wayland:
     name: Linux Wayland (headless sway)

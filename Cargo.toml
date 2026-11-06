@@ -28,6 +28,9 @@ unicode-segmentation = "=1.12.0"
 unicode-bidi = { version = "=0.3.18", default-features = false, features = ["std", "hardcoded-data"] }
 # Only with the `gpu` feature (MIT OR Apache-2.0 OR Zlib).
 glow = { version = "0.16", optional = true }
+# Only with the `qr` feature (MIT OR Apache-2.0, no dependencies without
+# its default features; Rust 1.67).
+qrcode = { version = "0.14.1", optional = true, default-features = false }
 # Only with the `a11y` feature (all MIT OR Apache-2.0). This feature needs
 # Rust 1.85 (the rest of the crate keeps 1.80): accesskit_unix 0.19, the
 # last release on 1.80, waits for AT-SPI's `ScreenReaderEnabled`, which
@@ -64,6 +67,8 @@ default = []
 gpu = ["fltk/enable-glwindow", "dep:glow"]
 # Screen-reader support through AccessKit (AT-SPI on Linux/BSD, UI
 # Automation on Windows, NSAccessibility on macOS). See docs/ACCESSIBILITY.md.
+# QR codes (`qr::Qr`), for pairing and invite links. Off by default.
+qr = ["dep:qrcode"]
 a11y = ["dep:accesskit", "dep:accesskit_consumer", "dep:accesskit_unix", "dep:accesskit_windows", "dep:accesskit_macos"]
 
 [profile.release]
