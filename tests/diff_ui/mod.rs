@@ -529,8 +529,19 @@ pub fn checks(run: &mut dyn FnMut(&str, Check)) {
         check(!near(pixel(&p, bx + 3, by + bh / 2)?, accent, 12), "no button before hovering")?;
         focus::hover_at(&*f.win, bx + 200, by + bh / 2);
         let p = shot(&f, shots, "diff-comment-hover.png")?;
-        let px = pixel(&p, bx + 2, by + bh / 2)?;
-        check(near(px, accent, 3), &format!("hover shows the accent button: {px:?} vs {accent:?}"))?;
+        // The "+" glyph's antialiased edges vary by platform: look for its
+        // accent anywhere in the button.
+        let mut px = pixel(&p, bx + 2, by + bh / 2)?;
+        'scan: for y in by..by + bh {
+            for x in bx..bx + bw {
+                let c = pixel(&p, x, y)?;
+                if near(c, accent, 12) {
+                    px = c;
+                    break 'scan;
+                }
+            }
+        }
+        check(near(px, accent, 12), &format!("hover shows the accent button: {px:?} vs {accent:?}"))?;
         focus::click_at(&*f.win, bx + bw / 2, by + bh / 2);
         check(*comments.borrow() == [LineRange { file: 0, side: Side::New, start: 13, end: 13 }], &format!("click comments on the line: {:?}", comments.borrow()))?;
         check(v.selected_range() == Some(LineRange { file: 0, side: Side::New, start: 13, end: 13 }), "and selects it")?;
@@ -544,8 +555,17 @@ pub fn checks(run: &mut dyn FnMut(&str, Check)) {
         v.panel().focus();
         v.panel().select_only(v.panel().id_at(row(Side::New, 16)).unwrap());
         let p = shot(&f, shots, "diff-comment-cursor.png")?;
-        let (bx, by, _, bh) = v.comment_button_rect(row(Side::New, 16), Side::New).unwrap();
-        check(near(pixel(&p, bx + 2, by + bh / 2)?, accent, 3), "cursor line shows the button")?;
+        let (bx, by, bw, bh) = v.comment_button_rect(row(Side::New, 16), Side::New).unwrap();
+        let mut found = false;
+        'cursor: for y in by..by + bh {
+            for x in bx..bx + bw {
+                if near(pixel(&p, x, y)?, accent, 12) {
+                    found = true;
+                    break 'cursor;
+                }
+            }
+        }
+        check(found, "cursor line shows the button")?;
         press("Enter");
         check(comments.borrow().last() == Some(&LineRange { file: 0, side: Side::New, start: 16, end: 16 }), &format!("Enter: {:?}", comments.borrow().last()))?;
         // Split: the left half comments on the old side.
