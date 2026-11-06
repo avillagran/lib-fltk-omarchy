@@ -165,10 +165,11 @@ is a new line and Mod+Enter sends, and the send button's tooltip shows
 the key that sends ("Send · Enter" / "Send · Ctrl+Enter";
 `effective_send_key()`). `.attach_button()` puts a paperclip at the
 start of the row (also Mod+Shift+A in the input) that opens the system
-file chooser (fltk's native chooser, several files); the picked paths go
+file chooser (`dialog`: xdg-desktop-portal on Linux, else fltk's native
+chooser; several files, answered asynchronously); the picked paths go
 to `.on_files` like drops. `.on_pick_files(|| paths)` replaces the
-chooser (a portal, a remote picker, tests); `pick_files()` opens it from
-an app shortcut.
+chooser (a remote picker, tests); `pick_files()` opens it from an app
+shortcut.
 
 ![composer o3](components/composer-o3.png)
 

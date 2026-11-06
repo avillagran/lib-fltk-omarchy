@@ -28,6 +28,7 @@ it behaves exactly as before the platform layer.
 | Single instance + app IPC (`instance`) | Unix socket in `$XDG_RUNTIME_DIR`, `flock`, `SO_PEERCRED` | same | Unix socket in `$TMPDIR`, `flock`, `getpeereid` | named pipe, first-instance flag, owner check |
 | Raise a window from the background (`AppWindow::raise`) | Hyprland `focuswindow` on our own window; other compositors: none (FLTK has no xdg-activation) | FLTK `_NET_ACTIVE_WINDOW` (EWMH) | `NSApp activateIgnoringOtherApps:` | `SetForegroundWindow` (the caller grants `AllowSetForegroundWindow`) |
 | Animations on/off (`platform::animations`, `anim`) | Hyprland `animations:enabled` (live: event socket), else GNOME `enable-animations` (`gsettings`) | same | `NSWorkspace.accessibilityDisplayShouldReduceMotion` | `SPI_GETCLIENTAREAANIMATION` |
+| File dialogs (`dialog`) | xdg-desktop-portal FileChooser over D-Bus, else FLTK's native chooser (GTK, zenity, kdialog or FLTK's own) | same; the portal gets the X11 parent window | FLTK's native chooser (`NSOpenPanel`/`NSSavePanel`) | FLTK's native chooser (`IFileDialog`) |
 | External frames (`frame`) | `memfd` + pipes (inherited), POSIX shm + FIFOs (named), mapped file + 8 ms polling | same | `shm_open` + pipes or FIFOs, mapped file | named file mapping + events, mapped file |
 
 "FLTK moves/resizes the window" is the portable fallback in `AppWindow`:
@@ -149,6 +150,34 @@ work on every OS without shared memory. Linux is run-tested (unit tests,
 a second process per transport in `tests/frame.rs`, `tests/frame_ui`,
 `script/frame-bench` on X11 and on Hyprland); macOS and Windows are
 type-checked.
+
+### File dialogs
+
+`fltk_omarchy::dialog` opens and saves files the way Omarchy's own apps
+do: through xdg-desktop-portal (`org.freedesktop.portal.FileChooser`), so
+the desktop's chooser opens and sandboxed apps receive their files. The
+D-Bus side is a small built-in client in `src/platform/portal/` (wire
+format, SASL `EXTERNAL`, method calls, signals; no dependency). A
+one-shot `gdbus call` cannot be used: the portal closes a request when its
+caller leaves the bus, so the connection must stay open until the
+`Response` signal.
+
+| | Linux / BSDs | macOS | Windows |
+|---|---|---|---|
+| First choice | portal: `OpenFile`/`SaveFile` with a predicted `handle_token` (the `Response` match is added before the call), `modal`, `multiple`, `directory`, `filters`, `current_filter`, `current_name`, `current_folder`, `accept_label` | FLTK native | FLTK native |
+| Fallback | FLTK native when there is no session bus, no portal service, no FileChooser backend, or the portal ends the request with an error | — | — |
+| Parent window | `x11:<XID>` on X11; none on Wayland (FLTK has no xdg-foreign export) | — | — |
+| While open | `run`: worker thread + nested `Fl::wait` loop (redraws, timers, `task::post` keep going); `run_async`: worker thread, callback through `task::post` | the OS panel's modal loop | same |
+
+The portal service quitting during a dialog ends the request
+(`NameOwnerChanged`) instead of waiting forever. `OMARCHY_FLTK_FILE_DIALOG`
+= `portal` | `native` | `none` changes the order; scripted testkit runs
+never open dialogs; `dialog::set_picker` replaces every chooser in tests.
+Verified: unit tests against a fake portal on a private bus socket (open,
+save, cancel, old portals' own handle path, missing service, portal
+quitting, no bus), and a read of the real portal's `version` property
+over the session bus (`cargo test -- --ignored real_bus`). No test opens a
+real dialog.
 
 ### Theme
 

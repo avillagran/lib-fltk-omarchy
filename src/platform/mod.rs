@@ -13,6 +13,7 @@
 //! | Live reload | inotify (blocking) | mtime polling, 1 s | mtime polling, 1 s |
 //! | Default font | fontconfig `monospace` | Menlo | Consolas |
 //! | Primary modifier | Ctrl | Cmd | Ctrl |
+//! | File dialogs ([`crate::dialog`]) | xdg-desktop-portal over D-Bus, else FLTK's native chooser | FLTK's native chooser (`NSOpenPanel`) | FLTK's native chooser (`IFileDialog`) |
 //! | Motion setting ([`animations`]) | Hyprland `animations:enabled` (live), GNOME `enable-animations` | Reduce motion | Client area animation |
 //!
 //! Details and how each one was verified: docs/PLATFORMS.md.
@@ -35,6 +36,10 @@ pub mod memory;
 #[cfg(feature = "playback")]
 pub(crate) mod playback;
 pub(crate) mod poll;
+/// xdg-desktop-portal file chooser over a minimal D-Bus client (Linux and
+/// BSDs; not macOS, which has no portal).
+#[cfg(all(unix, not(target_os = "macos")))]
+pub(crate) mod portal;
 
 #[cfg(target_os = "linux")]
 mod linux;
@@ -188,6 +193,46 @@ pub(crate) mod glass {
     pub(crate) use super::imp::glass::{
         begin, current_surface, end, set_opaque_region, target, Target,
     };
+}
+
+/// Shows `req` through xdg-desktop-portal's FileChooser and waits for the
+/// answer (call it from a worker thread). `parent` is the portal's
+/// parent-window handle ([`portal_parent`]). `Err(Unavailable)` where there
+/// is no portal (macOS, Windows, no session bus, no portal service), so
+/// [`crate::dialog`] falls back to the native chooser.
+pub(crate) fn file_portal(
+    req: &crate::dialog::Request,
+    parent: &str,
+) -> Result<Vec<std::path::PathBuf>, crate::dialog::Error> {
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        portal::run(req, parent)
+    }
+    #[cfg(not(all(unix, not(target_os = "macos"))))]
+    {
+        let _ = (req, parent);
+        Err(crate::dialog::Error::Unavailable(
+            "no xdg-desktop-portal on this OS".into(),
+        ))
+    }
+}
+
+/// True where [`file_portal`] can work at all (Linux, BSDs).
+pub(crate) fn has_file_portal() -> bool {
+    cfg!(all(unix, not(target_os = "macos")))
+}
+
+/// The portal's parent-window handle for the active window (`x11:<XID>` on
+/// X11, else empty). UI thread.
+pub(crate) fn portal_parent() -> String {
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        portal::parent_handle()
+    }
+    #[cfg(not(all(unix, not(target_os = "macos"))))]
+    {
+        String::new()
+    }
 }
 
 /// Whether views move their pixels for scroll-only frames (`fl_scroll`)

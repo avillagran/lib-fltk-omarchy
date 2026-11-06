@@ -743,12 +743,22 @@ impl Composer {
         let paths = match self.d.pick.call(()) {
             Some(p) => p,
             None => {
-                let mut fc = fltk::dialog::NativeFileChooser::new(
-                    fltk::dialog::NativeFileChooserType::BrowseMultiFile,
-                );
-                fc.set_title(&crate::tr!("Attach files"));
-                fc.show();
-                fc.filenames()
+                // The portal (or the native chooser) answers later on the
+                // UI thread; the composer keeps working meanwhile.
+                let me = self.clone();
+                crate::dialog::Request::open(crate::tr!("Attach files"))
+                    .multiple(true)
+                    .run_async(move |r| {
+                        match r {
+                            Ok(paths) => {
+                                me.d.files.call(paths);
+                            }
+                            Err(crate::dialog::Error::Cancelled) => {}
+                            Err(e) => eprintln!("fltk-omarchy: {e}"),
+                        }
+                        let _ = me.area.clone().take_focus();
+                    });
+                return;
             }
         };
         if !paths.is_empty() {
