@@ -15,6 +15,9 @@ pub fn flush() {
     app::flush();
 }
 
+static KEEP_RUNNING: AtomicBool = AtomicBool::new(false);
+static QUIT: AtomicBool = AtomicBool::new(false);
+
 /// `let app = fltk_omarchy::App::new("dev.me.notes");` … `app.run();`
 pub struct App {
     id: String,
@@ -58,15 +61,35 @@ impl App {
         &self.id
     }
 
-    /// Runs until every window is closed or [`App::quit`] is called.
+    /// Runs until every window is closed or [`App::quit`] is called
+    /// (with [`App::keep_running`], only until `App::quit`).
     /// On return, background tasks are cancelled and their workers joined
     /// (up to 2 s) and theme watching stops.
     pub fn run(mut self) {
-        while app::wait() {
+        loop {
+            // Fl::wait() returns at once when no window is shown; a
+            // resident app waits for events, timers and posted work anyway.
+            let alive = if KEEP_RUNNING.load(Ordering::Relaxed) {
+                let _ = app::wait_for(1e20);
+                true
+            } else {
+                app::wait()
+            };
             task::drain();
+            if QUIT.swap(false, Ordering::Relaxed) || !alive {
+                break;
+            }
         }
         task::drain();
         self.shutdown();
+    }
+
+    /// Keeps [`App::run`] going while no window is shown, until
+    /// [`App::quit`]: apps that start hidden or hide to the background
+    /// (a single-instance app toggled from the bar, see [`crate::instance`]).
+    /// Off by default: `run` returns when the last window closes.
+    pub fn keep_running(&self, on: bool) {
+        KEEP_RUNNING.store(on, Ordering::Relaxed);
     }
 
     /// Processes pending events without blocking (tests and scripted demos).
@@ -75,8 +98,16 @@ impl App {
         task::drain();
     }
 
+    /// Hides every window and ends [`App::run`] (also with
+    /// [`App::keep_running`]). Thread-safe.
     pub fn quit() {
-        app::quit();
+        QUIT.store(true, Ordering::Relaxed);
+        if app::is_ui_thread() {
+            app::quit();
+        } else {
+            task::post(app::quit);
+        }
+        app::awake();
     }
 
     fn shutdown(&mut self) {

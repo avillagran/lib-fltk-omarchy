@@ -25,6 +25,8 @@ it behaves exactly as before the platform layer.
 | `native::pixels_per_unit` | FLTK scale × Wayland output scale | FLTK scale | FLTK's value (Retina included) | FLTK's value |
 | Config/state/cache dirs (`platform::dirs`) | XDG | XDG | `~/Library/Application Support`, `~/Library/Caches` | `%APPDATA%`, `%LOCALAPPDATA%` |
 | GPU shaders (`gpu` feature) | yes | yes | builds (OpenGL through FLTK) | builds (OpenGL through FLTK) |
+| Single instance + app IPC (`instance`) | Unix socket in `$XDG_RUNTIME_DIR`, `flock`, `SO_PEERCRED` | same | Unix socket in `$TMPDIR`, `flock`, `getpeereid` | named pipe, first-instance flag, owner check |
+| Raise a window from the background (`AppWindow::raise`) | Hyprland `focuswindow` on our own window; other compositors: none (FLTK has no xdg-activation) | FLTK `_NET_ACTIVE_WINDOW` (EWMH) | `NSApp activateIgnoringOtherApps:` | `SetForegroundWindow` (the caller grants `AllowSetForegroundWindow`) |
 | Animations on/off (`platform::animations`, `anim`) | Hyprland `animations:enabled` (live: event socket), else GNOME `enable-animations` (`gsettings`) | same | `NSWorkspace.accessibilityDisplayShouldReduceMotion` | `SPI_GETCLIENTAREAANIMATION` |
 
 "FLTK moves/resizes the window" is the portable fallback in `AppWindow`:
@@ -42,7 +44,7 @@ Windows.
 | `platform::animations()` | the OS motion setting (`Some(false)`: reduce motion); read by `anim` on its watcher thread (docs/ANIMATION.md) |
 | `platform::prefers_dark()` | the system appearance: `Some(true)` dark, `Some(false)` light, `None` unknown (Linux: the Omarchy theme decides) |
 | `platform::process_cpu_time()` | this process's CPU time (benchmarks) |
-| `platform::dirs::{home, config, data, state, cache, app_config, app_data, app_state, app_cache}` | per-OS user directories, no dependencies |
+| `platform::dirs::{home, config, data, state, cache, runtime, app_config, app_data, app_state, app_cache}` | per-OS user directories, no dependencies (`runtime`: `$XDG_RUNTIME_DIR`, else the per-user temp dir; `OMARCHY_FLTK_RUNTIME_DIR` overrides) |
 | `platform::fonts::{default_family, faces}` | default UI family and the FLTK face names (regular, bold) for a family |
 | `keys::PRIMARY`, `keys::primary_held()`, `keys::label(spec)` | the primary modifier (Cmd on macOS, Ctrl elsewhere) and a spec shown the platform's way |
 
@@ -69,6 +71,61 @@ Keyboard panels (`panel::KeyboardPanel`, `table::Table`, `table::Tree`)
 use the primary modifier for toggle (`Mod+Space`), select all (`Mod+A`),
 cursor-only moves and click-to-toggle. TabBar keeps Ctrl+Tab on every OS
 (macOS uses Ctrl+Tab for tabs too).
+
+### Single instance and app IPC
+
+`fltk_omarchy::instance` makes an app single-instance and lets a second
+launch, a CLI (`myapp call FN ARG`, like o3's `ot3 call`) or a bar widget
+call functions of the running app. The transport is in
+`src/platform/instance/`; the protocol is portable.
+
+```rust
+let server = instance::acquire_or_forward("dev.you.app"); // a 2nd launch exits here
+let app = App::new("dev.you.app");
+app.keep_running(true);            // start hidden / hide to the background
+let mut win = AppWindow::new("You", 640, 480);
+win.end();
+server.manage(&win);               // show, raise, hide, toggle, window, is_active
+server.handle("state", |_| state_json());
+app.run();
+// elsewhere: instance::call("dev.you.app", "toggle", "") -> Result<String, Error>
+```
+
+- `instance::acquire(id)` → `Instance::Primary(Server)` or
+  `Instance::Secondary(Client)`. Two launches racing get exactly one
+  primary; a launch waits up to 2 s for a primary that holds the lock but
+  is still starting. It never fails: when IPC cannot be used (no runtime
+  dir, an endpoint of another user, an unsupported OS, a primary that
+  holds the lock and never answers) it returns a primary without IPC and
+  says so on stderr (`Server::unavailable_reason`).
+- Requests are a function name, string arguments and the caller's working
+  directory; replies are a string (JSON by convention) or an error.
+  Frames: 4-byte big-endian length + UTF-8 JSON; requests ≤ 1 MiB,
+  replies ≤ 8 MiB, 2 s per read/write, 16 connections at once (the rest
+  get "busy"), all configurable with `instance::Options`.
+- The server thread hands each request to the UI thread with
+  `task::post` and waits up to 5 s for the handler's reply. Handlers are
+  registered on the UI thread (`handle`, `handle_request`, `on_activate`).
+- Built-ins (an app handler with the same name replaces one): `ping`,
+  `functions`, `activate` (second launch: `on_activate`, then raise),
+  `quit`; with `manage(&win)` also `show`, `raise`, `hide`, `toggle`,
+  `window` and `is_active`.
+- `App::keep_running(true)`: `App::run` keeps going with no window shown
+  until `App::quit` (thread-safe). `AppWindow::raise()`, `is_active()`
+  (Hyprland's active window; else FLTK's focus) and `toggle()` (hide when
+  shown and active, raise otherwise).
+
+| | Linux / BSDs | macOS | Windows |
+|---|---|---|---|
+| Endpoint | `<runtime>/<app id>/instance.sock` | same (`$TMPDIR` is per user) | `\\.\pipe\fltk-omarchy-<app id>-<hash of the runtime dir>` |
+| Lock / race | `flock` on `instance.lock`, released by the kernel when the primary dies; a stale socket is replaced only while holding the lock | same | `FILE_FLAG_FIRST_PIPE_INSTANCE`; the pipe disappears with the process |
+| Same user only | socket 0600 in a 0700 dir checked with `lstat` (no symlinks followed, owned by us); a shared runtime dir (`/tmp`) gets a private `fltk-omarchy-<uid>` dir first; peer uid on both ends (`SO_PEERCRED` on Linux, `getpeereid` on BSDs) | same with `getpeereid` | default pipe DACL (only the creator writes), remote clients rejected, the client checks the pipe owner's SID before sending |
+| Raise from the background | Hyprland: `focuswindow` on our own window (found by pid + title); X11: FLTK's `_NET_ACTIVE_WINDOW`; other Wayland compositors: none (FLTK has no xdg-activation), a newly mapped window usually gets the focus | `NSApp activateIgnoringOtherApps:` + FLTK | `SetForegroundWindow` (the client calls `AllowSetForegroundWindow` for the primary's pid) |
+
+`OMARCHY_FLTK_RUNTIME_DIR` (or `Options::runtime_dir`) moves the
+endpoint, for tests and sandboxes. Requests wait while the UI thread runs a
+nested event loop of its own (they are drained by `App::run`), up to the
+handler timeout.
 
 ### Theme
 
@@ -128,6 +185,11 @@ CARGO_CHECK=1 cargo check --target aarch64-apple-darwin --all-targets --features
   display with FLTK's X11 backend and drags its header and corner with
   XTest (only on that Xvfb display): the window must follow through the
   FLTK fallback.
+- `tests/instance.rs` starts copies of the test binary as second launches
+  against a primary in a private runtime dir (no display needed).
+  `examples/instance --self-test` (with a private
+  `OMARCHY_FLTK_RUNTIME_DIR`, under `xvfb-run`) starts hidden, toggles
+  itself from child processes, forwards a launch and quits through IPC.
 - `examples/platform_check` prints what the platform layer detected (OS,
   Wayland, Hyprland, appearance, font, dirs, primary modifier) on any OS.
 - `script/real-window`, `examples/glass_check` and the bench scripts are

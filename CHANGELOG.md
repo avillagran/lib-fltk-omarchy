@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **Single instance and app IPC** (`instance`): `acquire` /
+  `acquire_or_forward` (a second launch forwards its arguments and
+  exits), `Server::handle` (function + string args → string reply, run on
+  the UI thread), `instance::call` for CLIs, built-in `ping`, `activate`,
+  `quit`, `show`/`hide`/`toggle`/`raise`/`window`/`is_active` for a
+  managed window; `App::keep_running` (start hidden), `AppWindow::raise`,
+  `is_active`, `toggle`; `platform::dirs::runtime`. Unix socket + `flock`
+  on Linux/BSD/macOS, named pipe on Windows; same user only, size limits
+  and timeouts. docs/PLATFORMS.md.
 - **NavTree** (`navtree`): a model-based navigation sidebar for file
   managers and chat / coding apps (Files' places, o3's projects and
   threads). Items in a `ListModel<String, NavItem>` keyed by

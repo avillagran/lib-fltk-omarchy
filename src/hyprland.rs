@@ -125,3 +125,21 @@ pub fn resize_to(address: &str, w: i32, h: i32) -> bool {
 pub fn center(address: &str) -> bool {
     dispatch(&format!(r#"hl.dsp.window.center({{ window = "address:{}" }})"#, quote(address)), None)
 }
+
+/// Focuses a window (`focuswindow`); Hyprland switches to its workspace
+/// when needed. Pass an address from [`own_clients`], so other apps'
+/// windows are never touched.
+pub fn focus(address: &str) -> bool {
+    let legacy = format!("focuswindow address:{address}");
+    dispatch(&format!(r#"hl.dsp.focus({{ window = "address:{}" }})"#, quote(address)), Some(&legacy))
+}
+
+/// The focused window: (pid, address, title).
+pub fn active_window() -> Option<(i64, String, String)> {
+    let v = json("activewindow")?;
+    Some((
+        v.get("pid")?.as_i64()?,
+        v.get("address")?.as_str()?.to_string(),
+        v.get("title").and_then(Value::as_str).unwrap_or_default().to_string(),
+    ))
+}
