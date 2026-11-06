@@ -1170,8 +1170,24 @@ pub struct TextField {
     submit: Cb<String>,
     placeholder: Rc<RefCell<String>>,
     keys: KeyHook,
+    mask: MaskSlot,
 }
 fltk::widget_extends!(TextField, fltk::group::Group, inner);
+
+type MaskSlot = Rc<RefCell<Option<crate::mask::Mask>>>;
+
+/// Formats the input's text to its mask (if any), keeping the caret.
+fn apply_mask(mask: &MaskSlot, input: &mut fltk::input::Input) -> String {
+    let v = input.value();
+    let Some(m) = mask.borrow().clone() else { return v };
+    let (out, caret) = m.format(&v, input.position().max(0) as usize);
+    if out != v {
+        input.set_value(&out);
+        let _ = input.set_position(caret as i32);
+        let _ = input.set_mark(caret as i32);
+    }
+    out
+}
 
 type KeyHook = Rc<RefCell<Option<Box<dyn FnMut(Key) -> bool>>>>;
 
@@ -1248,6 +1264,8 @@ impl TextField {
             _ => false,
         });
         let (c2, s2) = (change.clone(), submit.clone());
+        let mask: MaskSlot = Rc::default();
+        let mk = mask.clone();
         // Enter submits even when the text did not change since the last edit
         // callback (FL_WHEN_ENTER_KEY alone needs a change).
         input.set_trigger(CallbackTrigger::Changed | CallbackTrigger::EnterKeyAlways);
@@ -1257,7 +1275,8 @@ impl TextField {
             if app::event() == Event::KeyDown && matches!(app::event_key(), Key::Enter | Key::KPEnter) {
                 fire(&s2, i.value());
             } else {
-                fire(&c2, i.value());
+                let v = apply_mask(&mk, i);
+                fire(&c2, v);
             }
         });
         let mut parent = inner.clone();
@@ -1292,18 +1311,21 @@ impl TextField {
                 n.read_only(true);
             }
         });
-        let (mut inp, c3, mut g3) = (input.clone(), change.clone(), inner.clone());
+        let (mut inp, c3, mut g3, mk3) = (input.clone(), change.clone(), inner.clone(), mask.clone());
         a11y::on_action(&inner, move |r| {
             let text = inp.value();
             match (r.action, &r.value) {
                 (Action::Focus, _) => return inp.take_focus().is_ok(),
                 (Action::SetValue, Some(a11y::Value::Text(t))) => {
                     inp.set_value(t);
-                    fire(&c3, t.clone());
+                    let _ = inp.set_position(t.len() as i32);
+                    let v = apply_mask(&mk3, &mut inp);
+                    fire(&c3, v);
                 }
                 (Action::ReplaceSelectedText, Some(a11y::Value::Text(t))) => {
                     let _ = inp.replace(inp.position(), inp.mark(), t);
-                    fire(&c3, inp.value());
+                    let v = apply_mask(&mk3, &mut inp);
+                    fire(&c3, v);
                 }
                 (Action::SetTextSelection, Some(a11y::Value::Selection { anchor, focus })) => {
                     let _ = inp.set_position(a11y::byte_at(&text, *focus));
@@ -1314,7 +1336,27 @@ impl TextField {
             g3.redraw();
             true
         });
-        Self { inner, input, change, submit, placeholder, keys }
+        Self { inner, input, change, submit, placeholder, keys, mask }
+    }
+
+    /// Restricts the text to a fixed format ([`crate::mask`]): `"99:99"`
+    /// for a time of day, `"9999-99-99"` for a date. Literals are typed for
+    /// the user, other characters are dropped; `on_change` and `bind` get
+    /// the formatted text. Use [`TextField::is_complete`] before accepting.
+    pub fn mask(self, spec: &str) -> Self {
+        *self.mask.borrow_mut() = Some(crate::mask::Mask::new(spec));
+        let mut input = self.input.clone();
+        let _ = input.set_position(input.value().len() as i32);
+        apply_mask(&self.mask, &mut input);
+        self
+    }
+
+    /// True without a mask, or when the text fills the whole mask.
+    pub fn is_complete(&self) -> bool {
+        match self.mask.borrow().as_ref() {
+            Some(m) => m.complete(&self.input.value()),
+            None => true,
+        }
     }
 
     /// Runs for each key pressed in the field, after its own editing (e.g.
@@ -1354,9 +1396,22 @@ impl TextField {
     pub fn bind(self, s: &State<String>) -> Self {
         let mut input = self.input.clone();
         let mut g = self.inner.clone();
+        let (mk, back) = (self.mask.clone(), s.clone());
         crate::state::bind_widget(&self.inner, s, true, move |v| {
             if input.value() != *v {
                 input.set_value(v);
+                let _ = input.set_position(v.len() as i32);
+                // A masked field shows the formatted text and writes it back
+                // once this notification is over.
+                let shown = apply_mask(&mk, &mut input);
+                if shown != *v {
+                    let (b, w) = (back.clone(), g.clone());
+                    app::add_timeout3(0.0, move |_| {
+                        if !w.was_deleted() {
+                            b.set_if_changed(shown.clone());
+                        }
+                    });
+                }
                 g.redraw();
             }
         });
@@ -1377,7 +1432,9 @@ impl TextField {
     /// Sets the text and runs on_change, as if the user typed it.
     pub fn type_text(&mut self, text: &str) {
         self.input.set_value(text);
-        fire(&self.change, text.to_string());
+        let _ = self.input.set_position(text.len() as i32);
+        let v = apply_mask(&self.mask, &mut self.input);
+        fire(&self.change, v);
         self.inner.redraw();
     }
 

@@ -12,6 +12,7 @@ pub mod instance;
 pub mod keys;
 pub mod layout;
 pub mod list;
+pub mod mask;
 pub mod model;
 pub mod navtree;
 pub(crate) mod motion;

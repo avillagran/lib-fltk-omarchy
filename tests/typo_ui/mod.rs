@@ -94,4 +94,43 @@ pub fn checks(run: &mut dyn FnMut(&str, Check)) {
         fltk::window::DoubleWindow::delete((*win).clone());
         Ok(())
     });
+
+    run("text field mask: typed literals, paste, dropped letters, bound state", &|_| {
+        use fltk_omarchy::focus::{press, type_text};
+        use fltk_omarchy::layout::FlexExt;
+        use fltk_omarchy::widgets::TextField;
+        use fltk_omarchy::State;
+        let time = State::new(String::new());
+        let mut win = AppWindow::new("Mask", 300, 160);
+        let mut body = win.body();
+        let field = TextField::new().placeholder("HH:MM").mask("99:99").bind(&time);
+        body.fit(&*field);
+        win.end();
+        win.show();
+        let f2 = field.clone();
+        pump_until(|| f2.w() > 0);
+        let mut input = field.input();
+        let _ = input.take_focus();
+        for k in ["0", "7", "3"] {
+            press(k);
+        }
+        check(field.value() == "07:3" && time.get() == "07:3", &format!("typing 073 → {:?} / state {:?}", field.value(), time.get()))?;
+        check(!field.is_complete(), "07:3 is not complete")?;
+        press("x");
+        press("0");
+        press("9");
+        check(field.value() == "07:30" && field.is_complete(), &format!("letter dropped, end reached: {:?}", field.value()))?;
+        press("BackSpace");
+        press("BackSpace");
+        check(field.value() == "07:", &format!("backspace keeps a typed literal: {:?}", field.value()))?;
+        input.set_value("");
+        let _ = input.set_position(0);
+        type_text("1945");
+        check(field.value() == "19:45" && time.get() == "19:45", &format!("paste 1945 → {:?}", field.value()))?;
+        time.set("0815".into());
+        pump_until(|| time.get() == "08:15");
+        check(field.value() == "08:15" && time.get() == "08:15", &format!("state set by the app is formatted: {:?} / {:?}", field.value(), time.get()))?;
+        fltk::window::DoubleWindow::delete((*win).clone());
+        Ok(())
+    });
 }
