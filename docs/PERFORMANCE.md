@@ -367,3 +367,19 @@ On by default; `OMARCHY_FLTK_SCROLL_BLIT=off` repaints instead. MSVC builds
 only such views scrolled, `AppWindow` skips repainting the background under
 them and draws other damaged widgets that do not overlap them on their own
 background.
+
+### Streaming into the last message (2026-11-06)
+
+While the view follows the end and only the last message grows, a frame
+moves everything above it up by the growth and repaints from the changed
+block down (`tests/scroll_ui` checks it against a full repaint after each
+push). `RichText::stream_pace(Pace::Low)` paints such frames at 30 fps,
+joining the pushes in between. `examples/o3_shell --bench` (Wayland,
+1896×1030, a reply streaming at 60 pushes/s while the sidebar gets
+snapshots), two runs each:
+
+| Setup | CPU while streaming | PSS |
+|---|---|---|
+| Repaint every push | 11.8–12.2 % | 27.2–27.9 MB |
+| Move pixels, a frame per push | 7.5–7.7 % | 27.4–27.7 MB |
+| Move pixels, `stream_pace(Pace::Low)` | **4.0 %** | 27.3–27.6 MB |

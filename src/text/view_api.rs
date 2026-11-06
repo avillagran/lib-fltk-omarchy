@@ -187,18 +187,22 @@ impl RichText {
 
     /// Streams Markdown into message `key` (appended if missing).
     pub fn push_message_markdown(&self, key: &str, more: &str) {
-        self.with(|i| {
-            let j = match i.key_index(key) {
-                Some(j) => j,
+        let tail = {
+            let mut i = self.inner.borrow_mut();
+            let (j, new) = match i.key_index(key) {
+                Some(j) => (j, false),
                 None => {
                     let j = i.msgs.len();
                     i.insert_msg(j, key, Vec::new(), None);
-                    j
+                    (j, true)
                 }
             };
             i.push_msg(j, more);
             i.msgs[j].src = None;
-        })
+            (!new && i.tail_push(j)).then_some(i.stream_pace)
+        };
+        // Growing the last message while following the end moves pixels.
+        damage_push(&mut self.widget.clone(), tail);
     }
 
     /// Closes the stream of message `key` (frees its parser state; a later

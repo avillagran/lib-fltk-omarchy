@@ -23,9 +23,11 @@ streaming loads.
 Composer; a reply streaming at 60 Hz while the sidebar gets a snapshot
 every 1.5 s). Measured 2026-11-06 on NODE, Wayland, 1896×1030, release, two
 runs: build 37–39 ms, PSS 26.6–26.9 MB, idle 0.0 % CPU, streaming 12.5–14.7 %
-CPU (each pushed chunk repaints the window; moving the pixels when the
-growing message is stuck to the bottom is the next optimization), idle
-again 0.0 %. The UI process alone, without the backend.
+CPU, idle again 0.0 %. Streaming then dropped to 7.5 % by moving the
+pixels when the growing message is the last one and the view follows the
+end (repaint from the changed block down), and to **4.0 %** with
+`RichText::stream_pace(Pace::Low)` (streamed frames at 30 fps; pushes in
+between join one frame). Same PSS (27–28 MB). The UI process alone, without the backend.
 
 The two biggest costs are not the renderer: they are (1) full snapshots
 re-serialized and re-parsed many times per second, and (2) QtWebEngine
