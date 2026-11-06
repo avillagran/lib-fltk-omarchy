@@ -97,6 +97,8 @@ struct St {
     hx: i32,
     panel: KeyboardPanel,
     last_cursor: Option<ItemId>,
+    /// The cursor moved: scroll it into view at the next frame.
+    follow: bool,
     hover: Option<usize>,
     drag: Option<ItemId>,
     pending_top: Option<(Anchor, i64)>,
@@ -155,6 +157,7 @@ impl DiffView {
             hx: 0,
             panel: panel.clone(),
             last_cursor: None,
+            follow: false,
             hover: None,
             drag: None,
             pending_top: None,
@@ -595,9 +598,14 @@ impl DiffView {
     }
 
     fn cursor_moved(&self) {
+        let cursor = self.panel().cursor();
         let file = self.current_file();
         let f = {
             let Ok(mut s) = self.st.try_borrow_mut() else { return };
+            if cursor != s.last_cursor {
+                s.last_cursor = cursor;
+                s.follow = cursor.is_some();
+            }
             if file == s.current_file || file.is_none() {
                 return;
             }
@@ -911,6 +919,7 @@ impl DiffView {
         let t = s.top;
         s.motion.jump(t);
         s.pending_top = None;
+        s.follow = false;
         drop(s);
         self.widget.clone().redraw();
     }
@@ -1091,6 +1100,10 @@ impl DiffView {
 
     fn handle(&self, w: &mut Widget, ev: Event) -> bool {
         let (ex, ey) = (app::event_x() - w.x(), app::event_y() - w.y());
+        // Rows may have changed since the last frame (a fold, new context).
+        if matches!(ev, Event::Push | Event::Drag | Event::Move | Event::MouseWheel) {
+            self.ensure_layout();
+        }
         if matches!(ev, Event::Push | Event::KeyDown) {
             let mut s = self.st.borrow_mut();
             let t = s.top;
@@ -1138,6 +1151,7 @@ impl DiffView {
                     if !s.motion.passes(top, delta, max) {
                         s.top = s.motion.wheel(top, delta, max);
                         s.pending_top = None;
+                        s.follow = false;
                         used = true;
                     }
                 }
@@ -1594,9 +1608,7 @@ fn draw_view(w: &mut Widget, st: &Rc<RefCell<St>>) {
     let view_h = w.h();
     s.panel.set_page_rows((view_h / m.rh.max(1)).max(1) as usize);
     // Keep the cursor row in view when it moved.
-    let cur = s.panel.cursor();
-    if cur != s.last_cursor {
-        s.last_cursor = cur;
+    if std::mem::take(&mut s.follow) {
         if let Some(i) = s.panel.cursor_index() {
             let (y0, y1) = (s.ys[i], s.ys[i + 1]);
             if y0 < s.top {
@@ -1772,7 +1784,7 @@ fn draw_row(s: &St, t: &Theme, ink: &Ink, m: &Metrics, g: &Geo, x: i32, y: i32, 
                 }
                 draw_numbers(m, hx0, y, g.gutter, if side == 0 { l.old } else { l.new }, ink.dim);
                 draw_marker(m, hx0 + g.gutter, y, l.kind, ink);
-                let marks = line_marks(s, ink, r.file, r.hunk, li, side == 0 || r.a != r.b);
+                let marks = line_marks(s, ink, r.file, r.hunk, li, true);
                 draw_code(&Cells::new(p.text(l)), hx0 + g.code_x, y, g.code_w, m, ink.fg, wrap, s.hx, &marks);
             }
             paint::fill(x + g.half, y, 1, h, 0, ink.rule);
