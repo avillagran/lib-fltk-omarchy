@@ -34,18 +34,33 @@ use std::sync::Arc;
 /// byte ranges (sorted, not overlapping).
 pub type Highlight = Arc<dyn Fn(&str, &str) -> Vec<(Range<usize>, ColorRole)> + Send + Sync>;
 
+/// Inline code to a link target (`None`: stays plain code). See
+/// [`file_path_link`].
+pub type CodeLink = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
+
 /// Conversion options.
 #[derive(Clone)]
 pub struct MarkdownOptions {
     /// Code block highlighter; the default is [`super::highlight::basic`]
     /// (diffs, comments, strings, numbers, keywords). `None`: plain code.
     pub highlight: Option<Highlight>,
+    /// Image references become [`BlockKind::Image`] blocks (a paragraph
+    /// with an image is split around it) that the view resolves through
+    /// `RichText::on_image`. Off: an image is its alt text linked to its
+    /// source, inline. Images in table cells and headings stay inline.
+    pub images: bool,
+    /// Inline code that this rule maps to a URL becomes a link (still
+    /// drawn as code): `Some(Arc::new(file_path_link))` turns `src/lib.rs:12`
+    /// into `file://src/lib.rs:12`, as T3 does.
+    pub code_links: Option<CodeLink>,
 }
 
 impl Default for MarkdownOptions {
     fn default() -> Self {
         MarkdownOptions {
             highlight: Some(Arc::new(super::highlight::basic)),
+            images: false,
+            code_links: None,
         }
     }
 }
@@ -53,7 +68,29 @@ impl Default for MarkdownOptions {
 impl MarkdownOptions {
     /// No syntax highlighting.
     pub fn plain() -> Self {
-        MarkdownOptions { highlight: None }
+        MarkdownOptions {
+            highlight: None,
+            ..Default::default()
+        }
+    }
+
+    /// Image references as image blocks (see [`MarkdownOptions::images`]).
+    pub fn with_images(mut self, on: bool) -> Self {
+        self.images = on;
+        self
+    }
+
+    /// Inline code that looks like a file path links to `file://…`
+    /// ([`file_path_link`]).
+    pub fn with_path_links(mut self) -> Self {
+        self.code_links = Some(Arc::new(file_path_link));
+        self
+    }
+
+    /// Inline code mapped to links by `f`.
+    pub fn with_code_links(mut self, f: impl Fn(&str) -> Option<String> + Send + Sync + 'static) -> Self {
+        self.code_links = Some(Arc::new(f));
+        self
     }
 }
 
@@ -61,8 +98,78 @@ impl fmt::Debug for MarkdownOptions {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("MarkdownOptions")
             .field("highlight", &self.highlight.is_some())
+            .field("images", &self.images)
+            .field("code_links", &self.code_links.is_some())
             .finish()
     }
+}
+
+/// T3's rule for inline code that names a file or folder: absolute,
+/// `~/`, `./` and `../` paths, `dir/file.ext`, and `file.ext:line[:col]`;
+/// not URLs, commands with spaces, versions (`v1.2/3`) or host names
+/// (`github.com/x/y`). Returns `file://` + the path (`\` as `/`, bytes
+/// outside `A-Za-z0-9/._-~:` percent-encoded).
+pub fn file_path_link(code: &str) -> Option<String> {
+    let t = code.trim();
+    if t.is_empty()
+        || t.len() > 4096
+        || t.chars().any(|c| c.is_whitespace() || c == '`' || c.is_control())
+        || t.contains("://")
+    {
+        return None;
+    }
+    let c = t.replace('\\', "/");
+    let digits = |n: &str| !n.is_empty() && n.bytes().all(|d| d.is_ascii_digit());
+    let (body, position) = match c.rsplit_once(':') {
+        Some((b, n)) if !b.is_empty() && digits(n) => {
+            let b = b.rsplit_once(':').filter(|(x, n)| !x.is_empty() && digits(n)).map_or(b, |(x, _)| x);
+            (b.to_string(), true)
+        }
+        _ => (c.clone(), false),
+    };
+    let href = |p: &str| -> String {
+        let mut out = String::from("file://");
+        for b in p.bytes() {
+            if b.is_ascii_alphanumeric() || b"/._-~:".contains(&b) {
+                out.push(b as char);
+            } else {
+                out.push_str(&format!("%{b:02X}"));
+            }
+        }
+        out
+    };
+    if !position && !body.contains('/') {
+        return None;
+    }
+    if body.starts_with('/') || body.starts_with("~/") || body.starts_with("./") || body.starts_with("../") {
+        return Some(href(&c));
+    }
+    if body.contains(':') {
+        return None;
+    }
+    let first = body.split('/').next().unwrap_or("");
+    let host = first.contains('.')
+        && !first.starts_with('.')
+        && body.contains('/')
+        && first
+            .rsplit('.')
+            .next()
+            .is_some_and(|tld| tld.len() >= 2 && tld.chars().all(|ch| ch.is_ascii_alphabetic()));
+    if host {
+        return None;
+    }
+    let base = body.trim_end_matches('/').rsplit('/').next().unwrap_or("");
+    let ext = base.rsplit_once('.').is_some_and(|(n, e)| {
+        !n.is_empty() && !e.is_empty() && e.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-')
+    });
+    let version = base
+        .as_bytes()
+        .windows(3)
+        .any(|w| w[0].is_ascii_digit() && w[1] == b'.' && w[2].is_ascii_digit());
+    if (version && !position) || (!position && !ext) {
+        return None;
+    }
+    Some(href(&c))
 }
 
 fn cmark_options() -> Options {
@@ -292,6 +399,10 @@ struct Conv<'s> {
     strike: u32,
     links: Vec<Arc<str>>,
     images: Vec<usize>,
+    /// Inside an image that became its own block.
+    image_block: u32,
+    /// The text after an image block starts a paragraph without blanks.
+    trim_next: bool,
     depth: u32,
     table: Option<TableState>,
     cont: Option<u64>,
@@ -315,6 +426,8 @@ impl<'s> Conv<'s> {
             strike: 0,
             links: Vec::new(),
             images: Vec::new(),
+            image_block: 0,
+            trim_next: false,
             depth: 0,
             table: None,
             cont,
@@ -411,7 +524,14 @@ impl<'s> Conv<'s> {
         }
     }
 
-    fn text(&mut self, s: &str, style: &Style) {
+    fn text(&mut self, mut s: &str, style: &Style) {
+        if self.trim_next && self.cur.is_none() {
+            s = s.trim_start();
+            if s.is_empty() {
+                return;
+            }
+        }
+        self.trim_next = false;
         if self.cur.is_none() {
             self.open(BlockKind::Paragraph);
         }
@@ -437,7 +557,12 @@ impl<'s> Conv<'s> {
                 self.text(&t, &style);
             }
             Event::Code(t) => {
-                let style = self.style().code();
+                let mut style = self.style().code();
+                if style.link.is_none() {
+                    if let Some(f) = &self.opts.code_links {
+                        style.link = f(&t).map(Arc::from);
+                    }
+                }
                 self.text(&t, &style);
             }
             Event::Html(t)
@@ -590,6 +715,34 @@ impl<'s> Conv<'s> {
             Tag::Strong => self.strong += 1,
             Tag::Strikethrough => self.strike += 1,
             Tag::Link { dest_url, .. } => self.links.push(Arc::from(dest_url.as_ref())),
+            Tag::Image { dest_url, .. }
+                if self.opts.images
+                    && self.image_block == 0
+                    && self.table.is_none()
+                    && self.cur.as_ref().map_or(true, |b| b.kind == BlockKind::Paragraph) =>
+            {
+                // The paragraph so far ends here; an empty one hands its
+                // list marker to the image.
+                let marker = match self.cur.as_mut() {
+                    Some(b) if b.content.is_empty() => b.marker.take(),
+                    _ => None,
+                };
+                if let Some(b) = self.cur.as_mut() {
+                    let t = b.content.text();
+                    let trimmed = t.trim_end().len();
+                    if trimmed < t.len() {
+                        b.content.truncate(trimmed);
+                    }
+                }
+                self.close();
+                self.pending = marker.or(self.pending.take());
+                self.open(BlockKind::Image {
+                    src: dest_url.to_string(),
+                });
+                self.links.push(Arc::from(dest_url.as_ref()));
+                self.images.push(0);
+                self.image_block += 1;
+            }
             Tag::Image { dest_url, .. } => {
                 if self.cur.is_none() {
                     self.open(BlockKind::Paragraph);
@@ -664,6 +817,22 @@ impl<'s> Conv<'s> {
             TagEnd::Strikethrough => self.strike = self.strike.saturating_sub(1),
             TagEnd::Link => {
                 self.links.pop();
+            }
+            TagEnd::Image
+                if self.image_block > 0
+                    && self.cur.as_ref().is_some_and(|b| matches!(b.kind, BlockKind::Image { .. })) =>
+            {
+                self.image_block -= 1;
+                self.images.pop();
+                if self.content_len() == 0 {
+                    if let Some(url) = self.links.last().cloned() {
+                        let style = self.style();
+                        self.text(&url, &style);
+                    }
+                }
+                self.links.pop();
+                self.close();
+                self.trim_next = true;
             }
             TagEnd::Image => {
                 let start = self.images.pop().unwrap_or(0);
@@ -914,6 +1083,70 @@ mod tests {
         assert_eq!(b[0].quote_tone, Some(ColorRole::Yellow));
         assert_eq!(b[0].text(), "careful");
         assert_eq!(b[1].text(), "<div>\nraw\n</div>");
+    }
+
+    #[test]
+    fn image_blocks_and_code_path_links() {
+        let opts = MarkdownOptions::plain().with_images(true).with_path_links();
+        let b = parse_with("Before ![a chart](https://x.dev/c.png \"t\") after.\n\n![](img.png)\n\n| ![i](t.png) |\n|-|\n| x |\n", &opts);
+        let short: Vec<&str> = b
+            .iter()
+            .map(|b| match b.kind {
+                BlockKind::Paragraph => "P",
+                BlockKind::Image { .. } => "Image",
+                BlockKind::Table(_) => "Table",
+                _ => "?",
+            })
+            .collect();
+        assert_eq!(short, ["P", "Image", "P", "Image", "Table"], "{b:#?}");
+        assert_eq!(b[0].text(), "Before");
+        assert_eq!(b[1].kind, BlockKind::Image { src: "https://x.dev/c.png".into() });
+        assert_eq!(b[1].text(), "a chart");
+        assert_eq!(b[1].content.runs()[0].style.link.as_deref(), Some("https://x.dev/c.png"));
+        assert_eq!(b[2].text(), "after.");
+        assert_eq!(b[3].text(), "img.png", "no alt: the source");
+        assert!(b[4].text().contains('i'), "images in cells stay inline");
+        // Without the option: inline alt text, as before.
+        let plain = parse("Before ![a chart](https://x.dev/c.png) after.");
+        assert_eq!(plain.len(), 1);
+        assert_eq!(plain[0].text(), "Before a chart after.");
+        // Paths in inline code link to file://; other code stays plain.
+        let b = parse_with("see `src/lib.rs:12`, `/home/a b`, `cargo build` and [t3](t3-thread://abc)", &opts);
+        let link = |needle: &str| {
+            let r = b[0].content.runs().iter().find(|r| b[0].text()[r.range.clone()] == *needle).unwrap();
+            (r.style.code, r.style.link.as_deref().map(str::to_string))
+        };
+        assert_eq!(link("src/lib.rs:12"), (true, Some("file://src/lib.rs:12".into())));
+        assert_eq!(link("/home/a b"), (true, None));
+        assert_eq!(link("cargo build"), (true, None));
+        assert_eq!(link("t3"), (false, Some("t3-thread://abc".into())), "custom schemes stay as written");
+        for p in ["/home", "/home/node/report.html", "./src/main.rs", "~/notes.md", "src/lib.rs", "src/lib.rs:12:3", "Cargo.toml:4"] {
+            assert!(file_path_link(p).is_some(), "{p}");
+        }
+        for p in ["rpc_outcome_unknown", "server.updateProvider", "cargo build", "github.com/x/y", "v1.2/3", "https://a.b/c", "a/b", "x: y"] {
+            assert!(file_path_link(p).is_none(), "{p}");
+        }
+        assert_eq!(file_path_link("C:\\x\\y z.rs:3"), None, "blanks are never paths");
+        assert_eq!(file_path_link("./a%b.rs").as_deref(), Some("file://./a%25b.rs"));
+    }
+
+    #[test]
+    fn streamed_images_equal_one_shot() {
+        let opts = MarkdownOptions::plain().with_images(true);
+        let md = "Intro text.\n\n- ![first](a.png)\n- item ![second](b.png) tail\n\nEnd ![third](c.png)\n";
+        let one = parse_with(md, &opts);
+        for cut in 1..md.len() {
+            if !md.is_char_boundary(cut) {
+                continue;
+            }
+            let mut s = MarkdownStream::with_options(opts.clone());
+            let mut blocks = Vec::new();
+            s.push_into(&mut blocks, &md[..cut]);
+            s.push_into(&mut blocks, &md[cut..]);
+            assert_eq!(blocks, one, "cut at {cut}");
+        }
+        assert_eq!(one[1].marker, Some(ListMarker::Bullet), "{one:#?}");
+        assert!(matches!(one[1].kind, BlockKind::Image { .. }));
     }
 
     #[test]

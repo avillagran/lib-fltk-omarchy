@@ -92,6 +92,10 @@ impl RichLabel {
                     gap: 0,
                     clip: (w.y(), w.y() + w.h()),
                     color: d.color.map(|c| c.rgb(t)),
+                    actions: &[],
+                    copied_slot: None,
+                    foot: 0,
+                    marks: &[],
                 };
                 fltk::draw::push_clip(w.x(), w.y(), w.w(), w.h());
                 let by = w.y() + (w.h() - l.height).max(0) / 2;

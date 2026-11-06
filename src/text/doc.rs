@@ -273,6 +273,31 @@ pub enum BlockKind {
     /// Thematic break.
     Rule,
     Table(Box<Table>),
+    /// A block drawn by the app (a card, a chart, media): it reserves
+    /// `height` pixels across the column and the view's embed painter
+    /// draws it (`RichText::embed_painter`) or a hosted widget covers it
+    /// (`RichText::host_widget`). The block text is its plain text for
+    /// selection, find, copy and screen readers; it is not drawn.
+    Embed(Embed),
+    /// An image reference (`![alt](src)` with `MarkdownOptions::images`).
+    /// The block text is the alt text. Until the app resolves `src`
+    /// (`RichText::on_image` / `set_image`) it shows as the alt text
+    /// linked to `src`; then as a placeholder of the image's size or the
+    /// image itself.
+    Image {
+        src: String,
+    },
+}
+
+/// An app-drawn block (see [`BlockKind::Embed`]).
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Embed {
+    /// Stable id: the painter, the hosted widget, visibility callbacks and
+    /// `RichText::set_embed_height` address the block by it.
+    pub id: String,
+    /// Reserved height in pixels (change it later with
+    /// `RichText::set_embed_height`: the view stays anchored).
+    pub height: i32,
 }
 
 /// One block of the document.
@@ -317,6 +342,22 @@ impl Block {
 
     pub fn rule() -> Block {
         Block::new(BlockKind::Rule)
+    }
+
+    /// An app-drawn block `height` pixels tall; `text` is what selection,
+    /// find, copy and screen readers see (a card's title and summary).
+    pub fn embed(id: &str, height: i32, text: &str) -> Block {
+        Block::new(BlockKind::Embed(Embed {
+            id: id.to_string(),
+            height: height.max(0),
+        }))
+        .push(text, &Style::plain())
+    }
+
+    /// An image reference: `alt` linked to `src` until the app resolves it.
+    pub fn image(src: &str, alt: &str) -> Block {
+        let alt = if alt.is_empty() { src } else { alt };
+        Block::new(BlockKind::Image { src: src.to_string() }).push(alt, &Style::plain().link(src))
     }
 
     /// A table from cell texts (first row is the header when `header`).
@@ -373,6 +414,14 @@ impl Block {
     pub fn is_code(&self) -> bool {
         matches!(self.kind, BlockKind::Code { .. })
     }
+
+    /// The id of an embed block.
+    pub fn embed_id(&self) -> Option<&str> {
+        match &self.kind {
+            BlockKind::Embed(e) => Some(&e.id),
+            _ => None,
+        }
+    }
 }
 
 /// A rich text document.
@@ -416,6 +465,114 @@ impl Document {
     }
 }
 
+/// Inline Markdown of `range` of `content`: bold, italic, strikethrough,
+/// code and links come back as Markdown syntax, `|` escaped (for "Copy as
+/// Markdown" of a table).
+pub fn inline_markdown(content: &Inline, range: Range<usize>) -> String {
+    let text = content.text();
+    let mut out = String::new();
+    for r in content.runs() {
+        let s = r.range.start.max(range.start);
+        let e = r.range.end.min(range.end);
+        if s >= e {
+            continue;
+        }
+        let piece = &text[s..e];
+        let st = &r.style;
+        let mut t = if st.code {
+            let ticks = if piece.contains('`') { "``" } else { "`" };
+            let pad = if piece.starts_with('`') || piece.ends_with('`') { " " } else { "" };
+            format!("{ticks}{pad}{}{pad}{ticks}", piece.replace('|', "\\|"))
+        } else {
+            piece.replace('|', "\\|")
+        };
+        if st.strike {
+            t = format!("~~{t}~~");
+        }
+        if st.italic {
+            t = format!("*{t}*");
+        }
+        if st.bold {
+            t = format!("**{t}**");
+        }
+        if let Some(u) = &st.link {
+            if !st.code || **u != *piece {
+                t = format!("[{t}]({u})");
+            }
+        }
+        out.push_str(&t);
+    }
+    out
+}
+
+/// A table block as GFM Markdown (inline styles and links kept), or None
+/// for other blocks.
+pub fn table_markdown(b: &Block) -> Option<String> {
+    let BlockKind::Table(t) = &b.kind else { return None };
+    let cols = t.rows.iter().map(Vec::len).max().unwrap_or(0).max(t.align.len());
+    let mut out = String::new();
+    let row = |out: &mut String, cells: &[Range<usize>]| {
+        out.push('|');
+        for c in 0..cols {
+            let cell = cells.get(c).map_or(String::new(), |r| {
+                inline_markdown(&b.content, r.clone()).replace('\n', " ")
+            });
+            out.push(' ');
+            out.push_str(cell.trim());
+            out.push_str(" |");
+        }
+        out.push('\n');
+    };
+    let sep = |out: &mut String| {
+        out.push('|');
+        for c in 0..cols {
+            out.push_str(match t.align.get(c) {
+                Some(ColumnAlign::Center) => " :---: |",
+                Some(ColumnAlign::Right) => " ---: |",
+                _ => " --- |",
+            });
+        }
+        out.push('\n');
+    };
+    let header = t.header_rows.max(1).min(t.rows.len());
+    for (i, r) in t.rows.iter().enumerate() {
+        row(&mut out, r);
+        if i + 1 == header {
+            sep(&mut out);
+        }
+    }
+    if t.rows.is_empty() {
+        row(&mut out, &[]);
+        sep(&mut out);
+    }
+    Some(out)
+}
+
+/// A table block as CSV (RFC 4180: quoted when a cell holds a comma,
+/// quote or line break), or None for other blocks.
+pub fn table_csv(b: &Block) -> Option<String> {
+    let BlockKind::Table(t) = &b.kind else { return None };
+    let text = b.text();
+    let mut out = String::new();
+    for r in &t.rows {
+        for (c, cell) in r.iter().enumerate() {
+            if c > 0 {
+                out.push(',');
+            }
+            let v = text[cell.clone()].trim();
+            if v.contains([',', '"', '\n', '\r']) {
+                out.push('"');
+                out.push_str(&v.replace('"', "\"\""));
+                out.push('"');
+            } else {
+                out.push_str(v);
+            }
+        }
+        out.push_str("\r\n");
+    }
+    Some(out)
+}
+
 pub(crate) fn plain_text(blocks: &[Block]) -> String {
     let n: usize = blocks.iter().map(|b| b.text().len() + 1).sum();
     let mut s = String::with_capacity(n);
@@ -454,6 +611,18 @@ mod tests {
                 style: Style::plain()
             }]
         );
+    }
+
+    #[test]
+    fn tables_copy_as_markdown_and_csv() {
+        let b = crate::text::markdown::parse("| a | b, c |\n|:-:|--:|\n| **x** | [y](https://y.dev) |\n| `z\\|` | \"q\" |\n")
+            .remove(0);
+        assert_eq!(
+            table_markdown(&b).unwrap(),
+            "| a | b, c |\n| :---: | ---: |\n| **x** | [y](https://y.dev) |\n| `z\\|` | \"q\" |\n"
+        );
+        assert_eq!(table_csv(&b).unwrap(), "a,\"b, c\"\r\nx,y\r\nz|,\"\"\"q\"\"\"\r\n");
+        assert!(table_markdown(&Block::paragraph("p")).is_none());
     }
 
     #[test]

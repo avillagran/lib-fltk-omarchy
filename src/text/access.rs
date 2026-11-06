@@ -19,6 +19,8 @@ use crate::text::store::ShapeKind;
 /// Link keys are their first run index (below `RUN`).
 const RUN: u64 = 1 << 32;
 const COPY_KEY: u64 = 1 << 33;
+/// Keys of code header / table footer actions: `ACTION + slot`.
+const ACTION: u64 = 1 << 35;
 /// Blocks exposed at most (the view and half a view around it).
 const MAX_BLOCKS: usize = 200;
 /// Text runs (lines) exposed per block at most: a huge block exposes the
@@ -38,8 +40,12 @@ pub(super) fn install(rt: &RichText) {
             describe(&w, &i, n);
         }
     });
-    let (inn, w, link) = (rt.inner.clone(), rt.widget.clone(), rt.link.clone());
-    a11y::on_action(&rt.widget, move |r| act(&w, &inn, &link, r));
+    let (inn, w, hooks) = (rt.inner.clone(), rt.widget.clone(), rt.hooks.clone());
+    a11y::on_action(&rt.widget, move |r| {
+        let used = act(&w, &inn, &hooks, r);
+        dispatch(&inn, &hooks);
+        used
+    });
 }
 
 /// One line of a block: bytes of the text and its rectangle (content
@@ -420,7 +426,26 @@ fn block(
         ShapeKind::Code => {
             b.role(Role::Code).description(i.store.lang(k));
         }
-        ShapeKind::Table(_) => return table(i, k, geo, by, focus, b),
+        ShapeKind::Table(_) => {
+            table(i, k, geo, by, focus, b);
+            actions(i, k, geo, by, focus, b);
+            return;
+        }
+        ShapeKind::Embed(_) => {
+            b.role(Role::Group).name(&clip_name(text));
+            if i.embed_focus {
+                b.action(Action::Click).focusable();
+                if focus == Some(Target::Embed { block: k }) {
+                    b.focused();
+                }
+            }
+            return;
+        }
+        ShapeKind::Image if i.laid(k).is_some_and(|(_, l)| l.lines.is_empty()) => {
+            b.role(Role::Image).name(&clip_name(text));
+            links(i, k, 0..text.len(), (geo.bx, by), focus, b);
+            return;
+        }
         _ if shape.marker => {
             b.role(Role::ListItem).level(shape.indent as usize);
             if let Some(ListMarker::Task(done)) = i.store.marker(k) {
@@ -448,6 +473,7 @@ fn block(
     }
     links(i, k, 0..text.len(), (geo.bx, by), focus, b);
     if shape.is_code() {
+        actions(i, k, geo, by, focus, b);
         let laid = i.laid(k).map(|(_, l)| copy_rect(l, &i.typo, geo.bx, by));
         b.child(COPY_KEY, |c| {
             c.role(Role::Button)
@@ -458,6 +484,25 @@ fn block(
                 c.bounds(x, y, w, h);
             }
             if focus == Some(Target::Copy { block: k }) {
+                c.focused();
+            }
+        });
+    }
+}
+
+/// Buttons for a code block's header actions or a table's footer actions.
+fn actions(i: &Inner, k: usize, geo: &Geo, by: i32, focus: Option<Target>, n: &mut Node) {
+    let Some((_, l)) = i.laid(k) else { return };
+    let hh = i.typo.code_header;
+    let y = if l.table.is_some() { by + l.height - hh } else { by };
+    for (slot, a) in i.actions_of(k).iter().enumerate() {
+        n.child(ACTION + slot as u64, |c| {
+            c.role(Role::Button)
+                .name(&a.label)
+                .action(Action::Click)
+                .focusable()
+                .bounds(geo.bx + a.x, y, a.w, hh);
+            if focus == Some(Target::Action { block: k, slot }) {
                 c.focused();
             }
         });
@@ -587,7 +632,7 @@ fn cell_lines<'a>(
 
 // ---------------------------------------------------------------- actions
 
-fn act(w: &Widget, inn: &Rc<RefCell<Inner>>, link: &LinkFn, r: &Request) -> bool {
+fn act(w: &Widget, inn: &Rc<RefCell<Inner>>, hooks: &Hooks, r: &Request) -> bool {
     let mut w = w.clone();
     // Below the List nodes: [block, ..].
     let path: Vec<u64> = r.path.iter().copied().skip_while(|k| *k >= LIST).collect();
@@ -609,6 +654,13 @@ fn act(w: &Widget, inn: &Rc<RefCell<Inner>>, link: &LinkFn, r: &Request) -> bool
     // The target a link or copy key names (tables: [block, row, cell, link]).
     let target = match path.last().copied() {
         Some(COPY_KEY) => Some(Target::Copy { block: k }),
+        Some(a) if (ACTION..ACTION + (1 << 16)).contains(&a) => Some(Target::Action {
+            block: k,
+            slot: (a - ACTION) as usize,
+        }),
+        None | Some(_) if path.len() == 1 && inn.borrow().store.is_embed(k) && inn.borrow().embed_focus => {
+            Some(Target::Embed { block: k })
+        }
         Some(run) if path.len() != 1 && path.len() != 3 && run < RUN => Some(Target::Link {
             block: k,
             run: run as usize,
@@ -618,7 +670,7 @@ fn act(w: &Widget, inn: &Rc<RefCell<Inner>>, link: &LinkFn, r: &Request) -> bool
     match (r.action, target) {
         (Action::Click, Some(t)) => {
             inn.borrow_mut().focus = Some(t);
-            activate_focus(&mut w, inn, link)
+            activate_focus(&mut w, inn, hooks)
         }
         (Action::Focus, Some(t)) => {
             let _ = w.take_focus();

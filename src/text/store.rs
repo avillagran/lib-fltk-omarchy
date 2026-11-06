@@ -9,13 +9,16 @@
 //! - `runs`: 4 bytes per styled run (end offset, bold/italic/strike/code,
 //!   color role, link marks), 8 bytes in blocks of 4 MiB or more;
 //! - `aux`: the rare per-block data (link URLs, ordered list numbers,
-//!   code languages, table cells), as bytes;
+//!   code languages, table cells, embed ids and heights, image sources),
+//!   as bytes;
 //! - `metas`: 16 bytes per block (offsets into the arenas, kind, nesting,
 //!   marker, flags).
 //!
-//! Blocks are only ever replaced at the end (a stream re-parses its open
-//! tail), so every arena is truncated and appended, never edited in the
-//! middle. Blocks are materialized back into a [`Block`] only to be laid
+//! Blocks are mostly replaced at the end (a stream re-parses its open
+//! tail), so every arena is truncated and appended. Keyed messages may be
+//! replaced, inserted or removed anywhere ([`Store::splice`]): that moves
+//! the bytes after the edit, O(what follows), which in a transcript is the
+//! few newest messages. Blocks are materialized back into a [`Block`] only to be laid
 //! out (and those copies are dropped with their layout).
 //!
 //! Limits: 4 GiB of text per document; heading levels above 7 are stored
@@ -107,6 +110,9 @@ pub(crate) enum ShapeKind {
     Rule,
     /// Number of rows.
     Table(u32),
+    /// Reserved height.
+    Embed(i32),
+    Image,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -126,6 +132,8 @@ impl Shape {
                 BlockKind::Code { .. } => ShapeKind::Code,
                 BlockKind::Rule => ShapeKind::Rule,
                 BlockKind::Table(t) => ShapeKind::Table(t.rows.len().min(u32::MAX as usize) as u32),
+                BlockKind::Embed(e) => ShapeKind::Embed(e.height),
+                BlockKind::Image { .. } => ShapeKind::Image,
             },
             indent: b.indent,
             quote: b.quote,
@@ -143,6 +151,8 @@ const K_HEADING: u32 = 1;
 const K_CODE: u32 = 2;
 const K_RULE: u32 = 3;
 const K_TABLE: u32 = 4;
+const K_EMBED: u32 = 5;
+const K_IMAGE: u32 = 6;
 
 const M_NONE: u32 = 0;
 const M_BULLET: u32 = 1;
@@ -196,6 +206,8 @@ fn header(b: &Block) -> u32 {
         BlockKind::Code { .. } => (K_CODE, 0),
         BlockKind::Rule => (K_RULE, 0),
         BlockKind::Table(_) => (K_TABLE, 0),
+        BlockKind::Embed(_) => (K_EMBED, 0),
+        BlockKind::Image { .. } => (K_IMAGE, 0),
     };
     let marker = match b.marker {
         None => M_NONE,
@@ -232,6 +244,10 @@ struct Aux<'a> {
     number: Option<u64>,
     lang: &'a str,
     table: &'a [u8],
+    /// Embed id or image source.
+    id: &'a str,
+    /// Embed height and where it is in the block's aux bytes.
+    height: Option<(i32, usize)>,
 }
 
 impl<'a> Aux<'a> {
@@ -386,6 +402,16 @@ impl Store {
             lang = std::str::from_utf8(&b[at + 4..at + 4 + n]).unwrap_or("");
             at += 4 + n;
         }
+        let mut id = "";
+        let mut height = None;
+        if m.kind() == K_EMBED || m.kind() == K_IMAGE {
+            let n = get_u32(b, at) as usize;
+            id = std::str::from_utf8(&b[at + 4..at + 4 + n]).unwrap_or("");
+            at += 4 + n;
+            if m.kind() == K_EMBED {
+                height = Some((get_u32(b, at) as i32, at));
+            }
+        }
         let table = if m.kind() == K_TABLE {
             &b[at..]
         } else {
@@ -397,6 +423,8 @@ impl Store {
             number,
             lang,
             table,
+            id,
+            height,
         }
     }
 
@@ -412,6 +440,8 @@ impl Store {
                     let ncols = get_u32(t, 4) as usize;
                     ShapeKind::Table(get_u32(t, 8 + 4 * ncols))
                 }
+                K_EMBED => ShapeKind::Embed(self.aux(i).height.map_or(0, |h| h.0)),
+                K_IMAGE => ShapeKind::Image,
                 _ => ShapeKind::Paragraph,
             },
             indent: m.indent(),
@@ -500,6 +530,15 @@ impl Store {
                 put_u32(&mut self.aux, off(lang.len()));
                 self.aux.extend_from_slice(lang.as_bytes());
             }
+            BlockKind::Embed(e) => {
+                put_u32(&mut self.aux, off(e.id.len()));
+                self.aux.extend_from_slice(e.id.as_bytes());
+                put_u32(&mut self.aux, e.height.max(0) as u32);
+            }
+            BlockKind::Image { src } => {
+                put_u32(&mut self.aux, off(src.len()));
+                self.aux.extend_from_slice(src.as_bytes());
+            }
             BlockKind::Table(t) => {
                 put_u32(&mut self.aux, off(t.header_rows));
                 put_u32(&mut self.aux, off(t.align.len()));
@@ -527,6 +566,74 @@ impl Store {
         self.metas.push(meta);
     }
 
+    /// Replaces blocks `at..at + remove` with `blocks`: O(bytes after the
+    /// edit). At the end it is a truncate and pushes.
+    pub fn splice(&mut self, at: usize, remove: usize, blocks: &[Block]) {
+        let n = self.len();
+        let at = at.min(n);
+        let end = at.saturating_add(remove).min(n);
+        if end == n {
+            self.truncate(at);
+            for b in blocks {
+                self.push(b);
+            }
+            return;
+        }
+        let mut tmp = Store::default();
+        for b in blocks {
+            tmp.push(b);
+        }
+        let first = self.metas[end];
+        let (t0, r0, a0) = match self.metas.get(at) {
+            Some(m) => (m.text as usize, m.runs as usize, m.aux as usize),
+            None => (self.text.len(), self.runs.len(), self.aux.len()),
+        };
+        let (t1, r1, a1) = (first.text as usize, first.runs as usize, first.aux as usize);
+        self.text.replace_range(t0..t1, &tmp.text);
+        self.runs.splice(r0..r1, tmp.runs.iter().copied());
+        self.aux.splice(a0..a1, tmp.aux.iter().copied());
+        let shift = |v: u32, from: usize, to: usize, len: usize| off(v as usize - to + from + len);
+        let (tl, rl, al) = (tmp.text.len(), tmp.runs.len(), tmp.aux.len());
+        for m in &mut self.metas[end..] {
+            m.text = shift(m.text, t0, t1, tl);
+            m.runs = shift(m.runs, r0, r1, rl);
+            m.aux = shift(m.aux, a0, a1, al);
+        }
+        let new: Vec<Meta> = tmp
+            .metas
+            .iter()
+            .map(|m| Meta {
+                text: off(m.text as usize + t0),
+                runs: off(m.runs as usize + r0),
+                aux: off(m.aux as usize + a0),
+                bits: m.bits,
+            })
+            .collect();
+        self.metas.splice(at..end, new);
+    }
+
+    /// Id of embed block `i`, or the source of image block `i`.
+    pub fn embed_id(&self, i: usize) -> Option<&str> {
+        matches!(self.metas[i].kind(), K_EMBED | K_IMAGE).then(|| self.aux(i).id)
+    }
+
+    pub fn is_embed(&self, i: usize) -> bool {
+        self.metas[i].kind() == K_EMBED
+    }
+
+    pub fn is_image(&self, i: usize) -> bool {
+        self.metas[i].kind() == K_IMAGE
+    }
+
+    /// Changes the height of embed block `i` in place.
+    pub fn set_embed_height(&mut self, i: usize, h: i32) -> bool {
+        let base = self.metas[i].aux as usize;
+        let Some((_, at)) = self.aux(i).height else { return false };
+        let p = base + at;
+        self.aux[p..p + 4].copy_from_slice(&(h.max(0) as u32).to_le_bytes());
+        true
+    }
+
     /// Keeps the first `n` blocks.
     pub fn truncate(&mut self, n: usize) {
         let Some(m) = self.metas.get(n).copied() else {
@@ -547,6 +654,13 @@ impl Store {
             },
             K_RULE => BlockKind::Rule,
             K_TABLE => BlockKind::Table(Box::new(aux.table())),
+            K_EMBED => BlockKind::Embed(Embed {
+                id: aux.id.to_string(),
+                height: aux.height.map_or(0, |h| h.0),
+            }),
+            K_IMAGE => BlockKind::Image {
+                src: aux.id.to_string(),
+            },
             _ => BlockKind::Paragraph,
         }
     }
@@ -609,6 +723,10 @@ impl Store {
         match &b.kind {
             BlockKind::Code { lang } if aux.lang != lang => return false,
             BlockKind::Table(t) if **t != aux.table() => return false,
+            BlockKind::Embed(e) if aux.id != e.id || aux.height.map(|h| h.0) != Some(e.height.max(0)) => {
+                return false
+            }
+            BlockKind::Image { src } if aux.id != src => return false,
             _ => {}
         }
         let (words, urls) = encode_runs(runs);
@@ -705,6 +823,43 @@ mod tests {
         }
         assert_eq!(s.bytes(), before);
         assert_eq!(s.block(blocks.len() - 1), blocks[blocks.len() - 1]);
+    }
+
+    #[test]
+    fn splice_in_the_middle_and_embeds() {
+        let mut blocks = parse(MD);
+        let mut s = Store::default();
+        for b in &blocks {
+            s.push(b);
+        }
+        let new = vec![
+            Block::embed("card-1", 120, "Ran 3 commands"),
+            Block::image("https://x.dev/a.png", "a chart"),
+            Block::paragraph("between"),
+        ];
+        s.splice(2, 1, &new);
+        blocks.splice(2..3, new.clone());
+        assert_eq!(s.len(), blocks.len());
+        for (i, b) in blocks.iter().enumerate() {
+            assert_eq!(&s.block(i), b, "block {i}");
+            assert!(s.same(i, b), "same {i}");
+        }
+        assert_eq!(s.embed_id(2), Some("card-1"));
+        assert_eq!(s.shape(2).kind, ShapeKind::Embed(120));
+        assert_eq!(s.embed_id(3), Some("https://x.dev/a.png"));
+        assert!(s.is_image(3) && !s.is_embed(3));
+        assert!(s.set_embed_height(2, 300));
+        assert_eq!(s.shape(2).kind, ShapeKind::Embed(300));
+        assert!(!s.same(2, &new[0]));
+        // Insert at the start, remove in the middle.
+        s.splice(0, 0, &[Block::heading(1, "older")]);
+        s.splice(4, 2, &[]);
+        blocks.insert(0, Block::heading(1, "older"));
+        blocks.drain(4..6);
+        blocks[3] = Block::embed("card-1", 300, "Ran 3 commands");
+        for (i, b) in blocks.iter().enumerate() {
+            assert_eq!(&s.block(i), b, "after {i}");
+        }
     }
 
     #[test]

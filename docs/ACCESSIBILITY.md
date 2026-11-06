@@ -133,6 +133,8 @@ Names come from the visible text. Icon-only controls use their tooltip, or
 | RichText block | Paragraph, Heading (level), ListItem in a List ("2 of 3", checked for tasks, level), Code → static (description = language), Table (rows × columns) with Row, ColumnHeader and Cell | the block's text as name; one text run per laid out line (the Document's Text interface reads them in order) | Focus, ScrollIntoView (scroll the view) |
 | RichText link | Link → link, AT-SPI Hyperlink with the URL | link text; URL | Click (opens it, like Enter), Focus (Tab target) |
 | RichText code copy | Button "Copy" | — | Click (copies, like Enter), Focus |
+| RichText block actions | Button per code header action and table footer action ("Copy as Markdown", "Copy as CSV", app labels) | the label | Click (runs it, like Enter), Focus |
+| RichText embed / image | Embed → Group (focusable with `on_embed_activate`); resolved image → Image | the embed's text / the alt text | Click (activates), Focus |
 | `text::RichLabel` | Label, with a Link child per link | its text; link URL | Click on a link (as a mouse click) |
 | `announce` | Status, live | the text | — |
 

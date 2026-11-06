@@ -29,8 +29,13 @@
 //!
 //! Limitations: no bidi reordering (each fragment is shaped by FLTK/Pango,
 //! so an Arabic run reads right to left, but lines fill left to right and
-//! selection measures left to right); long code lines wrap; images show as
-//! their alt text with the link.
+//! selection measures left to right); long code lines wrap; images are
+//! their alt text with the link until the app resolves them
+//! (`RichText::on_image`).
+//!
+//! As a transcript host a `RichText` addresses messages by key, hosts
+//! app-drawn embeds, keeps scroll anchors, offers code and table actions,
+//! find and a selection rectangle ([`transcript`], docs/COMPONENTS.md).
 
 pub mod doc;
 pub mod highlight;
@@ -38,9 +43,11 @@ pub mod label;
 pub mod layout;
 pub mod markdown;
 pub(crate) mod store;
+pub mod transcript;
 pub mod view;
 
 pub use doc::*;
 pub use label::RichLabel;
 pub use markdown::{MarkdownOptions, MarkdownStream, StreamUpdate};
+pub use transcript::{BlockAction, BlockActionEvent, EmbedPaint, ImageData, Message, ScrollAnchor};
 pub use view::{RichText, TextPos, TextSender};

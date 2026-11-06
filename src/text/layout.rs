@@ -208,7 +208,9 @@ impl Typo {
     }
 
     pub(crate) fn left_of(&self, s: Shape) -> i32 {
-        s.quote as i32 * self.quote_w + s.indent as i32 * self.list_w
+        // Unresolved images: their glyph goes in a list-marker wide gutter.
+        let image = if s.kind == ShapeKind::Image { self.list_w } else { 0 };
+        s.quote as i32 * self.quote_w + s.indent as i32 * self.list_w + image
     }
 
     /// Space above `b` when it follows `prev`.
@@ -550,6 +552,9 @@ pub fn layout_block(
     match &b.kind {
         BlockKind::Rule => {
             out.height = ty.gap;
+        }
+        BlockKind::Embed(e) => {
+            out.height = e.height.max(0);
         }
         BlockKind::Table(t) => layout_table(b, t, &mut out, ty, m),
         kind => {
@@ -1337,7 +1342,8 @@ pub(crate) fn estimate_of(s: Shape, text: &str, width: i32, ty: &Typo, avg_char:
         ShapeKind::Table(rows) => rows as i32 * (ty.line_h(ty.body) + 2 * ty.cell_pad) + 1,
         ShapeKind::Code => ty.code_header + lines(text) * lh + ty.code_pad,
         ShapeKind::Heading(l) => lines(text) * lh + if l <= 2 { 2 * ty.item_gap + 1 } else { 0 },
-        ShapeKind::Paragraph => lines(text) * lh,
+        ShapeKind::Paragraph | ShapeKind::Image => lines(text) * lh,
+        ShapeKind::Embed(h) => h.max(0),
     }
 }
 
