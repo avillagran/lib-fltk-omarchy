@@ -105,7 +105,7 @@ no web view. See [docs/MERMAID.md](docs/MERMAID.md).
   15.0 MB PSS and 70 ms to first frame vs 59.5 MB / 127 ms (QML software)
   and 106.9 MB / 175 ms (QML GPU); method, three sessions and limits in
   [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
-- **For agents**: [AGENTS.md](AGENTS.md).
+- **For agents**: [AGENTS.md](AGENTS.md); new apps the Omarchy way with the [omarchy-fltk-app skill](skills/omarchy-fltk-app/SKILL.md) and `cargo run --example new_app -- <name>` (template in `templates/omarchy-app`).
 
 ```sh
 cargo run --example gallery      # all components

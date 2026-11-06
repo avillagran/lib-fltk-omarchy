@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- **File dialogs through xdg-desktop-portal** (`dialog`): `open_files`,
+  `save_file` (the UI keeps running) and `*_async` (answer on the UI
+  thread), `Request` with filters, folder, accept label; portal first on
+  Linux (a built-in minimal D-Bus client in `src/platform/portal`, no
+  dependency), FLTK's native chooser as the fallback and on macOS and
+  Windows; `set_picker` for tests, `OMARCHY_FLTK_FILE_DIALOG`. The
+  composer's attach button uses it. docs/PLATFORMS.md.
+- **App template and agent skill**: `templates/omarchy-app` (Omarchy's
+  omarchy-app shape in Rust: backend/ui/cli, Omarchy catalogs, bin/build,
+  bin/test, bin/install, PKGBUILD, `.desktop`, icon, `check`/`render
+  --json`, `skill install`), `cargo run --example new_app -- <name>`, and
+  `skills/omarchy-fltk-app/SKILL.md` mapping the Qt skill to this toolkit.
 - **Native Mermaid diagrams** (`mermaid`, feature `mermaid`, off by
   default, no dependencies): flowcharts, sequence and state diagrams
   parsed, laid out (layered layout and cubic edge routing adapted from
