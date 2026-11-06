@@ -45,6 +45,7 @@ Windows.
 | `platform::animations()` | the OS motion setting (`Some(false)`: reduce motion); read by `anim` on its watcher thread (docs/ANIMATION.md) |
 | `platform::prefers_dark()` | the system appearance: `Some(true)` dark, `Some(false)` light, `None` unknown (Linux: the Omarchy theme decides) |
 | `platform::process_cpu_time()` | this process's CPU time (benchmarks) |
+| `platform::thread_cpu_time()` | the calling thread's CPU time (`testkit` frame log, blocked-UI warning) |
 | `platform::dirs::{home, config, data, state, cache, runtime, app_config, app_data, app_state, app_cache}` | per-OS user directories, no dependencies (`runtime`: `$XDG_RUNTIME_DIR`, else the per-user temp dir; `OMARCHY_FLTK_RUNTIME_DIR` overrides) |
 | `platform::fonts::{default_family, faces}` | default UI family and the FLTK face names (regular, bold) for a family |
 | `keys::PRIMARY`, `keys::primary_held()`, `keys::label(spec)` | the primary modifier (Cmd on macOS, Ctrl elsewhere) and a spec shown the platform's way |

@@ -128,6 +128,13 @@ pub fn process_cpu_time() -> Option<std::time::Duration> {
     imp::process_cpu_time()
 }
 
+/// CPU time used by the calling thread so far (user + system): the frame
+/// log and the blocked-UI warning of [`crate::testkit`] compare it with
+/// wall time. None where the OS does not report it.
+pub fn thread_cpu_time() -> Option<std::time::Duration> {
+    imp::thread_cpu_time()
+}
+
 /// True when theme files live on this OS by default (Omarchy). Elsewhere
 /// the built-in theme is used unless a theme directory is configured.
 pub fn has_omarchy() -> bool {
