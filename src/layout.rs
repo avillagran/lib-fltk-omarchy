@@ -169,13 +169,15 @@ impl FlexExt for Flex {
     fn fit<W: WidgetExt>(&mut self, child: &W) {
         // Creation order decides the parent in fltk; fitting a widget created
         // elsewhere moves it here, so the call reads as "put this in the row".
-        if child.parent().map_or(true, |p| p.as_widget_ptr() != self.as_widget_ptr()) {
-            self.add(child);
-        }
+        // The natural size first: adding to a flex lays it out, which would
+        // stretch a flexible newcomer before its size is known.
         let (w, h) = natural_of(child).unwrap_or_else(|| {
             remember(child);
             (child.w(), child.h())
         });
+        if child.parent().map_or(true, |p| p.as_widget_ptr() != self.as_widget_ptr()) {
+            self.add(child);
+        }
         self.fixed(child, if is_column(self) { h } else { w });
         crate::motion::install_if_free(self);
         if !is_column(self) {

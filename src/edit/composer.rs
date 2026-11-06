@@ -406,11 +406,13 @@ struct Data {
     attach: RefCell<Option<Button>>,
 }
 
-/// The row under the input: the app's widgets at the start (after the
-/// attach button), a flexible gap, the app's end widgets.
+/// The row under the input: `lead` (flexible) holds the attach button
+/// and the app's widgets at its start, `end` (fitted) the app's end
+/// widgets. Children are only ever appended or inserted: moving a child
+/// of a `Flex` drops its fixed size.
 struct Bottom {
     row: Flex,
-    gap: fltk::frame::Frame,
+    lead: Flex,
     end: Flex,
     used: bool,
 }
@@ -705,6 +707,7 @@ impl Composer {
             a11y::set_name(&*b, &tip);
         });
         let mut row = self.bottom();
+        crate::layout::remember(&*b);
         row.insert(&*b, 0);
         row.fit(&*b);
         if let Some(t) = self.toolbar.borrow_mut().as_mut() {
@@ -852,9 +855,6 @@ impl Composer {
         t.end();
         if let Some(b) = self.toolbar.borrow_mut().as_mut() {
             b.used = true;
-            // The gap and the end widgets stay last.
-            b.row.add(&b.gap);
-            b.row.add(&b.end);
         }
         if let Some(g) = prev {
             g.begin();
@@ -884,15 +884,16 @@ impl Composer {
         self
     }
 
-    /// The bottom row (made on first use).
+    /// The start of the bottom row (made on first use).
     fn bottom(&self) -> Flex {
         if let Some(b) = self.toolbar.borrow().as_ref() {
-            return b.row.clone();
+            return b.lead.clone();
         }
         let prev = fltk::group::Group::try_current();
         fltk::group::Group::set_current(None::<&fltk::group::Group>);
         let mut row = crate::layout::row();
-        let gap = crate::layout::spacer();
+        let lead = crate::layout::row();
+        lead.end();
         let end = crate::layout::row();
         end.end();
         row.fixed(&end, 0);
@@ -902,13 +903,14 @@ impl Composer {
             g.begin();
         }
         *self.toolbar.borrow_mut() = Some(Bottom {
-            row: row.clone(),
-            gap,
+            row,
+            lead: lead.clone(),
             end,
             used: false,
         });
-        row
+        lead
     }
+
 
     /// Tooltips and names of the send and stop buttons; the send tooltip
     /// shows the key that sends.
@@ -1085,8 +1087,7 @@ impl Composer {
                 tb.show();
                 cy += gap;
                 tb.resize(x, cy, w, bh);
-                tb.layout();
-                cy += bh;
+                tb.layout();                cy += bh;
             } else {
                 tb.hide();
             }

@@ -623,6 +623,7 @@ pub fn checks(run: &mut dyn FnMut(&str, Check)) {
             let model = Button::new("Model").bordered();
             let options = Button::icon(glyph::SETTINGS, "").tooltip("Options");
             let (m2, o2) = (model.clone(), options.clone());
+            let (mw, ow) = (model.w(), options.w());
             let c = Composer::new()
                 .bind(&draft)
                 .history(&history)
@@ -636,6 +637,7 @@ pub fn checks(run: &mut dyn FnMut(&str, Check)) {
             body.fit(&*c);
             win.end();
             win.snapshot(shots.join("composer-o3.png")).map_err(|e| e.to_string())?;
+            check(model.w() == mw && options.w() == ow, &format!("widgets keep their size: {} {}", model.w(), options.w()))?;
             focus::first(&*win);
             keys("my draft");
             press("Up");
