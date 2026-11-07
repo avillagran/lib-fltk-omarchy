@@ -746,7 +746,7 @@ pub fn a11y_checks(run: &mut dyn FnMut(&str, Check)) {
         f.view.panel().focus();
         let hunk = f.view.row_of_hunk(0, 0).unwrap();
         f.view.panel().select_only(f.view.panel().id_at(hunk).unwrap());
-        f.win.clone().snapshot(Path::new("build/test-ui/shots/a11y-diff.png")).ok();
+        f.win.clone().snapshot(super::ui_fixture::root().join("shots/a11y-diff.png")).ok();
         let snap = fltk_omarchy::a11y::snapshot(&*f.win).ok_or("no tree")?;
         let has = |s: &str| snap.lines().any(|l| l.contains(s));
         let ok = [
@@ -771,7 +771,7 @@ pub fn a11y_checks(run: &mut dyn FnMut(&str, Check)) {
         let rec = testing::record(&*f.win);
         v.set_annotations(vec![Annotation::new(0, LineRef::new(Side::New, 13), "t", 40).label("Thread: 2 comments"), Annotation::new(0, LineRef::new(Side::New, 16), "u", 30)]);
         v.set_selected_range(Some(LineRange { file: 0, side: Side::New, start: 12, end: 14 }));
-        f.win.clone().snapshot(Path::new("build/test-ui/shots/a11y-diff-review.png")).ok();
+        f.win.clone().snapshot(super::ui_fixture::root().join("shots/a11y-diff-review.png")).ok();
         rec.sync();
         let snap = fltk_omarchy::a11y::snapshot(&*f.win).ok_or("no tree")?;
         for want in ["Button \"Comment on lines 12–14 of src/player.rs\"", "Button \"Comment on line 15 of src/player.rs\"", "Group \"Thread: 2 comments\"", "Group \"Note under line 16\""] {

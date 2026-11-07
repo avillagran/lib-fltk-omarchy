@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 type Check<'a> = &'a dyn Fn(&Path) -> Result<(), String>;
 
 fn root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("build/test-ui/playback")
+    super::ui_fixture::directory("playback").expect("private playback fixture")
 }
 
 /// A 6 s clip (320 × 180, 25 fps, test pattern + tone; mpeg4 and aac,
@@ -29,7 +29,7 @@ fn clip() -> Option<PathBuf> {
     }
     std::fs::create_dir_all(root()).ok()?;
     let ok = std::process::Command::new("ffmpeg")
-        .args(["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=25:duration=6"])
+        .args(["-hide_banner", "-loglevel", "error", "-n", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=25:duration=6"])
         .args(["-f", "lavfi", "-i", "sine=frequency=440:duration=6:sample_rate=48000", "-c:v", "mpeg4", "-q:v", "4", "-c:a", "aac", "-shortest"])
         .arg(&path)
         .status()

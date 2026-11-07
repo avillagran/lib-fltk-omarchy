@@ -325,8 +325,8 @@ pub fn checks(run: &mut dyn FnMut(&str, Check)) {
         if OS != Os::Linux {
             return Ok(()); // Omarchy's language file exists on Linux only
         }
-        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("build/test-ui/xdg-config");
-        std::fs::create_dir_all(root.join("omarchy")).map_err(|e| e.to_string())?;
+        let root = super::ui_fixture::directory("xdg-config").map_err(|e| e.to_string())?;
+        super::ui_fixture::directory("xdg-config/omarchy").map_err(|e| e.to_string())?;
         std::fs::write(root.join("omarchy/language"), "da\n").map_err(|e| e.to_string())?;
         let old = std::env::var_os("XDG_CONFIG_HOME");
         std::env::set_var("XDG_CONFIG_HOME", &root);
@@ -350,7 +350,7 @@ pub fn checks(run: &mut dyn FnMut(&str, Check)) {
             Some(v) => std::env::set_var("XDG_CONFIG_HOME", v),
             None => std::env::remove_var("XDG_CONFIG_HOME"),
         }
-        let _ = std::fs::remove_file(root.join("omarchy/language"));
+        let _ = super::ui_fixture::preserve(root.join("omarchy/language")).map_err(|e| e.to_string())?;
         fltk_omarchy::i18n::set_locale("en");
         result
     });
