@@ -59,6 +59,10 @@ accessibility and CPU rendering while changing submission and caching.
    retirement, bounded pressure compaction and native readback checks.
    Native Unicode layers reuse their rasters; unretained text still prepares
    a new fallback image. Glyph atlases and mixed-DPI gates remain outstanding.
+   The [native glyph experiment](GLYPH-EXPERIMENT.md) now reproduces positioned
+   native runs exactly on private X11/Wayland displays. Independent glyph
+   painting and the candidate ink partition still fail connected-script
+   coverage gates; neither partition is admitted to the renderer.
 5. Add native isolated shader scopes, remaining common primitives,
    affine transforms and bounded offscreen-target reuse.
 6. Integrate the common painter with full-window controls and virtual

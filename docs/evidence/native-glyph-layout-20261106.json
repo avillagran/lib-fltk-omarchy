@@ -1,0 +1,666 @@
+{
+  "date": "2026-11-06",
+  "architecture": "x86_64",
+  "source_base": "3ba8bba",
+  "scope": "Diagnostic only; no library/runtime API or rendering policy change",
+  "sources": {
+    "examples/scene_glyph_check.rs": "d8409d6912c945de1de553053f3b363b2f89bc5e0b6faac35455f4c327d39e77",
+    "script/glyph-wayland-check": "123b5fca6f63ffcd8c18c96f4b9a759bd3f5fdebcba6cdfcec661f0d3ac34d4f",
+    "docs/GLYPH-EXPERIMENT.md": "ca8bc17ffc74cd5639b2f3c459f0b832259c61113310ff241db01c32f38f3c15"
+  },
+  "native_results": {
+    "x11": {
+      "backend": "x11",
+      "pango_version": 15802,
+      "threshold": 2,
+      "scope": "Linux logical 1x positioned native runs and overlapping ink groups; no atlas/cache/GL integration",
+      "positioned_runs_passed": true,
+      "ink_groups_passed": true,
+      "individual_glyphs_passed": false,
+      "raw_report": {
+        "path": "target/lava-review/glyph-probe-x11-final/report.json",
+        "sha256": "5042585c69c51396d41496d4893cc09a73b8332c2733e34e922b11d8a2c0ccbc"
+      },
+      "cases": [
+        {
+          "case": "ligatures",
+          "lines": 1,
+          "glyph_count": 22,
+          "layout_native_max_delta": 0,
+          "run_native_max_delta": 0,
+          "group_native_max_delta": 0,
+          "glyph_native_max_delta": 0,
+          "characters": 29,
+          "fonts": [
+            "Noto Sans 20.25"
+          ],
+          "color_glyphs": 0,
+          "missing_glyphs": 0,
+          "ink_groups": 13,
+          "largest_group": 3
+        },
+        {
+          "case": "latin",
+          "lines": 1,
+          "glyph_count": 29,
+          "layout_native_max_delta": 0,
+          "run_native_max_delta": 0,
+          "group_native_max_delta": 0,
+          "glyph_native_max_delta": 0,
+          "characters": 29,
+          "fonts": [
+            "JetBrainsMono Nerd Font 20.25"
+          ],
+          "color_glyphs": 0,
+          "missing_glyphs": 0,
+          "ink_groups": 24,
+          "largest_group": 3
+        },
+        {
+          "case": "marks",
+          "lines": 1,
+          "glyph_count": 16,
+          "layout_native_max_delta": 0,
+          "run_native_max_delta": 0,
+          "group_native_max_delta": 0,
+          "glyph_native_max_delta": 0,
+          "characters": 20,
+          "fonts": [
+            "JetBrainsMono Nerd Font 21.75"
+          ],
+          "color_glyphs": 0,
+          "missing_glyphs": 0,
+          "ink_groups": 14,
+          "largest_group": 2
+        },
+        {
+          "case": "arabic",
+          "lines": 1,
+          "glyph_count": 29,
+          "layout_native_max_delta": 0,
+          "run_native_max_delta": 0,
+          "group_native_max_delta": 0,
+          "glyph_native_max_delta": 47,
+          "characters": 24,
+          "fonts": [
+            "Noto Naskh Arabic 21.75"
+          ],
+          "color_glyphs": 0,
+          "missing_glyphs": 0,
+          "ink_groups": 7,
+          "largest_group": 9
+        },
+        {
+          "case": "mixed",
+          "lines": 1,
+          "glyph_count": 33,
+          "layout_native_max_delta": 0,
+          "run_native_max_delta": 0,
+          "group_native_max_delta": 0,
+          "glyph_native_max_delta": 34,
+          "characters": 30,
+          "fonts": [
+            "JetBrainsMono Nerd Font 17.25",
+            "Liberation Mono 17.25",
+            "Noto Naskh Arabic 17.25"
+          ],
+          "color_glyphs": 0,
+          "missing_glyphs": 0,
+          "ink_groups": 24,
+          "largest_group": 9
+        },
+        {
+          "case": "fallback",
+          "lines": 1,
+          "glyph_count": 22,
+          "layout_native_max_delta": 0,
+          "run_native_max_delta": 0,
+          "group_native_max_delta": 0,
+          "glyph_native_max_delta": 56,
+          "characters": 23,
+          "fonts": [
+            "Noto Sans Bengali 18",
+            "Noto Sans Devanagari 18",
+            "Noto Sans Mono CJK JP 18",
+            "Noto Sans Thai 18"
+          ],
+          "color_glyphs": 0,
+          "missing_glyphs": 0,
+          "ink_groups": 7,
+          "largest_group": 6
+        },
+        {
+          "case": "emoji",
+          "lines": 1,
+          "glyph_count": 13,
+          "layout_native_max_delta": 0,
+          "run_native_max_delta": 0,
+          "group_native_max_delta": 0,
+          "glyph_native_max_delta": 0,
+          "characters": 18,
+          "fonts": [
+            "JetBrainsMono Nerd Font 21.75",
+            "Noto Color Emoji 21.75"
+          ],
+          "color_glyphs": 4,
+          "missing_glyphs": 0,
+          "ink_groups": 12,
+          "largest_group": 2
+        },
+        {
+          "case": "wrap",
+          "lines": 4,
+          "glyph_count": 72,
+          "layout_native_max_delta": 0,
+          "run_native_max_delta": 0,
+          "group_native_max_delta": 0,
+          "glyph_native_max_delta": 27,
+          "characters": 69,
+          "fonts": [
+            "JetBrainsMono Nerd Font 14.25",
+            "Noto Naskh Arabic 14.25",
+            "Noto Sans Mono CJK JP 14.25"
+          ],
+          "color_glyphs": 0,
+          "missing_glyphs": 0,
+          "ink_groups": 39,
+          "largest_group": 9
+        },
+        {
+          "case": "bold",
+          "lines": 1,
+          "glyph_count": 21,
+          "layout_native_max_delta": 0,
+          "run_native_max_delta": 0,
+          "group_native_max_delta": 0,
+          "glyph_native_max_delta": 0,
+          "characters": 23,
+          "fonts": [
+            "JetBrainsMono Nerd Font Bold 23.25",
+            "Liberation Mono Bold 23.25",
+            "Noto Color Emoji Bold 23.25"
+          ],
+          "color_glyphs": 1,
+          "missing_glyphs": 0,
+          "ink_groups": 20,
+          "largest_group": 2
+        },
+        {
+          "case": "clipped",
+          "lines": 1,
+          "glyph_count": 23,
+          "layout_native_max_delta": 0,
+          "run_native_max_delta": 0,
+          "group_native_max_delta": 0,
+          "glyph_native_max_delta": 0,
+          "characters": 22,
+          "fonts": [
+            "JetBrainsMono Nerd Font 27.75",
+            "Noto Color Emoji 27.75",
+            "Noto Naskh Arabic 27.75",
+            "Noto Sans Mono CJK JP 27.75"
+          ],
+          "color_glyphs": 1,
+          "missing_glyphs": 0,
+          "ink_groups": 15,
+          "largest_group": 9
+        },
+        {
+          "case": "missing",
+          "lines": 1,
+          "glyph_count": 20,
+          "layout_native_max_delta": 0,
+          "run_native_max_delta": 0,
+          "group_native_max_delta": 0,
+          "glyph_native_max_delta": 0,
+          "characters": 20,
+          "fonts": [
+            "JetBrainsMono Nerd Font 17.25"
+          ],
+          "color_glyphs": 0,
+          "missing_glyphs": 1,
+          "ink_groups": 20,
+          "largest_group": 1
+        }
+      ]
+    },
+    "wayland_container_fonts": {
+      "backend": "wayland",
+      "pango_version": 15802,
+      "threshold": 2,
+      "scope": "Linux logical 1x positioned native runs and overlapping ink groups; no atlas/cache/GL integration",
+      "positioned_runs_passed": true,
+      "ink_groups_passed": true,
+      "individual_glyphs_passed": false,
+      "raw_report": {
+        "path": "build/glyph-wayland-4cd26c327ab24f5bac2b66bad15d761e/report.json",
+        "sha256": "dd325f10c638a7b97a8798ebebd4b9fc78cab49a712b2b061734847ea0a083f7"
+      },
+      "cases": [
+        {
+          "case": "ligatures",
+          "lines": 1,
+          "glyph_count": 22,
+          "layout_native_max_delta": 0,
+          "run_native_max_delta": 0,
+          "group_native_max_delta": 0,
+          "glyph_native_max_delta": 0,
+          "characters": 29,
+          "fonts": [
+            "FreeSans 20.25"
+          ],
+          "color_glyphs": 0,
+          "missing_glyphs": 0,
+          "ink_groups": 11,
+          "largest_group": 3
+        },
+        {
+          "case": "latin",
+          "lines": 1,
+          "glyph_count": 29,
+          "layout_native_max_delta": 0,
+          "run_native_max_delta": 0,
+          "group_native_max_delta": 0,
+          "glyph_native_max_delta": 0,
+          "characters": 29,
+          "fonts": [
+            "FreeMono 20.25"
+          ],
+          "color_glyphs": 0,
+          "missing_glyphs": 0,
+          "ink_groups": 23,
+          "largest_group": 3
+        },
+        {
+          "case": "marks",
+          "lines": 1,
+          "glyph_count": 16,
+          "layout_native_max_delta": 0,
+          "run_native_max_delta": 0,
+          "group_native_max_delta": 0,
+          "glyph_native_max_delta": 0,
+          "characters": 20,
+          "fonts": [
+            "FreeMono 21.75"
+          ],
+          "color_glyphs": 0,
+          "missing_glyphs": 0,
+          "ink_groups": 11,
+          "largest_group": 2
+        },
+        {
+          "case": "arabic",
+          "lines": 1,
+          "glyph_count": 23,
+          "layout_native_max_delta": 0,
+          "run_native_max_delta": 0,
+          "group_native_max_delta": 0,
+          "glyph_native_max_delta": 6,
+          "characters": 24,
+          "fonts": [
+            "FreeMono 21.75"
+          ],
+          "color_glyphs": 0,
+          "missing_glyphs": 0,
+          "ink_groups": 12,
+          "largest_group": 3
+        },
+        {
+          "case": "mixed",
+          "lines": 1,
+          "glyph_count": 30,
+          "layout_native_max_delta": 0,
+          "run_native_max_delta": 0,
+          "group_native_max_delta": 0,
+          "glyph_native_max_delta": 0,
+          "characters": 30,
+          "fonts": [
+            "FreeMono 17.25"
+          ],
+          "color_glyphs": 0,
+          "missing_glyphs": 0,
+          "ink_groups": 26,
+          "largest_group": 3
+        },
+        {
+          "case": "fallback",
+          "lines": 1,
+          "glyph_count": 22,
+          "layout_native_max_delta": 0,
+          "run_native_max_delta": 0,
+          "group_native_max_delta": 0,
+          "glyph_native_max_delta": 42,
+          "characters": 23,
+          "fonts": [
+            "FreeMono 18",
+            "FreeSans 18",
+            "FreeSerif 18"
+          ],
+          "color_glyphs": 0,
+          "missing_glyphs": 5,
+          "ink_groups": 6,
+          "largest_group": 6
+        },
+        {
+          "case": "emoji",
+          "lines": 1,
+          "glyph_count": 18,
+          "layout_native_max_delta": 0,
+          "run_native_max_delta": 0,
+          "group_native_max_delta": 0,
+          "glyph_native_max_delta": 0,
+          "characters": 18,
+          "fonts": [
+            "FreeMono 21.75",
+            "FreeSerif 21.75"
+          ],
+          "color_glyphs": 0,
+          "missing_glyphs": 6,
+          "ink_groups": 12,
+          "largest_group": 4
+        },
+        {
+          "case": "wrap",
+          "lines": 5,
+          "glyph_count": 68,
+          "layout_native_max_delta": 0,
+          "run_native_max_delta": 0,
+          "group_native_max_delta": 0,
+          "glyph_native_max_delta": 40,
+          "characters": 68,
+          "fonts": [
+            "FreeMono 14.25"
+          ],
+          "color_glyphs": 0,
+          "missing_glyphs": 3,
+          "ink_groups": 26,
+          "largest_group": 6
+        },
+        {
+          "case": "bold",
+          "lines": 1,
+          "glyph_count": 23,
+          "layout_native_max_delta": 0,
+          "run_native_max_delta": 0,
+          "group_native_max_delta": 0,
+          "glyph_native_max_delta": 0,
+          "characters": 23,
+          "fonts": [
+            "FreeMono Bold 23.25"
+          ],
+          "color_glyphs": 0,
+          "missing_glyphs": 2,
+          "ink_groups": 17,
+          "largest_group": 3
+        },
+        {
+          "case": "clipped",
+          "lines": 1,
+          "glyph_count": 22,
+          "layout_native_max_delta": 0,
+          "run_native_max_delta": 0,
+          "group_native_max_delta": 0,
+          "glyph_native_max_delta": 0,
+          "characters": 22,
+          "fonts": [
+            "FreeMono 27.75"
+          ],
+          "color_glyphs": 0,
+          "missing_glyphs": 5,
+          "ink_groups": 14,
+          "largest_group": 3
+        },
+        {
+          "case": "missing",
+          "lines": 1,
+          "glyph_count": 20,
+          "layout_native_max_delta": 0,
+          "run_native_max_delta": 0,
+          "group_native_max_delta": 0,
+          "glyph_native_max_delta": 0,
+          "characters": 20,
+          "fonts": [
+            "FreeMono 17.25"
+          ],
+          "color_glyphs": 0,
+          "missing_glyphs": 1,
+          "ink_groups": 16,
+          "largest_group": 3
+        }
+      ]
+    },
+    "wayland_host_fonts_readonly": {
+      "backend": "wayland",
+      "pango_version": 15802,
+      "threshold": 2,
+      "scope": "Linux logical 1x positioned native runs and overlapping ink groups; no atlas/cache/GL integration",
+      "positioned_runs_passed": true,
+      "ink_groups_passed": false,
+      "individual_glyphs_passed": false,
+      "raw_report": {
+        "path": "build/glyph-wayland-ef0acb650f044b308c50b4ba47572fc6/report.json",
+        "sha256": "820b1a5d36a3f2c664cdb36064e005abfc3c8f450831bf844197a027c7eb1e32"
+      },
+      "cases": [
+        {
+          "case": "ligatures",
+          "lines": 1,
+          "glyph_count": 22,
+          "layout_native_max_delta": 0,
+          "run_native_max_delta": 0,
+          "group_native_max_delta": 0,
+          "glyph_native_max_delta": 0,
+          "characters": 29,
+          "fonts": [
+            "Noto Sans 20.25"
+          ],
+          "color_glyphs": 0,
+          "missing_glyphs": 0,
+          "ink_groups": 13,
+          "largest_group": 3
+        },
+        {
+          "case": "latin",
+          "lines": 1,
+          "glyph_count": 29,
+          "layout_native_max_delta": 0,
+          "run_native_max_delta": 0,
+          "group_native_max_delta": 0,
+          "glyph_native_max_delta": 0,
+          "characters": 29,
+          "fonts": [
+            "JetBrainsMono Nerd Font 20.25"
+          ],
+          "color_glyphs": 0,
+          "missing_glyphs": 0,
+          "ink_groups": 24,
+          "largest_group": 3
+        },
+        {
+          "case": "marks",
+          "lines": 1,
+          "glyph_count": 16,
+          "layout_native_max_delta": 0,
+          "run_native_max_delta": 0,
+          "group_native_max_delta": 0,
+          "glyph_native_max_delta": 0,
+          "characters": 20,
+          "fonts": [
+            "JetBrainsMono Nerd Font 21.75"
+          ],
+          "color_glyphs": 0,
+          "missing_glyphs": 0,
+          "ink_groups": 14,
+          "largest_group": 2
+        },
+        {
+          "case": "arabic",
+          "lines": 1,
+          "glyph_count": 43,
+          "layout_native_max_delta": 0,
+          "run_native_max_delta": 0,
+          "group_native_max_delta": 18,
+          "glyph_native_max_delta": 56,
+          "characters": 24,
+          "fonts": [
+            "Noto Nastaliq Urdu 21.75"
+          ],
+          "color_glyphs": 0,
+          "missing_glyphs": 0,
+          "ink_groups": 8,
+          "largest_group": 13
+        },
+        {
+          "case": "mixed",
+          "lines": 1,
+          "glyph_count": 37,
+          "layout_native_max_delta": 0,
+          "run_native_max_delta": 0,
+          "group_native_max_delta": 0,
+          "glyph_native_max_delta": 34,
+          "characters": 30,
+          "fonts": [
+            "JetBrainsMono Nerd Font 17.25",
+            "Liberation Mono 17.25",
+            "Noto Nastaliq Urdu 17.25"
+          ],
+          "color_glyphs": 0,
+          "missing_glyphs": 0,
+          "ink_groups": 24,
+          "largest_group": 13
+        },
+        {
+          "case": "fallback",
+          "lines": 1,
+          "glyph_count": 22,
+          "layout_native_max_delta": 0,
+          "run_native_max_delta": 0,
+          "group_native_max_delta": 0,
+          "glyph_native_max_delta": 109,
+          "characters": 23,
+          "fonts": [
+            "Noto Sans Bengali 18",
+            "Noto Sans Devanagari 18",
+            "Noto Sans Mono CJK KR 18",
+            "Noto Sans Thai 18"
+          ],
+          "color_glyphs": 0,
+          "missing_glyphs": 0,
+          "ink_groups": 7,
+          "largest_group": 6
+        },
+        {
+          "case": "emoji",
+          "lines": 1,
+          "glyph_count": 13,
+          "layout_native_max_delta": 0,
+          "run_native_max_delta": 0,
+          "group_native_max_delta": 0,
+          "glyph_native_max_delta": 0,
+          "characters": 18,
+          "fonts": [
+            "JetBrainsMono Nerd Font 21.75",
+            "Noto Color Emoji 21.75"
+          ],
+          "color_glyphs": 4,
+          "missing_glyphs": 0,
+          "ink_groups": 12,
+          "largest_group": 2
+        },
+        {
+          "case": "wrap",
+          "lines": 4,
+          "glyph_count": 76,
+          "layout_native_max_delta": 0,
+          "run_native_max_delta": 0,
+          "group_native_max_delta": 0,
+          "glyph_native_max_delta": 20,
+          "characters": 69,
+          "fonts": [
+            "JetBrainsMono Nerd Font 14.25",
+            "Noto Nastaliq Urdu 14.25",
+            "Noto Sans Mono CJK KR 14.25"
+          ],
+          "color_glyphs": 0,
+          "missing_glyphs": 0,
+          "ink_groups": 38,
+          "largest_group": 14
+        },
+        {
+          "case": "bold",
+          "lines": 1,
+          "glyph_count": 21,
+          "layout_native_max_delta": 0,
+          "run_native_max_delta": 0,
+          "group_native_max_delta": 0,
+          "glyph_native_max_delta": 0,
+          "characters": 23,
+          "fonts": [
+            "JetBrainsMono Nerd Font Bold 23.25",
+            "Liberation Mono Bold 23.25",
+            "Noto Color Emoji Bold 23.25"
+          ],
+          "color_glyphs": 1,
+          "missing_glyphs": 0,
+          "ink_groups": 20,
+          "largest_group": 2
+        },
+        {
+          "case": "clipped",
+          "lines": 1,
+          "glyph_count": 27,
+          "layout_native_max_delta": 0,
+          "run_native_max_delta": 0,
+          "group_native_max_delta": 0,
+          "glyph_native_max_delta": 0,
+          "characters": 22,
+          "fonts": [
+            "JetBrainsMono Nerd Font 27.75",
+            "Noto Color Emoji 27.75",
+            "Noto Nastaliq Urdu 27.75",
+            "Noto Sans Mono CJK KR 27.75"
+          ],
+          "color_glyphs": 1,
+          "missing_glyphs": 0,
+          "ink_groups": 15,
+          "largest_group": 13
+        },
+        {
+          "case": "missing",
+          "lines": 1,
+          "glyph_count": 20,
+          "layout_native_max_delta": 0,
+          "run_native_max_delta": 0,
+          "group_native_max_delta": 0,
+          "glyph_native_max_delta": 0,
+          "characters": 20,
+          "fonts": [
+            "JetBrainsMono Nerd Font 17.25"
+          ],
+          "color_glyphs": 0,
+          "missing_glyphs": 1,
+          "ink_groups": 19,
+          "largest_group": 2
+        }
+      ]
+    }
+  },
+  "checks": {
+    "rustfmt_example": "PASS",
+    "python_runner_ast": "PASS",
+    "git_diff_check": "PASS",
+    "clippy_example_correctness_suspicious": "PASS; existing library warnings",
+    "msrv_1_80_linux_explicit_target_gpu_example": "PASS",
+    "windows_msvc_example_typecheck": "PASS; unsupported main only, no native glyph runtime",
+    "macos_arm_example_typecheck": "PASS; unsupported main only, no native glyph runtime",
+    "strict_individual_x11": "Expected exit 1; positioned runs and ink groups pass, individual glyph gate fails"
+  },
+  "limitations": [
+    "Not an implemented glyph atlas or glyph cache; product renderer retains native whole-command text fallback.",
+    "Native logical 1x only; no GL uploads, context-loss, DPI, CPU/PSS/power result.",
+    "Individual glyph painting fails connected-script coverage; source-over partition is not admitted.",
+    "Ink/cluster partition is a quadratic diagnostic candidate; Noto Nastaliq Urdu still differs by 18 on Wayland with host fonts.",
+    "Physical M2, macOS and Windows glyph runtime not executed.",
+    "No source/vault push, tag, remote CI, or Files/vendor edits."
+  ]
+}

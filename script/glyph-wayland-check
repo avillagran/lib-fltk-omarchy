@@ -1,0 +1,64 @@
+#!/usr/bin/env python3
+"""Run native positioned-glyph parity in private rootless Sway, without input."""
+import json
+import os
+from pathlib import Path
+import subprocess
+import time
+import uuid
+
+ROOT = Path(__file__).resolve().parent.parent
+PROBE = Path(os.environ.get('GLYPH_CHECK_BIN', str(ROOT / 'target/debug/examples/scene_glyph_check'))).resolve()
+IMAGE = os.environ.get('PRESENT_WAYLAND_IMAGE', 'localhost/o3-qml-wayland-tests:local')
+
+
+def main():
+    if not (PROBE.is_file() and os.access(PROBE, os.X_OK)):
+        raise SystemExit('Build first: cargo build --offline --example scene_glyph_check')
+    suffix = uuid.uuid4().hex
+    output = ROOT / 'build' / ('glyph-wayland-' + suffix)
+    output.mkdir(parents=True, mode=0o700)
+    (output / 'sway.conf').write_text('output * resolution 1280x800\nseat seat0 fallback true\nxwayland disable\n')
+    name = 'fltk-glyph-' + suffix
+    args = ['podman', 'run', '--pull=never', '--rm', '-d', '--name', name,
+            '--network=none', '--userns=keep-id', '--user', f'{os.getuid()}:{os.getgid()}',
+            '--entrypoint', '/bin/sh', '-v', f'{output}:/fixture:rw', '-v', f'{PROBE}:/probe:ro']
+    for lib in ('libXinerama.so.1', 'libXcursor.so.1', 'libXfixes.so.3'):
+        args += ['-v', f'/usr/lib/{lib}:/usr/lib/{lib}:ro']
+    fonts = os.environ.get('GLYPH_CHECK_FONTS')
+    if fonts:
+        font_root = Path(fonts).resolve(strict=True)
+        if not font_root.is_dir():
+            raise SystemExit('GLYPH_CHECK_FONTS must be a font directory')
+        args += ['-v', f'{font_root}:/usr/share/fonts:ro']
+    args += ['-e', 'XDG_RUNTIME_DIR=/fixture', '-e', 'WLR_BACKENDS=headless',
+             '-e', 'WLR_RENDERER=pixman', '-e', 'WLR_LIBINPUT_NO_DEVICES=1', IMAGE, '-c',
+             'cp /usr/sbin/sway /fixture/sway && exec /fixture/sway -c /fixture/sway.conf > /fixture/sway.log 2>&1']
+    subprocess.run(args, check=True, stdout=subprocess.DEVNULL)
+    try:
+        deadline = time.monotonic() + 10
+        while not list(output.glob('wayland-*.lock')):
+            if time.monotonic() > deadline:
+                raise RuntimeError('private compositor startup timeout; inspect sway.log')
+            time.sleep(.05)
+        display = next(output.glob('wayland-*.lock')).name.removesuffix('.lock')
+        with (output / 'application.log').open('w') as log:
+            subprocess.run(['podman', 'exec', '-e', f'WAYLAND_DISPLAY={display}',
+                            '-e', 'FLTK_BACKEND=wayland', '-e', 'OMARCHY_FLTK_A11Y=off',
+                            '-e', 'OMARCHY_FLTK_STATE_DIR=/fixture/state',
+                            '-e', 'XDG_CACHE_HOME=/fixture/cache',
+                            '-e', 'XDG_CONFIG_HOME=/fixture/config', name, '/probe', '/fixture'],
+                           check=True, timeout=40, stdout=log, stderr=subprocess.STDOUT)
+        report = json.loads((output / 'report.json').read_text())
+        assert report['backend'] == 'wayland', report['backend']
+        assert report['positioned_runs_passed'], 'positioned run parity failed'
+        print('PASS native positioned runs; ink groups:', report['ink_groups_passed'],
+              '; individual glyphs:', report['individual_glyphs_passed'])
+        print(output)
+    finally:
+        subprocess.run(['podman', 'stop', '--time', '3', name],
+                       check=False, timeout=8, stdout=subprocess.DEVNULL)
+
+
+if __name__ == '__main__':
+    main()
