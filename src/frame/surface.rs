@@ -609,17 +609,8 @@ mod tests {
     use crate::frame::Mods;
 
     fn dir(tag: &str) -> PathBuf {
-        let d = std::env::temp_dir().join(format!("fltk-omarchy-surface-{tag}-{}", std::process::id()));
-        std::fs::create_dir_all(&d).unwrap();
-        d
-    }
-
-    /// Removes the (empty) test directories: never a tree.
-    fn tidy(d: &std::path::Path) {
-        for e in std::fs::read_dir(d).into_iter().flatten().flatten() {
-            let _ = std::fs::remove_dir(e.path());
-        }
-        let _ = std::fs::remove_dir(d);
+        crate::platform::unit_fixture::directory(&format!("surface-{tag}"))
+            .expect("a fresh retained surface fixture is required")
     }
 
     fn exchange(t: Transport) {
@@ -653,7 +644,6 @@ mod tests {
         drop(p);
         assert!(c.producer_gone());
         drop(c);
-        tidy(&d);
     }
 
     #[test]

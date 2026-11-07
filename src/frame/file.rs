@@ -243,11 +243,16 @@ pub(crate) mod tests {
 
     #[test]
     fn watch_sees_a_replaced_file() {
-        let dir = std::env::temp_dir().join(format!("fltk-omarchy-framefile-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = crate::platform::unit_fixture::directory("frame-watch")
+            .expect("a fresh retained frame-file fixture is required");
         let path = dir.join("frame.bmp");
         let tmp = dir.join("frame.bmp.next");
-        std::fs::write(&path, bmp24(2, 2, &|_, _| [1, 2, 3])).unwrap();
+        let initial = bmp24(2, 2, &|_, _| [1, 2, 3]);
+        let initial_evidence = dir.join("initial.bmp");
+        // Keep the initial bytes before the atomic replacement updates the
+        // active path. The watcher must not see an artificial absence gap.
+        std::fs::write(&initial_evidence, &initial).unwrap();
+        std::fs::write(&path, &initial).unwrap();
         let stop = Arc::new(AtomicBool::new(false));
         let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
         let (s2, seen2, p2) = (stop.clone(), seen.clone(), path.clone());
@@ -266,8 +271,7 @@ pub(crate) mod tests {
         wait(2);
         stop.store(true, Ordering::Relaxed);
         t.join().unwrap();
-        let _ = std::fs::remove_file(&path);
-        let _ = std::fs::remove_dir(&dir);
+        assert_eq!(std::fs::read(&initial_evidence).unwrap(), initial);
         let seen = seen.lock().unwrap();
         assert_eq!(seen.len(), 2, "initial + replaced");
         assert_eq!(seen[1], Ok(9));

@@ -300,18 +300,8 @@ mod tests {
     use super::*;
 
     fn temp_dir(tag: &str) -> std::path::PathBuf {
-        let d =
-            std::env::temp_dir().join(format!("fltk-omarchy-frame-{tag}-{}", std::process::id()));
-        std::fs::create_dir_all(&d).unwrap();
-        d
-    }
-
-    /// Removes the (empty) test directories: never a tree.
-    fn tidy(d: &Path) {
-        for e in std::fs::read_dir(d).into_iter().flatten().flatten() {
-            let _ = std::fs::remove_dir(e.path());
-        }
-        let _ = std::fs::remove_dir(d);
+        crate::platform::unit_fixture::directory(&format!("frame-{tag}"))
+            .expect("a fresh retained transport fixture is required")
     }
 
     fn roundtrip(kind: Kind, dir: &Path) {
@@ -368,17 +358,22 @@ mod tests {
         let files = |dir: &Path| -> usize {
             std::fs::read_dir(dir)
                 .unwrap()
-                .flatten()
-                .map(|e| e.path())
-                .filter(|p| p.is_file())
-                .count()
+                .map(|entry| {
+                    let entry = entry.unwrap();
+                    let kind = entry.file_type().unwrap();
+                    assert!(!kind.is_symlink(), "unexpected fixture alias: {:?}", entry.path());
+                    usize::from(kind.is_file())
+                })
+                .sum()
         };
-        for e in std::fs::read_dir(&d).unwrap().flatten() {
-            if e.path().is_dir() {
+        for entry in std::fs::read_dir(&d).unwrap() {
+            let e = entry.unwrap();
+            let kind = e.file_type().unwrap();
+            assert!(!kind.is_symlink(), "unexpected fixture alias: {:?}", e.path());
+            if kind.is_dir() {
                 assert_eq!(files(&e.path()), 0, "{:?}", e.path());
             }
         }
-        tidy(&d);
     }
 
     #[cfg(any(unix, windows))]
@@ -386,7 +381,6 @@ mod tests {
     fn named_kind_shares_memory_and_rings() {
         let d = temp_dir("named");
         roundtrip(Kind::Named, &d);
-        tidy(&d);
     }
 
     #[cfg(unix)]
@@ -394,7 +388,6 @@ mod tests {
     fn fd_kind_shares_memory_and_rings_in_process() {
         let d = temp_dir("fd");
         roundtrip(Kind::Fd, &d);
-        tidy(&d);
     }
 
     #[test]

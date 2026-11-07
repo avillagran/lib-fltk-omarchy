@@ -30,12 +30,35 @@ All Rust changes are under `cfg(test)`:
   recursive-cleanup `Drop` and pre-creation deletion are removed. A socket
   path longer than 100 bytes fails with a request for a shorter private
   parent before binding.
+- Frame transport and surface unit cases use retained directories and no
+  longer enumerate directories for cleanup. The file-transport inspection
+  uses `DirEntry::file_type` and rejects unexpected aliases instead of
+  following them or ignoring directory-read errors.
+- The frame-file watcher keeps `initial.bmp` before atomically replacing
+  the active `frame.bmp` pathname. This retains the initial bytes without
+  introducing an absence gap into the original replacement test. Both
+  fixture versions stay in the case directory after the watcher stops.
+- Media-cache and playback fixtures use private cases. FFmpeg generates a
+  new `clip.mp4` with `-n` and `-nostdin`; missing optional tools still skip,
+  but encoder failures now fail instead of appearing to be missing tools.
+  Clips, junk input and bounded-read image fixtures are retained.
+- The cross-process frame integration binary includes the same retained
+  boundary and adapter sources and removes its directory cleanup. Its
+  producer child remains selected by `--exact child_producer`; the adapter's
+  own `cfg(test)` checks are also present in the integration binary's full
+  test list.
 
 These edits remove seven literal `remove_dir_all` calls and the poll test's
 single-file removal. The proposal also adds source-level regression cases
 for distinct directories, retention of two file versions, root/traversal
 rejection, and a fixture alias whose target is another private fixture.
 None of those cases has run.
+
+The frame/media follow-up removes thirteen additional direct file/directory
+cleanup calls across six files. It leaves atomic replacement of the watched
+active pathname and the runtime's resource lifecycle behavior in place;
+retention of fixture evidence is not a claim that these tests execute no
+runtime unlink operations.
 
 ## Parent and retention contract
 
@@ -55,12 +78,12 @@ for each accepted move. The new adapter does not change environment variables.
 
 ## Review still required
 
-The proposal covers the glass/poll/fake-portal fixtures only. Direct cleanup
-in instance, frame, media and integration fixtures, shared legacy runner
-outputs, and resource lifecycle operations reached by tests remain outside
-this patch. Production socket/shared-memory ownership behavior is unchanged.
-Removing these seven recursive calls does not establish that a whole-suite
-run is confined or free of fixture cleanup.
+The proposal covers glass/poll/fake-portal, frame/media unit fixtures and
+the frame integration fixture. Direct cleanup in instance unit/integration
+fixtures, shared legacy runner outputs, and resource lifecycle operations
+reached by tests remain outside this patch. Production socket/shared-memory
+ownership behavior is unchanged. These source changes do not establish that
+a whole-suite run is confined or free of fixture cleanup.
 
 Before any execution, review the shared prerequisite, every path created or
 moved here, the added cases, parallel initialization, target platforms, and

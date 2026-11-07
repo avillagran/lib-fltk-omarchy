@@ -1,6 +1,6 @@
 //! Frame surfaces across two processes: this test binary starts itself as
 //! the producer (`child_producer`, which does nothing unless the role
-//! variable is set), for every transport, in a private temporary
+//! variable is set), for every transport, in a fresh retained private
 //! directory. Checks that pixels arrive intact, that input events reach
 //! the producer and that its answers come back. No display needed.
 use fltk_omarchy::frame::{Button, Consumer, Format, Input, Message, Mods, Options, Producer, Transport};
@@ -8,6 +8,11 @@ use serde_json::json;
 use std::path::PathBuf;
 use std::process::Command;
 use std::time::{Duration, Instant};
+
+#[path = "../src/platform/test_fixture.rs"]
+mod test_fixture;
+#[path = "../src/platform/unit_fixture.rs"]
+mod unit_fixture;
 
 const ROLE: &str = "FLTK_OMARCHY_FRAME_TEST_ROLE";
 
@@ -55,17 +60,8 @@ fn child_producer() {
 }
 
 fn private_dir(tag: &str) -> PathBuf {
-    let d = std::env::temp_dir().join(format!("fltk-omarchy-frame-it-{tag}-{}", std::process::id()));
-    std::fs::create_dir_all(&d).unwrap();
-    d
-}
-
-/// Removes the (empty) test directories: never a tree.
-fn tidy(d: &std::path::Path) {
-    for e in std::fs::read_dir(d).into_iter().flatten().flatten() {
-        let _ = std::fs::remove_dir(e.path());
-    }
-    let _ = std::fs::remove_dir(d);
+    unit_fixture::directory(&format!("frame-it-{tag}"))
+        .expect("a fresh retained cross-process frame fixture is required")
 }
 
 fn next_messages(c: &mut Consumer) -> Vec<Message> {
@@ -139,7 +135,6 @@ fn round_trip(t: Transport) {
     }
     assert!(c.producer_gone(), "{t:?}");
     drop(c);
-    tidy(&dir);
 }
 
 #[test]

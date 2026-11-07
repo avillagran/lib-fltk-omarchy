@@ -690,25 +690,29 @@ mod tests {
 
     #[test]
     fn paths_are_checked() {
+        let dir = crate::platform::unit_fixture::directory("media-paths")
+            .expect("a fresh retained media-path fixture is required");
         assert!(check_path(Path::new("relative.mp4")).is_err());
-        assert!(check_path(Path::new("/definitely/not/here.mp4")).is_err());
-        let dir = std::env::temp_dir();
+        assert!(check_path(&dir.join("missing.mp4")).is_err());
         assert!(matches!(check_path(&dir), Err(Error::Unsupported(_))), "a directory");
     }
 
-    /// A 2 s clip (mpeg4 + aac: encoders every ffmpeg build has) in the
-    /// temp dir, or `None` without ffmpeg (CI may not have it).
+    /// A retained 2 s clip (mpeg4 + aac), or `None` when the optional
+    /// ffmpeg/ffprobe tools are absent. Encoder failures are test failures.
     fn clip(name: &str) -> Option<PathBuf> {
         let ffmpeg = find_tool("ffmpeg")?;
         find_tool("ffprobe")?;
-        let path = std::env::temp_dir().join(format!("fltk-omarchy-{}-{name}.mp4", std::process::id()));
-        let ok = Command::new(ffmpeg)
-            .args(["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=25:duration=2"])
+        let dir = crate::platform::unit_fixture::directory(&format!("media-{name}"))
+            .expect("a fresh retained playback fixture is required");
+        let path = dir.join("clip.mp4");
+        let status = Command::new(ffmpeg)
+            .args(["-hide_banner", "-nostdin", "-loglevel", "error", "-n", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=25:duration=2"])
             .args(["-f", "lavfi", "-i", "sine=frequency=440:duration=2:sample_rate=48000", "-c:v", "mpeg4", "-c:a", "aac", "-shortest"])
             .arg(&path)
             .status()
-            .is_ok_and(|s| s.success());
-        ok.then_some(path)
+            .expect("start the fixture encoder");
+        assert!(status.success(), "fixture encoder failed: {status}; evidence retained in {}", dir.display());
+        Some(path)
     }
 
     fn events() -> Arc<Events> {
@@ -757,7 +761,6 @@ mod tests {
         let procs = Procs::new();
         let job = VideoJob { path: path.clone(), gen: 9, source: (320, 180), size: (2, 2), pacer: Pacer { start: 0.5, rate: (25, 1) }, single: true };
         assert_eq!(read_video(&find_tool("ffmpeg").unwrap(), &job, &procs, &slot, &ev), Ok(1));
-        let _ = std::fs::remove_file(&path);
     }
 
     #[test]
@@ -782,11 +785,9 @@ mod tests {
         assert!(run_audio(&ffmpeg, &job, &procs).is_err());
         assert_eq!(procs.live(), 0);
         // Not media: ffprobe refuses it, nothing is left running.
-        let junk = std::env::temp_dir().join(format!("fltk-omarchy-{}-junk.mp4", std::process::id()));
+        let junk = path.with_file_name("junk.mp4");
         std::fs::write(&junk, b"definitely not a video").unwrap();
         assert!(probe(&junk).is_err());
-        let _ = std::fs::remove_file(&junk);
-        let _ = std::fs::remove_file(&path);
     }
 
     #[test]
