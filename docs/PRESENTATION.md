@@ -203,6 +203,25 @@ fallible TLS access. Core dumps were disabled. The X11 wire and Wayland
 gesture drivers passed again after this fix, as did the repository Clippy
 correctness/suspicious gates (unrelated existing warnings remain).
 
+The runners default to probes built in this checkout's `target/` directory.
+They accept `PRESENT_ASYNC_BIN=/absolute/path/to/probe` for an alternate
+build location, and reject a missing executable before starting a display.
+Use the appropriate probe for each runner:
+
+```sh
+cargo build --offline --example async_present_check --example async_present_x11_check
+script/async-present-x11-check
+script/async-present-wayland-check
+script/async-present-tls-exit-check
+```
+
+The [integration receipt](evidence/async-presentation-integration-20261106.json)
+records the combined timer/renderer/presentation checkout after cherry-picking
+the delivered API unchanged. It includes the post-TLS-fix full-feature suite,
+CPU presentation probes and canonical runner paths. The earlier receipt below
+describes the original isolated delivery; its manifest predates the timer
+test/example registrations and runner-path adjustments in this checkout.
+
 The [local receipt](evidence/async-presentation-20261106/summary.json) records
 the exact scope, source/fixture hashes and retained failures. Delayed-peer UI
 progress, pending cancellation during both handshake phases and all origin/

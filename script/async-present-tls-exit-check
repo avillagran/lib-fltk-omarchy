@@ -13,16 +13,19 @@ import time
 import uuid
 
 ROOT = Path(__file__).resolve().parent.parent
+PROBE = Path(os.environ.get('PRESENT_ASYNC_BIN', str(ROOT/'target/debug/examples/async_present_check'))).resolve()
 IMAGE = os.environ.get('PRESENT_WAYLAND_IMAGE', 'localhost/o3-qml-wayland-tests:local')
 
 def main():
+    if not (PROBE.is_file() and os.access(PROBE, os.X_OK)):
+        raise SystemExit("Build first: cargo build --offline --example async_present_check; override with PRESENT_ASYNC_BIN if needed")
     suffix = uuid.uuid4().hex
     output = ROOT/'build'/('present-wayland-'+suffix)
     output.mkdir(parents=True, mode=0o700)
     (output/'sway.conf').write_text('output * resolution 1280x800\nfocus_follows_mouse no\nfocus_on_window_activation urgent\nseat seat0 fallback true\nxwayland disable\n')
     name = 'fltk-present-'+suffix
     args = ['podman','run','--pull=never','--rm','-d','--name',name,'--network=none','--userns=keep-id','--user',f'{os.getuid()}:{os.getgid()}','--entrypoint','/bin/sh',
-            '-v',f'{output}:/fixture:rw','-v',f'{ROOT}/target-real/debug/examples/async_present_check:/probe:ro','-v','/usr/bin/wtype:/wtype:ro']
+            '-v',f'{output}:/fixture:rw','-v',f'{PROBE}:/probe:ro','-v','/usr/bin/wtype:/wtype:ro']
     for lib in ('libXinerama.so.1','libXcursor.so.1','libXfixes.so.3'):
         args += ['-v',f'/usr/lib/{lib}:/usr/lib/{lib}:ro']
     args += ['-e','XDG_RUNTIME_DIR=/fixture','-e','WLR_BACKENDS=headless','-e','WLR_RENDERER=pixman','-e','WLR_LIBINPUT_NO_DEVICES=1',IMAGE,'-c',

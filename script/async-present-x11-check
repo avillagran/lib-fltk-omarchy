@@ -10,6 +10,7 @@ import time
 import uuid
 
 ROOT = Path(__file__).resolve().parent.parent
+PROBE = Path(os.environ.get('PRESENT_ASYNC_BIN', str(ROOT/'target/debug/examples/async_present_x11_check'))).resolve()
 
 def read_json(path, process=None):
     end = time.monotonic() + 8
@@ -70,7 +71,7 @@ def x11_check(output, env):
         return result
     x.XSelectInput(d, root, (1 << 20) | (1 << 19) | (1 << 22))
     with (output/'application.log').open('w') as log:
-        process = subprocess.Popen([str(ROOT/'target-real/debug/examples/async_present_x11_check'), str(output)], env=env, stdout=log, stderr=subprocess.STDOUT)
+        process = subprocess.Popen([str(PROBE), str(output)], env=env, stdout=log, stderr=subprocess.STDOUT)
         try:
             ready = read_json(output/'ready.json', process)
             a, b = ready['a'], ready['b']
@@ -112,6 +113,8 @@ def x11_check(output, env):
 
 
 def main():
+    if not (PROBE.is_file() and os.access(PROBE, os.X_OK)):
+        raise SystemExit("Build first: cargo build --offline --example async_present_x11_check; override with PRESENT_ASYNC_BIN if needed")
     output = ROOT/'build'/('present-x11-'+uuid.uuid4().hex)
     output.mkdir(parents=True)
     env = os.environ.copy()

@@ -1,0 +1,66 @@
+{
+  "date": "2026-11-06",
+  "delivered_commit": "fac0705d25eabc43f34d62ab94ee2b9e48902a75",
+  "local_cherry_pick": "f43b697",
+  "renderer_commit": "ae52478a06720efa51170d3185d8cd19444a2117",
+  "timer_commit": "a5138964fe3fdbc7081e5070d5b7c425477e738a",
+  "original_receipt": "async-presentation-20261106/summary.json",
+  "original_api_source_sha256": {
+    "src/native.rs": "4c50dbf7b6c4dece5dcb9aeb7e18cc01b69882ac20ef9aa8bcd16183dd04920e",
+    "src/native/presentation.rs": "7e5fa5efc4ee831de6958765f2e5cb72a1ba111452ed44332b61e2ab06488bdd",
+    "src/platform/presentation/mod.rs": "7a88a926cb3a832645c75037585d4e39cd8671a07470a3dfcaf6d4d7bf9d1dc6",
+    "src/platform/presentation/linux.rs": "82389e3506421e53db5d5250b79570d34f8733fa76bd181b5574112c8e34a3cc",
+    "src/platform/presentation/linux/wayland.rs": "2c2e5423f6a404e045f3121acfe30d0cae417bf2f26c27942000dc4c4b2ad3a7",
+    "src/platform/presentation/linux/x11.rs": "664af7bfd6522dee1529989ecb028250824fdeaffaf01321980325d9752e0741",
+    "src/platform/presentation/macos.rs": "6025a68984a67ad4d0423577f3bd7331c3e39e5cfcb0b0eabf43ae52602e01f5",
+    "src/platform/presentation/windows.rs": "40cb801286f587c08ea17d8c57ce0ed2fbd7207cff4ae22d9815ec9f7186cdeb"
+  },
+  "api_source_exact_match": true,
+  "expected_manifest_differences": {
+    "Cargo.toml": "Owned timer test and scene residency example registrations already present in this checkout.",
+    "script/async-present-wayland-check": "Default probe path target/debug; PRESENT_ASYNC_BIN override and executable preflight.",
+    "script/async-present-tls-exit-check": "Default probe path target/debug; PRESENT_ASYNC_BIN override and executable preflight.",
+    "script/async-present-x11-check": "Default probe path target/debug; PRESENT_ASYNC_BIN override and executable preflight."
+  },
+  "integration_changes": [
+    "Canonical target/ probe paths with per-process binary override; no builds in target-real.",
+    "Restore preexisting platform module sort order for the repository rustfmt gate.",
+    "Presentation implementation and API contract unchanged from delivered commit."
+  ],
+  "gates": {
+    "all_features": {
+      "unit_passed": 359,
+      "unit_ignored": 1,
+      "integration_passed": 6,
+      "ui_passed": 240,
+      "doctests_passed": 59,
+      "timer_runtime": "pass"
+    },
+    "default": {
+      "unit_passed": 285,
+      "unit_ignored": 1,
+      "presentation_ui_passed": 5,
+      "doctests_passed": 52,
+      "native_probes": "built without gpu/a11y"
+    },
+    "x11_private_wire": "pass: no explicit activation before poll or after cancel/drop; one dispatch and no replay; completed lease cannot release a later request",
+    "wayland_private_sway": "pass: native event context captured at begin; synthetic event cannot borrow a previous native serial",
+    "pending_request_tls_exit": {
+      "result": "pass",
+      "exit_code": 0,
+      "core_dumps": "disabled"
+    },
+    "rustfmt": "pass: platform, native presentation and renderer leaf modules/examples/tests",
+    "clippy": "pass: all-targets/all-features, correctness and suspicious denied; unrelated legacy warnings remain",
+    "msrv": "pass: Rust 1.80, native Linux all-targets with gpu",
+    "cross": "pass: Windows MSVC and macOS ARM, all-targets/all-features; typecheck only"
+  },
+  "limits": [
+    "X11 first poll retains synchronous server roundtrips; no cross-platform zero-wait promise.",
+    "Wayland Requested is dispatch without focus acknowledgement.",
+    "Physical Windows/macOS runtime not executed here.",
+    "Files async export/E2E/installation is owned by Files and not established by these toolkit gates.",
+    "No remote push, tag or CI publication."
+  ],
+  "local_logs": "target/lava-review/integrated-* and async-integrated-*-final.log"
+}
