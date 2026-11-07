@@ -1,6 +1,7 @@
 //! Real widget ownership, lazy retention, modal input and motion reversal.
 use super::*;
 use fltk_omarchy::overlay::{Sheet, SheetDismiss};
+mod guard;
 
 type Check<'a> = &'a dyn Fn(&Path) -> Result<(), String>;
 struct Clock;
@@ -46,6 +47,7 @@ fn picture(win: &mut AppWindow, shots: &Path, name: &str) -> Result<Rgb, String>
     png_rgb(&path)
 }
 pub fn checks(run: &mut dyn FnMut(&str, Check)) {
+    guard::checks(run);
     run(
         "sheet: lazy build, warm reuse, exact 30-second release and app-owned draft reconstruction",
         &|shots| {

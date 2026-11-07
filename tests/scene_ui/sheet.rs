@@ -67,6 +67,7 @@ pub fn checks(run: &mut dyn FnMut(&str, Check)) {
                 "GL ready",
             )?;
             let draft = State::new("Retained draft".to_owned());
+            let dismissible = State::new(false);
             let d = draft.clone();
             let calls = Rc::new(Cell::new(0));
             let out = calls.clone();
@@ -77,7 +78,8 @@ pub fn checks(run: &mut dyn FnMut(&str, Check)) {
                 col.fit(&*TextField::new().bind(&d));
                 let n = out.clone();
                 col.fit(&*Button::new("Apply").on_click(move || n.set(n.get() + 1)));
-            });
+            })
+            .bind_dismissible(&dismissible);
             sheet.open();
             parity(&mut win, &surface, shots, "scene-sheet-open")?;
             let child = surface.child(0).ok_or("GL child")?;
@@ -85,6 +87,17 @@ pub fn checks(run: &mut dyn FnMut(&str, Check)) {
                 .ok_or("GL window")?;
             let (x, y, w, h) = sheet.close_rect().ok_or("close rect")?;
             let (x, y) = (x + w / 2 - surface.x(), y + h / 2 - surface.y());
+            let focused = focus::current().map(|w| w.as_widget_ptr());
+            focus::press("Escape");
+            focus::click_at(&gl, x, y);
+            focus::click_at(&gl, 1, 1);
+            check(
+                sheet.is_open()
+                    && focused == focus::current().map(|w| w.as_widget_ptr())
+                    && clicks.get() == 0,
+                "busy guard above native GL preserves modal input and focus",
+            )?;
+            parity(&mut win, &surface, shots, "scene-sheet-guard-rejected")?;
             for button in [2, 3] {
                 focus::click_button_at(&gl, x, y, button);
             }
@@ -111,6 +124,7 @@ pub fn checks(run: &mut dyn FnMut(&str, Check)) {
             )?;
             surface.clone().animate(None);
             anim::set_enabled(false);
+            dismissible.set(true);
             focus::click_at(&gl, x, y);
             check(
                 !sheet.is_open() && sheet.is_built() && clicks.get() == 0,

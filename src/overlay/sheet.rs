@@ -13,6 +13,12 @@ use std::{
 type Builder = dyn FnMut(&mut Flex, WeakSheet);
 type DismissCallback = dyn FnMut(SheetDismiss);
 type LayoutStamp = (i32, i32, u64, bool);
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum OwnerVisibility {
+    Normal,
+    Hiding,
+    Hidden,
+}
 
 /// Why a sheet stopped accepting input. Dismissal runs once per opening,
 /// before the fade finishes; retained content may still exist afterwards.
@@ -50,11 +56,16 @@ struct Inner {
     size: (i32, i32),
     title: State<String>,
     title_binding: RefCell<Option<crate::Subscription>>,
+    user_dismissible: Cell<bool>,
+    dismissible_revision: Cell<u64>,
+    dismissible_binding: RefCell<Option<(State<bool>, crate::Subscription)>>,
     builder: RefCell<Box<Builder>>,
     dismiss: RefCell<Option<Box<DismissCallback>>>,
     content: RefCell<Option<Content>>,
     building: Cell<bool>,
     opened: Cell<bool>,
+    owner_visibility: Cell<OwnerVisibility>,
+    owner_mapped: Cell<bool>,
     revision: Cell<u64>,
     fade_end: Cell<Option<Instant>>,
     closed_at: Cell<Option<Instant>>,
@@ -101,11 +112,16 @@ impl Sheet {
                 size: (width.max(1), height.max(1)),
                 title: State::new(title.into()),
                 title_binding: RefCell::new(None),
+                user_dismissible: Cell::new(true),
+                dismissible_revision: Cell::new(0),
+                dismissible_binding: RefCell::new(None),
                 builder: RefCell::new(Box::new(build)),
                 dismiss: RefCell::new(None),
                 content: RefCell::new(None),
                 building: Cell::new(false),
                 opened: Cell::new(false),
+                owner_visibility: Cell::new(OwnerVisibility::Normal),
+                owner_mapped: Cell::new(false),
                 revision: Cell::new(0),
                 fade_end: Cell::new(None),
                 closed_at: Cell::new(None),
@@ -125,6 +141,44 @@ impl Sheet {
         *self.inner.title_binding.borrow_mut() =
             Some(title.subscribe(move |v| target.set(v.clone())));
         self
+    }
+    /// Live UI-owned permission for Escape, outside-click and Close actions.
+    /// False disables the close control. A rejected gesture leaves input,
+    /// focus, motion and retention untouched and emits no dismissal callback.
+    /// Owner `close()`, owner hiding/deletion and final handle drop bypass it.
+    /// Bind `busy.map(|busy| !busy)` or a permission State updated by the app.
+    pub fn bind_dismissible(self, allowed: &State<bool>) -> Self {
+        let revision = self
+            .inner
+            .dismissible_revision
+            .get()
+            .checked_add(1)
+            .expect("Sheet permission identities exhausted");
+        self.inner.dismissible_revision.set(revision);
+        let weak = Rc::downgrade(&self.inner);
+        let next = allowed.subscribe(move |allowed| {
+            if let Some(i) = weak.upgrade() {
+                if i.dismissible_revision.get() == revision {
+                    set_dismissible(&i, *allowed);
+                }
+            }
+        });
+        // Install before native activation changes can notify focus listeners.
+        // No subscription/content borrow spans those application callbacks.
+        let previous = self
+            .inner
+            .dismissible_binding
+            .replace(Some((allowed.clone(), next)));
+        drop(previous);
+        if self.inner.dismissible_revision.get() == revision {
+            set_dismissible(&self.inner, allowed.get());
+        }
+        self
+    }
+    /// Current permission for user dismissal, independent of open/built state.
+    /// This does not restrict explicit owner lifecycle operations.
+    pub fn is_dismissible(&self) -> bool {
+        self.inner.user_dismissible.get()
     }
     /// Closed-only retention (default 30 seconds). Zero releases as soon as
     /// the closing fade finishes. Open content never expires.
@@ -175,8 +229,20 @@ impl Sheet {
     /// Returns false for a deleted owner or a recursive call from its builder.
     pub fn open(&self) -> bool {
         let i = &self.inner;
-        if i.owner.was_deleted() || i.building.get() {
+        if i.owner.was_deleted()
+            || i.building.get()
+            || i.owner_visibility.get() == OwnerVisibility::Hiding
+        {
             return false;
+        }
+        if i.owner_visibility.get() == OwnerVisibility::Hidden {
+            if !i.owner.as_window().is_some_and(|window| window.shown()) {
+                return false;
+            }
+            i.owner_visibility.set(OwnerVisibility::Normal);
+        }
+        if i.owner.as_window().is_some_and(|window| window.shown()) {
+            i.owner_mapped.set(true);
         }
         if i.opened.replace(true) {
             return true;
@@ -225,12 +291,23 @@ impl Sheet {
         track(i);
         true
     }
-    /// Dismisses immediately for input/focus, then fades and starts retention.
+    /// Owner dismissal: bypasses `bind_dismissible`, stops input/restores focus,
+    /// then fades and starts retention. Use after success/ACK or explicit abort.
     pub fn close(&self) -> bool {
         dismiss(&self.inner, SheetDismiss::Closed)
     }
     /// Deletes only hidden, closed content. Returns false while open/fading.
     pub fn release(&self) -> bool {
+        // Native groups notify children before this layer's Hide handler.
+        // A child may explicitly release here while the owner is unmapping.
+        // Settle ownership first without remapping the hidden owner for focus.
+        if self.inner.opened.get()
+            && self.inner.owner_mapped.get()
+            && !self.inner.owner.was_deleted()
+            && !self.inner.owner.visible()
+        {
+            owner_hidden(&self.inner);
+        }
         if self.inner.opened.get()
             || self.inner.fade_end.get().is_some()
             || self.inner.building.get()
@@ -280,7 +357,7 @@ fn build(i: &Rc<Inner>) {
         .bind_tooltip(&crate::i18n::text("Close"))
         .on_click(move || {
             if let Some(i) = weak.upgrade() {
-                dismiss(&i, SheetDismiss::CloseButton);
+                dismiss_user(&i, SheetDismiss::CloseButton);
             }
         });
     header.fit(&*close);
@@ -330,8 +407,11 @@ fn build(i: &Rc<Inner>) {
         let Some(i) = weak.upgrade() else {
             return false;
         };
+        if event == Event::Show && i.owner.as_window().is_some_and(|window| window.shown()) {
+            i.owner_mapped.set(true);
+        }
         if event == Event::Hide && i.opened.get() {
-            dismiss(&i, SheetDismiss::OwnerHidden);
+            owner_hidden(&i);
             return false;
         }
         if !i.opened.get() {
@@ -345,16 +425,20 @@ fn build(i: &Rc<Inner>) {
         match event {
             Event::Focus => true,
             Event::KeyDown | Event::Shortcut if app::event_key() == Key::Escape => {
-                dismiss(&i, SheetDismiss::Escape);
+                dismiss_user(&i, SheetDismiss::Escape);
                 true
             }
             Event::Push => {
-                outside.set(!inside && app::event_mouse_button() == app::MouseButton::Left);
+                outside.set(
+                    !inside
+                        && i.user_dismissible.get()
+                        && app::event_mouse_button() == app::MouseButton::Left,
+                );
                 true // FLTK already offered the event to the card children.
             }
             Event::Released if outside.replace(false) => {
                 if !inside && app::event_mouse_button() == app::MouseButton::Left {
-                    dismiss(&i, SheetDismiss::ClickOutside);
+                    dismiss_user(&i, SheetDismiss::ClickOutside);
                 }
                 true
             }
@@ -379,6 +463,37 @@ fn build(i: &Rc<Inner>) {
         body,
         layout_stamp: Rc::new(Cell::new(None)),
     });
+    set_dismissible(i, i.user_dismissible.get());
+}
+fn set_dismissible(i: &Inner, allowed: bool) {
+    i.user_dismissible.set(allowed);
+    let content = i.content.borrow().clone();
+    if let Some(mut c) = content.filter(|c| !c.layer.was_deleted()) {
+        if c.close.active() != allowed {
+            if allowed {
+                c.close.activate();
+            } else {
+                c.close.deactivate();
+            }
+            c.close.redraw();
+        }
+    }
+}
+fn dismiss_user(i: &Rc<Inner>, reason: SheetDismiss) -> bool {
+    // Permission is a plain UI-owned value: no app/model borrow or callback
+    // is needed before the first lifecycle/focus/animation mutation.
+    i.user_dismissible.get() && dismiss(i, reason)
+}
+fn owner_hidden(i: &Rc<Inner>) {
+    struct Hidden<'a>(&'a Cell<OwnerVisibility>);
+    impl Drop for Hidden<'_> {
+        fn drop(&mut self) {
+            self.0.set(OwnerVisibility::Hidden);
+        }
+    }
+    i.owner_visibility.set(OwnerVisibility::Hiding);
+    let _hidden = Hidden(&i.owner_visibility);
+    dismiss(i, SheetDismiss::OwnerHidden);
 }
 fn layout(i: &Inner, c: &Content) {
     if i.owner.was_deleted() || c.layer.was_deleted() {
@@ -430,7 +545,11 @@ fn dismiss(i: &Rc<Inner>, reason: SheetDismiss) -> bool {
         let lw = c.layer.as_base_widget();
         let phase = presence(&lw);
         crate::focus::pop_modal(&c.layer);
-        crate::focus::give_back(&lw, (!i.owner.was_deleted()).then(|| i.owner.clone()));
+        if reason == SheetDismiss::OwnerHidden {
+            crate::focus::forget_return(&lw);
+        } else {
+            crate::focus::give_back(&lw, (!i.owner.was_deleted()).then(|| i.owner.clone()));
+        }
         // Focus listeners may synchronously reopen or dismiss this sheet.
         // An older close must not retire the replacement modal registration.
         if i.revision.get() == revision {
@@ -498,10 +617,14 @@ impl Drop for Inner {
             .filter(|c| !c.layer.was_deleted())
         {
             crate::focus::pop_modal(&c.layer);
-            crate::focus::give_back(
-                &c.layer.as_base_widget(),
-                (!self.owner.was_deleted()).then(|| self.owner.clone()),
-            );
+            if self.owner_visibility.get() == OwnerVisibility::Normal {
+                crate::focus::give_back(
+                    &c.layer.as_base_widget(),
+                    (!self.owner.was_deleted()).then(|| self.owner.clone()),
+                );
+            } else {
+                crate::focus::forget_return(&c.layer.as_base_widget());
+            }
         }
         dispose(self);
         if WAITING

@@ -712,6 +712,12 @@ pub(crate) fn give_back(layer: &Widget, window: Option<Widget>) {
     sync_panels(PanelFocusCause::Restored);
 }
 
+/// Owner teardown retires a return target without focusing controls in an
+/// unmapped window. Native focus restoration can otherwise remap that owner.
+pub(crate) fn forget_return(layer: &Widget) {
+    RETURNS.with(|r| r.borrow_mut().retain(|(id, _)| *id != ptr(layer)));
+}
+
 // ------------------------------------------------------------ key injection
 
 use crate::platform::fl_abi::{

@@ -1,0 +1,97 @@
+#!/usr/bin/env python3
+"""Drive a guarded CPU sheet with XTest on its own private Xvfb display."""
+import ctypes as C
+import json
+import os
+from pathlib import Path
+import select
+import subprocess
+import time
+import uuid
+
+ROOT = Path(__file__).resolve().parent.parent
+PROBE = Path(os.environ.get('SHEET_GUARD_BIN', str(ROOT/'target/debug/examples/sheet_guard_input_check')))
+
+def fixture(output, env):
+    log = (output/'application.log').open('w')
+    process = subprocess.Popen([str(PROBE), str(output)], env=env, stdout=log, stderr=subprocess.STDOUT)
+    def read(path):
+        end=time.monotonic()+8
+        while time.monotonic()<end:
+            try: return json.loads(path.read_text())
+            except (FileNotFoundError,json.JSONDecodeError):
+                if process.poll() is not None: raise RuntimeError('probe exited; inspect application.log')
+                time.sleep(.01)
+        raise RuntimeError(f'timed out: {path}')
+    sequence=0
+    def action(name):
+        nonlocal sequence
+        sequence+=1
+        temp=output/'command.tmp';temp.write_text(json.dumps({'seq':sequence,'action':name}));temp.replace(output/'command.json')
+        return read(output/f'reply-{sequence}.json')
+    def until(predicate):
+        end=time.monotonic()+4
+        while time.monotonic()<end:
+            report=action('report')
+            if predicate(report): return report
+            time.sleep(.01)
+        raise AssertionError(report)
+    x=C.CDLL('libX11.so.6');xt=C.CDLL('libXtst.so.6');ptr,ulong,integer=C.c_void_p,C.c_ulong,C.c_int
+    for lib,name,result,args in [
+        (x,'XOpenDisplay',ptr,[C.c_char_p]),(x,'XCloseDisplay',integer,[ptr]),(x,'XFlush',integer,[ptr]),
+        (x,'XSync',integer,[ptr,integer]),(x,'XSetInputFocus',integer,[ptr,ulong,integer,ulong]),
+        (x,'XKeysymToKeycode',C.c_ubyte,[ptr,ulong]),
+        (xt,'XTestFakeKeyEvent',integer,[ptr,C.c_uint,integer,ulong]),
+        (xt,'XTestFakeButtonEvent',integer,[ptr,C.c_uint,integer,ulong]),
+        (xt,'XTestFakeMotionEvent',integer,[ptr,integer,integer,integer,ulong])]:
+        fn=getattr(lib,name);fn.restype=result;fn.argtypes=args
+    d=x.XOpenDisplay(env['DISPLAY'].encode());assert d
+    def focus(window): x.XSetInputFocus(d,window,2,0);x.XSync(d,0)
+    def key(symbol):
+        code=x.XKeysymToKeycode(d,symbol);assert code
+        xt.XTestFakeKeyEvent(d,code,1,0);xt.XTestFakeKeyEvent(d,code,0,0);x.XSync(d,0)
+    def click(point,number=1):
+        xt.XTestFakeMotionEvent(d,-1,*point,0)
+        xt.XTestFakeButtonEvent(d,number,1,0);xt.XTestFakeButtonEvent(d,number,0,0);x.XSync(d,0)
+    try:
+        ready=read(output/'ready.json');assert ready['open'] and ready['focused'] and ready['close_disabled'],ready
+        focus(ready['owner_xid']);key(0xff1b);click(ready['close']);click(ready['outside']);click(ready['close'],2);click(ready['outside'],3);key(ord('x'))
+        denied=until(lambda r:r['draft']=='x');assert denied['open'] and denied['focused'] and denied['reasons']==[] and denied['drops']==0,denied
+        action('allow');key(0xff1b)
+        accepted=until(lambda r:not r['open']);assert accepted['reasons']==['Escape'] and accepted['anchor_focused'],accepted
+        until(lambda r:r['drops']==1 and not r['built'])
+        action('block');opened=action('open');focus(opened['owner_xid']);assert opened['close_disabled'],opened
+        click(opened['finish']);finished=until(lambda r:not r['open']);assert finished['reasons'][-1]=='Closed',finished
+        until(lambda r:r['drops']==2)
+        opened=action('open');hidden=action('hide');assert not hidden['open'] and hidden['hide_reopen'] is False,hidden
+        focus(hidden['peer_xid']);key(ord('a'));until(lambda r:r['peer_text']=='a')
+        opened=action('open');assert opened['open'] and opened['close_disabled'],opened
+        deleted=action('delete');assert not deleted['open'] and not deleted['built'],deleted
+        focus(deleted['peer_xid']);key(ord('b'));until(lambda r:r['peer_text']=='ab')
+        final=action('drop');assert final['listeners']==0,final
+        (output/'report.json').write_text(json.dumps({'denied':denied,'accepted':accepted,'owner_finish':finished,'owner_hidden':hidden,'owner_deleted':deleted,'final':final},indent=2)+'\n')
+        print('PASS guarded sheet X11: real Escape/close/outside rejection; focused typing; enabled Escape; weak owner completion; retention; hidden/deleted owner cleanup and peer input; subscription release')
+        print(output)
+    finally:
+        (output/'done').write_text('done\n')
+        try: process.wait(timeout=5)
+        except subprocess.TimeoutExpired: process.terminate();process.wait(timeout=5)
+        x.XCloseDisplay(d);log.close()
+
+def main():
+    if not(PROBE.is_file() and os.access(PROBE,os.X_OK)):raise SystemExit('Build first: cargo build --offline --example sheet_guard_input_check')
+    output=ROOT/'build'/('sheet-guard-x11-'+uuid.uuid4().hex);output.mkdir(parents=True)
+    env=os.environ.copy()
+    for name in ('DISPLAY','WAYLAND_DISPLAY','XAUTHORITY','HYPRLAND_INSTANCE_SIGNATURE'):env.pop(name,None)
+    env.update(FLTK_BACKEND='x11',OMARCHY_FLTK_A11Y='off',OMARCHY_FLTK_STATE_DIR=str(output/'state'),XDG_CONFIG_HOME=str(output/'config'))
+    read,write=os.pipe()
+    with (output/'xvfb.log').open('w') as log:
+        server=subprocess.Popen(['Xvfb','-displayfd',str(write),'-screen','0','1280x800x24','-nolisten','tcp','-noreset'],env=env,pass_fds=(write,),stdout=log,stderr=subprocess.STDOUT);os.close(write)
+        try:
+            assert select.select([read],[],[],8)[0],'private display startup timed out'
+            number=os.read(read,32).strip();assert number.isdigit() and server.poll() is None
+            env['DISPLAY']=':'+number.decode();fixture(output,env)
+        finally:
+            os.close(read)
+            if server.poll() is None:server.terminate();server.wait(timeout=5)
+if __name__=='__main__':main()

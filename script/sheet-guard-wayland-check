@@ -1,0 +1,77 @@
+#!/usr/bin/env python3
+"""Native keyboard gate in private rootless Sway; no host display/input socket."""
+import json
+import os
+from pathlib import Path
+import subprocess
+import time
+import uuid
+
+ROOT=Path(__file__).resolve().parent.parent
+PROBE=Path(os.environ.get('SHEET_GUARD_BIN',str(ROOT/'target/debug/examples/sheet_guard_input_check'))).resolve()
+IMAGE=os.environ.get('PRESENT_WAYLAND_IMAGE','localhost/o3-qml-wayland-tests:local')
+def main():
+    if not(PROBE.is_file() and os.access(PROBE,os.X_OK)):raise SystemExit('Build first: cargo build --offline --example sheet_guard_input_check')
+    output=ROOT/'build'/('sheet-guard-wayland-'+uuid.uuid4().hex);output.mkdir(parents=True,mode=0o700)
+    (output/'sway.conf').write_text('output * resolution 1280x800\nfocus_follows_mouse no\nseat seat0 fallback true\nxwayland disable\n')
+    name='fltk-sheet-guard-'+uuid.uuid4().hex
+    args=['podman','run','--pull=never','--rm','-d','--name',name,'--network=none','--userns=keep-id','--user',f'{os.getuid()}:{os.getgid()}','--entrypoint','/bin/sh','-v',f'{output}:/fixture:rw','-v',f'{PROBE}:/probe:ro','-v','/usr/bin/wtype:/wtype:ro']
+    for lib in ('libXinerama.so.1','libXcursor.so.1','libXfixes.so.3'):args+=['-v',f'/usr/lib/{lib}:/usr/lib/{lib}:ro']
+    args+=['-e','XDG_RUNTIME_DIR=/fixture','-e','WLR_BACKENDS=headless','-e','WLR_RENDERER=pixman','-e','WLR_LIBINPUT_NO_DEVICES=1',IMAGE,'-c','cp /usr/sbin/sway /fixture/sway && exec /fixture/sway -c /fixture/sway.conf > /fixture/sway.log 2>&1']
+    subprocess.run(args,check=True,stdout=subprocess.DEVNULL)
+    keyboards=[]
+    try:
+        end=time.monotonic()+10
+        while not list(output.glob('wayland-*.lock')) or not list(output.glob('sway-ipc.*.sock')):
+            if time.monotonic()>end:raise RuntimeError('private compositor startup timeout')
+            time.sleep(.05)
+        display=next(output.glob('wayland-*.lock')).name.removesuffix('.lock');sock='/fixture/'+next(output.glob('sway-ipc.*.sock')).name
+        def execute(*command):return subprocess.check_output(['podman','exec','-e',f'SWAYSOCK={sock}','-e',f'WAYLAND_DISPLAY={display}',name,*command],text=True,timeout=8)
+        subprocess.run(['podman','exec','-d','-e',f'WAYLAND_DISPLAY={display}','-e','FLTK_BACKEND=wayland','-e','OMARCHY_FLTK_A11Y=off','-e','OMARCHY_FLTK_STATE_DIR=/fixture/state','-e','XDG_CONFIG_HOME=/fixture/config',name,'/bin/sh','-c','ulimit -c 0; /probe /fixture > /fixture/application.log 2>&1'],check=True)
+        def read(path):
+            end=time.monotonic()+8
+            while time.monotonic()<end:
+                try:return json.loads(path.read_text())
+                except (FileNotFoundError,json.JSONDecodeError):time.sleep(.01)
+            raise RuntimeError(f'timed out: {path}; inspect application.log')
+        def keys(*command):
+            # Keep the virtual keyboard alive while observing focus. Removing
+            # the last seat keyboard causes an unrelated native focus leave.
+            # FLTK 1.5.23 normalizes physical keycodes 10..19 to digits.
+            # wtype assigns compact codes; reserve those slots with unused
+            # function keys so Return/Space/Tab keep their real keysyms.
+            padding=[arg for index in range(13,25) for arg in ('-k',f'F{index}')]
+            keyboards.append(subprocess.Popen(['podman','exec','-e',f'WAYLAND_DISPLAY={display}',name,'/wtype',*padding,*command,'-s','15000'],stdout=subprocess.DEVNULL,stderr=(output/f'keyboard-{len(keyboards)}.log').open('w')))
+        sequence=0
+        def action(command):
+            nonlocal sequence
+            sequence+=1;temp=output/'command.tmp';temp.write_text(json.dumps({'seq':sequence,'action':command}));temp.replace(output/'command.json')
+            return read(output/f'reply-{sequence}.json')
+        def until(predicate):
+            end=time.monotonic()+4
+            while time.monotonic()<end:
+                report=action('report')
+                if predicate(report):return report
+                time.sleep(.01)
+            raise AssertionError({'report':report,'keyboard_status':[p.poll() for p in keyboards],'keyboard_errors':[p.read_text() for p in output.glob('keyboard-*.log')]})
+        ready=read(output/'ready.json');assert ready['open'] and ready['close_disabled'],ready
+        execute('swaymsg','[title="^Sheet guard input$"] focus');keys('-k','Escape','x')
+        denied=until(lambda r:r['draft']=='x');assert denied['open'] and denied['focused'] and denied['drops']==0 and denied['reasons']==[],denied
+        action('allow');keys('-M','shift','-k','Tab','-m','shift','-k','Return')
+        accepted=until(lambda r:not r['open']);assert accepted['reasons']==['CloseButton'] and accepted['anchor_focused'],accepted
+        until(lambda r:r['drops']==1)
+        action('block');action('open');execute('swaymsg','[title="^Sheet guard input$"] focus');keys('-k','Tab','-k','Return')
+        finished=until(lambda r:not r['open']);assert finished['reasons'][-1]=='Closed',finished
+        until(lambda r:r['drops']==2);action('open');hidden=action('hide');assert not hidden['open'] and hidden['hide_reopen'] is False,hidden
+        execute('swaymsg','[title="^sheet-guard-peer$"] focus');keys('a');until(lambda r:r['peer_text']=='a')
+        action('open');deleted=action('delete');assert not deleted['open'] and not deleted['built'],deleted
+        execute('swaymsg','[title="^sheet-guard-peer$"] focus');keys('b');until(lambda r:r['peer_text']=='ab')
+        final=action('drop');assert final['listeners']==0,final
+        (output/'done').write_text('done\n')
+        (output/'report.json').write_text(json.dumps({'denied':denied,'accepted':accepted,'owner_finish':finished,'owner_hidden':hidden,'owner_deleted':deleted,'final':final},indent=2)+'\n')
+        print('PASS guarded sheet Wayland: real keyboard rejection/typing; enabled Close; weak owner completion; retention; hidden/deleted cleanup and peer input; subscription release')
+        print(output)
+    finally:
+        subprocess.run(['podman','stop','--time','3',name],stdout=subprocess.DEVNULL,check=False,timeout=8)
+        for keyboard in keyboards: keyboard.wait(timeout=5)
+if __name__=='__main__':main()

@@ -44,6 +44,7 @@ end any nested containers you create, as in an `AppWindow` body.
 - `close()` stops input and restores the opener immediately. A reduced-motion
   close hides immediately; otherwise the shared popup fade finishes first.
   The closed-only retention period starts when the layer becomes hidden.
+  This is an explicit owner operation and bypasses the user-dismissal binding.
 - `release_after(Duration)` changes the 30-second default. Zero releases as
   soon as the close finishes; open content never expires. `keep_content()`
   opts stateful forms out of expiry. These policies can change on a retained
@@ -59,6 +60,55 @@ end any nested containers you create, as in an `AppWindow` body.
 - Hiding the owner dismisses the sheet with `SheetDismiss::OwnerHidden`.
   `on_dismiss` otherwise reports `Closed`, `Escape`, `CloseButton`, or
   `ClickOutside` once per opening. It may reopen the sheet synchronously.
+  Owner hiding retires its focus-return target without refocusing/remapping
+  that hidden window. Reopening from the `OwnerHidden` callback is rejected;
+  show the owner again before reopening. Owner deletion always cleans up.
+
+## Busy forms and acknowledgement ownership
+
+Bind permission before opening a form whose Apply/rollback needs an ACK:
+
+```rust,no_run
+use fltk_omarchy::{overlay::Sheet, State};
+# fn form(sheet: Sheet) {
+let busy = State::new(false);
+let sheet = sheet.bind_dismissible(&busy.map(|busy| !busy));
+sheet.open();
+busy.set(true); // Applying or waiting for ACK: Esc/outside/Close cannot dismiss.
+// On a successful Apply or completed rollback, on the UI thread:
+busy.set(false);
+sheet.close(); // Explicit owner completion; never vetoed by the binding.
+# }
+```
+
+`bind_dismissible(&State<bool>)` controls Escape, an outside primary click,
+and the toolkit header Close action. False disables that action, including
+its keyboard/accessibility state. Rejected input is consumed by the modal
+without changing logical focus, open state, transition direction/phase,
+retention deadlines, or emitting `on_dismiss`. An outside press begun while
+blocked cannot acquire a release when permission becomes true; a press begun
+while allowed is checked again at release. A newly blocked Close action also
+cannot complete an earlier press.
+
+The permission is UI-owned State, not an arbitrary application callback
+invoked during input. No application model borrow is taken or held while
+checking it. Native activation/deactivation runs after internal content and
+subscription borrows have been released. The binding retains temporary
+mapped States, keeps only a weak controller reference in its subscriber,
+unsubscribes on rebind/final controller drop, and ignores already queued
+notifications from an obsolete binding. `is_dismissible()` reads the current
+user policy independently of whether content is open or built.
+
+`close()` is deliberately an owner bypass, including calls through
+`WeakSheet::upgrade()`. App-provided Cancel/Apply buttons and shortcuts are
+owner actions too: disable them, or have Cancel request rollback and keep
+the sheet open until the rollback ACK. The toolkit does not invent or run
+that transaction. `release()` still cannot remove open/fading content.
+Owner hide/deletion and final controller destruction bypass the binding and
+retire modal input. A rejected user request never becomes `OwnerHidden`.
+
+The binding adds no polling, timer, content construction or animation. It
+survives cold reconstruction and can change while the sheet is closed.
 
 No content widgets or timers are created before first use. Closed sheets
 share one native deadline timer with weak entries; reopening, release and
@@ -144,3 +194,42 @@ wall-clock sampling could miss the intermediate frame under build load and
 leave animations enabled after failure; a scope guard now restores state.
 Child `Hide` callbacks may release the sheet: parent detachment and deletion
 are deferred so FLTK can finish notifying sibling widgets safely.
+
+### Dismissal permission validation (2026-11-06)
+
+The guard revision passed the complete CPU suite (285 unit checks, one
+ignored, six integration checks, 196 UI checks, 52 doctests) and the
+all-feature suite (359 unit checks, one ignored, six integration checks,
+246 UI checks, 59 doctests). Six directed guard checks cover temporary mapped
+State lifetime, obsolete notification/rebind handling, a borrowed app model
+during denied input, close enablement, press/release permission changes,
+exact retention boundaries, frozen reversal parity, weak owner completion,
+owner hide/deletion and subscription cleanup. Seven directed guard/GPU
+checks passed with NVIDIA RTX 3070 Ti and Mesa llvmpipe: guarded native-child
+events preserve modal focus and image parity, static shader intervals still
+have zero overlay recaptures/uploads/parent redraws, and hiding frees GPU
+overlay bytes. The existing child-Hide release/sibling-order regression also
+passes without refocusing a hidden owner.
+
+```sh
+cargo build --offline --example sheet_guard_input_check
+script/sheet-guard-input-check
+script/sheet-guard-wayland-check
+```
+
+The first runner uses XTest inside its own Xvfb: rejected Escape, Close,
+outside/auxiliary clicks, focused typing, enabled Escape, weak owner finish,
+short native retention, owner hide/deletion and peer-window input all pass.
+The second uses a private rootless Sway compositor and virtual keyboard:
+Escape denial/typing, enabled keyboard Close, weak owner finish, retention,
+hidden/deleted-owner cleanup, peer input and final unsubscribe pass. It
+reserves wtype's compact keymap slots 10–19 because pinned FLTK normalizes
+those physical codes to digits, and keeps devices alive while observing
+focus. No host display, input device or runtime socket is exposed. The probe
+paths default to `target/` and accept `SHEET_GUARD_BIN`.
+
+New-module/platform formatting, repository Clippy correctness/suspicious
+gates, Rust 1.80 all-target checks with GPU and all-feature Windows MSVC/macOS
+ARM typechecks passed. Native Windows/macOS and Files' Sheet adoption on
+NODE/M2 are not established by these toolkit checks. No remote publication
+or CI was started.
