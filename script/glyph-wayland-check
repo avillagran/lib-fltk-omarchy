@@ -47,9 +47,9 @@ def main():
                             '-e', 'FLTK_BACKEND=wayland', '-e', 'OMARCHY_FLTK_A11Y=off',
                             '-e', 'OMARCHY_FLTK_STATE_DIR=/fixture/state',
                             '-e', 'XDG_CACHE_HOME=/fixture/cache',
-                            '-e', 'XDG_CONFIG_HOME=/fixture/config', name, '/probe', '/fixture'],
+                            '-e', 'XDG_CONFIG_HOME=/fixture/config', name, '/probe', '/fixture/glyphs'],
                            check=True, timeout=40, stdout=log, stderr=subprocess.STDOUT)
-        report = json.loads((output / 'report.json').read_text())
+        report = json.loads((output / 'glyphs' / 'report.json').read_text())
         assert report['backend'] == 'wayland', report['backend']
         assert report['positioned_runs_passed'], 'positioned run parity failed'
         print('PASS native positioned runs; ink groups:', report['ink_groups_passed'],

@@ -5,6 +5,12 @@
 or add a dependency to the library. The current renderer retains its native
 whole-command text fallback.
 
+Execution is currently **on hold** following the fixture-deletion report;
+see the [static fixture audit](TEST-FIXTURES-AUDIT.md). The commands below are
+reference instructions, not authorization to resume them. The recorded
+receipt belongs to checkpoint `2d6c0ca`; subsequent output-preservation changes
+have source review only and have not been compiled or executed during the hold.
+
 The experiment compares four replays against independent native FLTK
 black/white captures at logical 1x:
 
@@ -37,6 +43,13 @@ env -u WAYLAND_DISPLAY OMARCHY_FLTK_A11Y=off xvfb-run -a \
 script/glyph-wayland-check
 GLYPH_CHECK_FONTS=/usr/share/fonts script/glyph-wayland-check
 ```
+
+The output path must be new. The probe creates that directory exclusively,
+with mode 0700, before FLTK initialization; an existing directory, file or
+final symlink is rejected without opening its artifacts. Choose another path
+for each invocation. No automatic cleanup is performed. The Wayland runner
+already creates a unique private fixture and now passes a new `glyphs/` child
+to the probe; its compositor/application logs remain alongside that child.
 
 The Wayland runner uses the existing local
 `localhost/o3-qml-wayland-tests:local` image, rootless headless Sway, no

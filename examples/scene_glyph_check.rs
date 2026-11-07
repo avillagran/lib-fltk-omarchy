@@ -26,7 +26,8 @@ mod linux {
     use std::{
         cell::{Cell, RefCell},
         ffi::{c_char, c_void, CString},
-        path::PathBuf,
+        os::unix::fs::DirBuilderExt,
+        path::{Path, PathBuf},
         ptr,
     };
 
@@ -550,11 +551,37 @@ mod linux {
     }
 
     pub fn run() -> Result<(), String> {
-        let output = std::env::args_os()
-            .nth(1)
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("target/glyph-check"));
-        std::fs::create_dir_all(&output).map_err(|e| e.to_string())?;
+        let mut output = None;
+        let mut require_individual = false;
+        let mut require_groups = false;
+        for argument in std::env::args_os().skip(1) {
+            if argument == "--require-individual" {
+                require_individual = true;
+            } else if argument == "--require-groups" {
+                require_groups = true;
+            } else if argument.to_string_lossy().starts_with('-') || output.is_some() {
+                return Err("expected one fresh output path and optional --require-individual/--require-groups".into());
+            } else {
+                output = Some(PathBuf::from(argument));
+            }
+        }
+        let output = output.unwrap_or_else(|| PathBuf::from("target/glyph-check"));
+        let parent = output
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        // Exclusive creation before FLTK initialization: never reuse a run's
+        // directory, follow an existing final symlink, or overwrite evidence.
+        std::fs::DirBuilder::new()
+            .mode(0o700)
+            .create(&output)
+            .map_err(|e| {
+                format!(
+                    "cannot create fresh output directory {}: {e}; choose a new path",
+                    output.display()
+                )
+            })?;
         let _app = App::new("dev.omarchy.scene-glyph-check");
         Font::set_font(Font::Helvetica, "JetBrainsMono Nerd Font");
         Font::set_font(Font::HelveticaBold, "JetBrainsMono Nerd Font Bold");
@@ -703,8 +730,6 @@ mod linux {
             format!("{}\n", serde_json::to_string_pretty(&report).unwrap()),
         )
         .map_err(|e| e.to_string())?;
-        let require_individual = std::env::args_os().any(|s| s == "--require-individual");
-        let require_groups = std::env::args_os().any(|s| s == "--require-groups");
         println!("Positioned runs: {runs_passed}; ink groups: {groups_passed}; individual glyphs: {individual_passed}");
         if runs_passed
             && (!require_groups || groups_passed)
