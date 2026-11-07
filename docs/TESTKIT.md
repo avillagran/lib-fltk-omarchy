@@ -13,6 +13,7 @@ the kit is armed.
 | Motion gate | `testkit::Gate`, `Rules`, `Finding` | jumps, pops and overshoot frame by frame |
 | Frame log | `OMARCHY_FLTK_FRAME_LOG=path`, `testkit::frames::log_to` | paint, wall and CPU time per window frame |
 | Blocked-UI warning | debug builds; `OMARCHY_FLTK_BLOCK_WARN` | a UI callback that waits on I/O |
+| Timer ownership | `testkit::timer_stats()` | pending/queued/executing callbacks and completion/cancellation counters; see [TIMERS.md](TIMERS.md) |
 
 Input never leaves the app: events go straight to its own windows through
 the same path as real input (`focus::press`, `click_at`, `wheel_at`…), and

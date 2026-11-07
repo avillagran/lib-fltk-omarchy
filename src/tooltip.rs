@@ -307,7 +307,7 @@ struct Tip {
     settings: Settings,
     /// `tooltips.json` as last read (modified time, length).
     settings_stamp: Option<Stamp>,
-    pending: Option<(Target, app::TimeoutHandle)>,
+    pending: Option<(Target, crate::timer::Timer)>,
     shown: Option<ShownTip>,
     warm_until: Option<Instant>,
     /// Clicked or typed on: no tooltip again until the pointer leaves it.
@@ -447,7 +447,7 @@ fn hover(win: &Widget) {
         return;
     }
     let p = target.clone();
-    let handle = app::add_timeout3(DELAY.as_secs_f64(), move |_| {
+    let handle = crate::timer::add(DELAY.as_secs_f64(), move |_| {
         let still = TIP.with(|t| {
             t.borrow_mut()
                 .pending
@@ -463,7 +463,7 @@ fn hover(win: &Widget) {
 
 fn cancel_pending() {
     if let Some((_, h)) = TIP.with(|t| t.borrow_mut().pending.take()) {
-        app::remove_timeout3(h);
+        crate::timer::cancel(h);
     }
 }
 

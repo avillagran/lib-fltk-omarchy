@@ -5,7 +5,7 @@ use crate::a11y::{self, Action, Role};
 use crate::icon::{self, lucide, Svg};
 use crate::paint::{self, Interaction};
 use crate::theme;
-use fltk::{app, enums::*, image::RgbImage, prelude::*, widget::Widget};
+use fltk::{enums::*, image::RgbImage, prelude::*, widget::Widget};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -418,7 +418,7 @@ fn draw_frame(w: &Widget, s: &mut St, weak: std::rc::Weak<RefCell<St>>, d: &Arc<
             let alive = w.clone();
             // Redraws once the frame is due if the image is still shown;
             // that draw arms the next timer. Hidden: it stops here.
-            app::add_timeout3(left.as_secs_f64().max(1.0 / 120.0), move |_| {
+            crate::timer::add(left.as_secs_f64().max(1.0 / 120.0), move |_| {
                 if let Some(st) = weak.upgrade() {
                     st.borrow_mut().timer = false;
                 }

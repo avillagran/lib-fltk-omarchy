@@ -48,6 +48,7 @@ pub mod text;
 pub mod theme;
 pub mod toml;
 pub mod tooltip;
+pub mod timer;
 pub mod widgets;
 pub mod window;
 

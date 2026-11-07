@@ -2443,7 +2443,7 @@ fn draw_view(w: &mut Widget, st: &Rc<RefCell<St>>) {
     if let Some(id) = place_hosted(w, s, &geo, &me) {
         // Its line went away while it had focus: back to the diff (later:
         // not while drawing).
-        app::add_timeout3(0.0, move |_| {
+        crate::timer::add(0.0, move |_| {
             if let Some(v) = me.upgrade() {
                 v.focus_back(Some(id.clone()));
             }

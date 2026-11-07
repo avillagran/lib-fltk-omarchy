@@ -2251,7 +2251,7 @@ fn schedule(id: u64, buf: Arc<Mutex<Pending>>) {
     if wait <= 0.0 {
         deliver(id, &buf);
     } else {
-        app::add_timeout3(wait, move |_| deliver(id, &buf));
+        crate::timer::add(wait, move |_| deliver(id, &buf));
     }
 }
 
@@ -2292,7 +2292,7 @@ fn deliver(id: u64, buf: &Arc<Mutex<Pending>>) {
             p.text = text.split_off(text.len() - hold);
             p.posted = true;
             let (id, b) = (id, buf.clone());
-            app::add_timeout3(0.08, move |_| deliver_all(id, &b));
+            crate::timer::add(0.08, move |_| deliver_all(id, &b));
         }
         (text, finish)
     };
@@ -3514,7 +3514,7 @@ fn activate_focus(w: &mut Widget, inn: &Rc<RefCell<Inner>>, hooks: &Hooks) -> bo
 /// Redraws after the "copied" check mark has had its moment.
 fn redraw_soon(w: &Widget) {
     let mut ww = w.clone();
-    app::add_timeout3(1.6, move |_| {
+    crate::timer::add(1.6, move |_| {
         if !ww.was_deleted() {
             ww.redraw()
         }

@@ -9,7 +9,7 @@ use super::{window_origin, NavKind, NavTree};
 use crate::a11y::{self, Role};
 use crate::panel::ItemId;
 use crate::theme;
-use fltk::{app, enums::*, group::Flex, prelude::*, widget::Widget};
+use fltk::{enums::*, group::Flex, prelude::*, widget::Widget};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -115,7 +115,7 @@ impl NavTree {
             return;
         }
         let me = self.clone();
-        app::add_timeout3(OPEN_MS as f64 / 1000.0, move |_| {
+        crate::timer::add(OPEN_MS as f64 / 1000.0, move |_| {
             if me.canvas.was_deleted() {
                 return;
             }
@@ -131,7 +131,7 @@ impl NavTree {
 
     fn schedule_close(&self, gen: u64) {
         let me = self.clone();
-        app::add_timeout3(CLOSE_MS as f64 / 1000.0, move |_| {
+        crate::timer::add(CLOSE_MS as f64 / 1000.0, move |_| {
             if me.canvas.was_deleted() {
                 return;
             }
@@ -266,5 +266,5 @@ impl NavTree {
 /// event its window is still dispatching to its children (a wheel on the
 /// rows), which must not see the child list change under it.
 fn close_later(l: Widget) {
-    app::add_timeout3(0.0, move |_| crate::overlay::close_layer(&l));
+    crate::timer::add(0.0, move |_| crate::overlay::close_layer(&l));
 }

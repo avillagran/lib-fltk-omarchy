@@ -381,7 +381,7 @@ impl AppWindow {
             self.win.show();
             let title = self.win.label();
             let tries = Cell::new(0u32);
-            app::add_timeout3(0.02, move |h| {
+            crate::timer::add(0.02, move |h| {
                 if let Some(c) = hyprland::own_clients(Some(&title)).into_iter().next() {
                     if !c.floating {
                         hyprland::set_floating(&c.address, true);
@@ -389,7 +389,7 @@ impl AppWindow {
                     hyprland::resize_to(&c.address, size.0, size.1);
                     hyprland::center(&c.address);
                 } else if tries.replace(tries.get() + 1) < 100 {
-                    app::repeat_timeout3(0.02, h);
+                    crate::timer::repeat(0.02, h);
                 }
             });
             self.header.set_draggable(true);
@@ -429,11 +429,11 @@ impl AppWindow {
             // A window being mapped is listed a moment later.
             let title = self.win.label();
             let tries = Cell::new(0u32);
-            app::add_timeout3(0.0, move |h| {
+            crate::timer::add(0.0, move |h| {
                 if let Some(c) = hyprland::own_clients(Some(&title)).into_iter().next() {
                     hyprland::focus(&c.address);
                 } else if tries.replace(tries.get() + 1) < 50 {
-                    app::repeat_timeout3(0.02, h);
+                    crate::timer::repeat(0.02, h);
                 }
             });
         }

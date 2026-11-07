@@ -25,6 +25,10 @@ when the pointer rests on it, popups fade, tabs and list rows move, with
 Omarchy's and o3's durations and no animation code in the app. Off, it
 all jumps. See [docs/ANIMATION.md](docs/ANIMATION.md).
 
+**Owned UI timers**: `timer::after` and `timer::every` release callback
+captures on completion or cancellation. One native deadline serves pending
+jobs and stops when idle. See [docs/TIMERS.md](docs/TIMERS.md).
+
 ![app window](docs/components/app-window.png)
 
 | | |

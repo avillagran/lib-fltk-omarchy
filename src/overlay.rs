@@ -280,7 +280,7 @@ pub(crate) fn close_layer(layer: &Widget) {
         parent.redraw();
         let l2 = l.clone();
         // Deleted after the fade even if it is never drawn again.
-        app::add_timeout3(ms as f64 / 1000.0 + 0.02, move |_| finish_close(&l2));
+        crate::timer::add(ms as f64 / 1000.0 + 0.02, move |_| finish_close(&l2));
         return;
     }
     parent.remove(layer);
@@ -607,7 +607,7 @@ fn open_popup(trigger: &mut Widget, options: &Rc<RefCell<Vec<String>>>, value: &
                 // next loop turn, never inside fltk's focus change, and leave
                 // focus where it went.
                 let l2 = l.clone();
-                app::add_timeout3(0.0, move |_| if !l2.was_deleted() { close_layer(&l2) });
+                crate::timer::add(0.0, move |_| if !l2.was_deleted() { close_layer(&l2) });
                 true
             }
             _ => false,
@@ -925,7 +925,7 @@ impl Notification {
         let timeout = match urgency { Urgency::Low => Some(5.0), Urgency::Normal => Some(8.0), Urgency::Critical => None };
         if let Some(secs) = timeout {
             let l2 = layer.clone();
-            app::add_timeout3(secs, move |_| dismiss(&l2));
+            crate::timer::add(secs, move |_| dismiss(&l2));
         }
     }
 

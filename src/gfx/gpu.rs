@@ -147,7 +147,7 @@ impl GpuView {
         win.hide();
         let mut w3 = win.clone();
         let ticks = std::cell::Cell::new(0u32);
-        app::add_timeout3(0.05, move |h| {
+        crate::timer::add(0.05, move |h| {
             if w3.was_deleted() {
                 return;
             }
@@ -166,7 +166,7 @@ impl GpuView {
                 }
                 w3.redraw();
             } else {
-                app::repeat_timeout3(0.05, h);
+                crate::timer::repeat(0.05, h);
             }
         });
         GpuView { win, st }
@@ -182,7 +182,7 @@ impl GpuView {
         self.st.borrow_mut().fps = fps.min(240);
         if !std::mem::replace(&mut self.st.borrow_mut().timer, true) && fps > 0 {
             let (st, w) = (Rc::downgrade(&self.st), self.win.clone());
-            app::add_timeout3(1.0 / fps as f64, move |h| {
+            crate::timer::add(1.0 / fps as f64, move |h| {
                 let Some(st) = st.upgrade() else { return };
                 if w.was_deleted() {
                     return;
@@ -194,10 +194,10 @@ impl GpuView {
                 }
                 if w.visible_r() && w.shown() {
                     w.clone().redraw();
-                    app::repeat_timeout3(1.0 / fps as f64, h);
+                    crate::timer::repeat(1.0 / fps as f64, h);
                 } else {
                     st.borrow_mut().stats.paused_ticks += 1;
-                    app::repeat_timeout3(0.5, h);
+                    crate::timer::repeat(0.5, h);
                 }
             });
         }

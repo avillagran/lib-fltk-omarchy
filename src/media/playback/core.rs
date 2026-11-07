@@ -5,7 +5,7 @@
 use super::args::{self, Clock, Pacer};
 use super::proc::{self, AudioJob, Event, Events, FrameSlot, Procs, VFrame, VideoJob};
 use super::{Error, Info, PlayState};
-use fltk::{app, prelude::*, widget::Widget};
+use fltk::{prelude::*, widget::Widget};
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::rc::{Rc, Weak};
@@ -343,7 +343,7 @@ impl Player {
         };
         let weak = self.weak();
         let mut f = Some(f);
-        app::add_timeout3(delay, move |_| {
+        crate::timer::add(delay, move |_| {
             if let Some(c) = weak.upgrade() {
                 if c.borrow().settle_gen == gen {
                     if let Some(f) = f.take() {
@@ -704,7 +704,7 @@ impl Player {
             return;
         }
         let weak = self.weak();
-        app::add_timeout3(TICK, move |_| {
+        crate::timer::add(TICK, move |_| {
             let Some(c) = weak.upgrade() else { return };
             let p = Player(c);
             p.0.borrow_mut().tick_armed = false;

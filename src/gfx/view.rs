@@ -416,7 +416,7 @@ impl View {
             return;
         }
         let (st, g) = (Rc::downgrade(&self.st), self.group.clone());
-        app::add_timeout3(0.05, move |h| {
+        crate::timer::add(0.05, move |h| {
             let Some(st) = st.upgrade() else { return };
             if g.was_deleted() {
                 return;
@@ -446,14 +446,14 @@ impl View {
                     st.borrow_mut().dirty = true;
                     g.clone().redraw();
                 }
-                app::repeat_timeout3(1.0 / fps, h);
+                crate::timer::repeat(1.0 / fps, h);
             } else {
                 if animated {
                     st.borrow_mut().stats.paused_ticks += 1;
                 }
                 // Idle: a slow tick keeps the backend choice and the display
                 // rate current; a static View draws only when invalidated.
-                app::repeat_timeout3(if shown { 0.25 } else { 0.5 }, h);
+                crate::timer::repeat(if shown { 0.25 } else { 0.5 }, h);
             }
         });
     }
@@ -705,7 +705,7 @@ fn draw(g: &mut Group, st: &Rc<RefCell<State>>) {
     let done = render(st, g.w(), g.h(), budget);
     if !done {
         let mut g2 = g.clone();
-        app::add_timeout3(0.0, move |_| if !g2.was_deleted() { g2.redraw() });
+        crate::timer::add(0.0, move |_| if !g2.was_deleted() { g2.redraw() });
     }
     let t_blit = Instant::now();
     let mut s = st.borrow_mut();

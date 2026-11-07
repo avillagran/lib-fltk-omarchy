@@ -1580,7 +1580,7 @@ impl Composer {
             if me.area.was_deleted() {
                 // The composer went away with its list open.
                 let l2 = l.clone();
-                app::add_timeout3(0.0, move |_| {
+                crate::timer::add(0.0, move |_| {
                     if !l2.was_deleted() {
                         close_layer(&l2);
                     }

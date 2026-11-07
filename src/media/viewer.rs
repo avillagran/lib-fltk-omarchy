@@ -620,7 +620,7 @@ fn frame_index(s: &mut VState, d: &Decoded, l: &Widget, st: &Rc<RefCell<VState>>
     if !s.timer && left != std::time::Duration::MAX {
         s.timer = true;
         let (alive, weak) = (l.clone(), Rc::downgrade(st));
-        app::add_timeout3(left.as_secs_f64().max(1.0 / 120.0), move |_| {
+        crate::timer::add(left.as_secs_f64().max(1.0 / 120.0), move |_| {
             if let Some(st) = weak.upgrade() {
                 st.borrow_mut().timer = false;
             }

@@ -134,7 +134,7 @@ impl Split {
             let got = me.size.get();
             if got != *v {
                 let (t, inner) = (theirs.clone(), me.inner.clone());
-                fltk::app::add_timeout3(0.0, move |_| {
+                crate::timer::add(0.0, move |_| {
                     if !inner.was_deleted() {
                         t.set_if_changed(got);
                     }

@@ -552,7 +552,7 @@ fn dispatch_done(group: &Group, st: &Rc<RefCell<State>>) {
         return;
     }
     let (group, owner) = (group.clone(), Rc::downgrade(st));
-    app::add_timeout3(0.0, move |_| {
+    crate::timer::add(0.0, move |_| {
         let Some(st) = owner.upgrade() else { return };
         for (id, serial, callback) in callbacks.drain(..) {
             if group.was_deleted() {
@@ -1019,7 +1019,7 @@ mod native {
         owner.borrow_mut().error = Some(error);
         owner.borrow_mut().overlay_retry = overlay.then(crate::overlay::layers_revision);
         let (mut window, weak, parent) = (win.clone(), Rc::downgrade(owner), win.parent());
-        app::add_timeout3(0.0, move |_| {
+        crate::timer::add(0.0, move |_| {
             if let Some(st) = weak.upgrade() {
                 hide(&st);
                 st.borrow_mut().dirty = true;
@@ -1049,7 +1049,7 @@ mod native {
         }
         let (mut group, owner) = (g.clone(), Rc::downgrade(st));
         let ticks = Cell::new(0);
-        app::add_timeout3(0.05, move |timer| {
+        crate::timer::add(0.05, move |timer| {
             let Some(st) = owner.upgrade() else { return };
             if group.was_deleted() {
                 return;
@@ -1065,7 +1065,7 @@ mod native {
             }
             ticks.set(ticks.get() + 1);
             if ticks.get() < 3 {
-                app::repeat_timeout3(0.05, timer);
+                crate::timer::repeat(0.05, timer);
                 return;
             }
             st.borrow_mut().activation_pending = false;
@@ -1177,7 +1177,7 @@ mod native {
                 drop(gl);
                 let s = Rc::downgrade(&owner);
                 let parent = win.parent();
-                app::add_timeout3(0.0, move |_| {
+                crate::timer::add(0.0, move |_| {
                     if let Some(s) = s.upgrade() {
                         invalidate(&s);
                         if let Some(mut p) = parent.clone() {
@@ -1351,7 +1351,7 @@ mod native {
             let window = win.clone();
             // A capture callback may replace content or close its window.
             // Never deliver it inside FLTK's native GL draw callback.
-            app::add_timeout3(0.0, move |_| {
+            crate::timer::add(0.0, move |_| {
                 for f in results.drain(..) {
                     if window.was_deleted() {
                         break;

@@ -776,7 +776,10 @@ fn arm() {
     let hz = display_hz();
     let Some(wait) = SCHEDULE.with(|s| s.borrow().next_wait(Instant::now(), hz)) else { return };
     TIMER.with(|t| t.set(true));
-    app::add_timeout3(wait.as_secs_f64().max(0.001), |_| {
+    app::add_raw_timeout(wait.as_secs_f64().max(0.001), frame_tick, std::ptr::null_mut());
+}
+fn frame_tick(_: *mut ()) {
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         TIMER.with(|t| t.set(false));
         let hz = display_hz();
         let due = SCHEDULE.with(|s| s.borrow_mut().take_due(Instant::now(), hz));
@@ -797,7 +800,7 @@ fn arm() {
             }
         }
         arm();
-    });
+    }));
 }
 
 /// Widgets waiting for an animation frame (tests).

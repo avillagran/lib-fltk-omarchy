@@ -100,3 +100,8 @@ pub(crate) fn render_frame<W: WindowExt>(win: &W) {
     let mut w = unsafe { fltk::window::DoubleWindow::from_widget_ptr(win.as_widget_ptr()) };
     let _ = crate::window::render(&mut w);
 }
+/// UI timer ownership counters (UI thread only). Pending includes running
+/// jobs; a canceled running callback can remain executing until it returns.
+pub fn timer_stats() -> crate::timer::Stats {
+    crate::timer::stats()
+}

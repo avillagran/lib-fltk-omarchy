@@ -187,6 +187,10 @@ due, so a slow glow next to a 60 fps transition costs 8 redraws a second,
 not 60, and nothing runs when no widget waits. `PaceMode::Max` raises
 every pace to the display rate.
 
+The native frame callback is fixed: advancing a frame does not allocate a
+boxed timeout closure. Other UI deadlines use the owned scheduler described
+in [TIMERS.md](TIMERS.md); its ownership counters exclude this frame clock.
+
 ## Tests and screenshots
 
 `anim::set_enabled(false)` gives final states at once (`tests/ui.rs` does

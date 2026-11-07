@@ -456,7 +456,7 @@ fn rebuild(s: &mut Nt, model: &ListModel<String, NavItem>) {
     if let Some((id, l)) = s.pv.open.clone() {
         if !s.flat.at.contains_key(&id) {
             s.pv.open = None;
-            app::add_timeout3(0.0, move |_| crate::overlay::close_layer(&l));
+            crate::timer::add(0.0, move |_| crate::overlay::close_layer(&l));
         }
     }
     let ins = std::mem::take(&mut s.inserted);
@@ -1611,7 +1611,7 @@ impl NavTree {
             s.gen
         };
         let me = self.clone();
-        app::add_timeout3(anim::ms::HOVER_OPEN as f64 / 1000.0, move |_| {
+        crate::timer::add(anim::ms::HOVER_OPEN as f64 / 1000.0, move |_| {
             let go = {
                 let s = me.st.borrow();
                 s.gen == gen && (s.hovered || s.layer_hovered)
@@ -1633,7 +1633,7 @@ impl NavTree {
         };
         self.canvas.clone().redraw();
         let me = self.clone();
-        app::add_timeout3(anim::ms::HOVER_CLOSE as f64 / 1000.0, move |_| {
+        crate::timer::add(anim::ms::HOVER_CLOSE as f64 / 1000.0, move |_| {
             if me.canvas.was_deleted() {
                 return;
             }
@@ -2679,7 +2679,7 @@ impl NavTree {
                 drop(s);
                 me.return_slots(slots);
                 let l2 = l.clone();
-                app::add_timeout3(0.0, move |_| crate::overlay::close_layer(&l2));
+                crate::timer::add(0.0, move |_| crate::overlay::close_layer(&l2));
             }
         });
         let me = self.clone();
@@ -2845,7 +2845,7 @@ impl NavTree {
                     s.unfocus_gen
                 };
                 let me2 = me.clone();
-                app::add_timeout3(0.0, move |_| {
+                crate::timer::add(0.0, move |_| {
                     if me2.canvas.was_deleted() || me2.st.borrow().unfocus_gen != gen {
                         return;
                     }

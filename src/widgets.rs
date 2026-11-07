@@ -1418,7 +1418,7 @@ impl TextField {
                 let shown = apply_mask(&mk, &mut input);
                 if shown != *v {
                     let (b, w) = (back.clone(), g.clone());
-                    app::add_timeout3(0.0, move |_| {
+                    crate::timer::add(0.0, move |_| {
                         if !w.was_deleted() {
                             b.set_if_changed(shown.clone());
                         }

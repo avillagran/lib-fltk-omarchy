@@ -766,7 +766,7 @@ impl MenuCtl {
         let now = crate::anim::now();
         let wait = if crate::anim::clock::frozen() { 1.0 / 60.0 } else { deadline.saturating_duration_since(now).as_secs_f64().max(0.001) };
         let me = Rc::downgrade(self);
-        app::add_timeout3(wait, move |_| {
+        crate::timer::add(wait, move |_| {
             let Some(me) = me.upgrade() else { return };
             if me.gen.get() != gen || !me.open() {
                 return;

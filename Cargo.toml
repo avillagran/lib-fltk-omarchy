@@ -103,6 +103,10 @@ opt-level = 1
 name = "ui"
 harness = false
 
+[[test]]
+name = "timer"
+harness = false
+
 [profile.dev]
 incremental = false
 debug = "line-tables-only"

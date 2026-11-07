@@ -447,7 +447,7 @@ impl RichText {
     fn release_slack_later(&self) {
         const WAIT: f64 = 0.12;
         let (inn, w) = (Rc::downgrade(&self.inner), self.widget.clone());
-        app::add_timeout3(WAIT, move |h| {
+        crate::timer::add(WAIT, move |h| {
             let Some(inn) = inn.upgrade() else { return };
             if w.was_deleted() {
                 return;
@@ -459,7 +459,7 @@ impl RichText {
             if let Some(t) = i.grown.1 {
                 let left = WAIT - t.elapsed().as_secs_f64();
                 if left > 0.0 {
-                    app::repeat_timeout3(left, h);
+                    crate::timer::repeat(left, h);
                     return;
                 }
             }

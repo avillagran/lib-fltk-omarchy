@@ -136,7 +136,7 @@ fn run_sink(id: u64, from_timer: bool) {
     match next {
         Next::Skip => {}
         Next::Wait(d) => {
-            fltk::app::add_timeout3(d.as_secs_f64(), move |_| crate::state::batch(|| run_sink(id, true)));
+            crate::timer::add(d.as_secs_f64(), move |_| crate::state::batch(|| run_sink(id, true)));
         }
         Next::Run(f) => {
             let keep = f.try_borrow_mut().map(|mut f| f()).unwrap_or(true);
@@ -504,6 +504,7 @@ pub struct Latest<T: Send + 'static> {
 struct LatestInner<T> {
     debounce: Duration,
     gen: std::cell::Cell<u64>,
+    pending: std::cell::Cell<Option<crate::timer::Timer>>,
     running: std::cell::RefCell<Option<TaskHandle>>,
     #[allow(clippy::type_complexity)]
     on_result: std::cell::RefCell<Box<dyn FnMut(T)>>,
@@ -521,6 +522,7 @@ impl<T: Send + 'static> Latest<T> {
             inner: std::rc::Rc::new(LatestInner {
                 debounce,
                 gen: std::cell::Cell::new(0),
+                pending: std::cell::Cell::new(None),
                 running: std::cell::RefCell::new(None),
                 on_result: std::cell::RefCell::new(Box::new(on_result)),
             }),
@@ -530,11 +532,9 @@ impl<T: Send + 'static> Latest<T> {
     /// Runs `work` after the debounce unless a newer request comes first;
     /// a request still running is cancelled. Call on the UI thread.
     pub fn request(&self, work: impl FnOnce(&Ctx) -> Result<T, String> + Send + 'static) {
-        let gen = self.inner.gen.get() + 1;
-        self.inner.gen.set(gen);
-        if let Some(h) = self.inner.running.borrow_mut().take() {
-            h.cancel();
-        }
+        let gen = self.stop();
+        // A canceled payload's destructor may submit a newer request.
+        if self.inner.gen.get() != gen { return; }
         let me = std::rc::Rc::downgrade(&self.inner);
         let mut work = Some(work);
         let mut start = move || {
@@ -542,6 +542,7 @@ impl<T: Send + 'static> Latest<T> {
             if inner.gen.get() != gen {
                 return; // a newer request replaced this one
             }
+            inner.pending.set(None);
             let Some(work) = work.take() else { return };
             let back = std::rc::Rc::downgrade(&inner);
             let handle = Task::new(work)
@@ -564,19 +565,32 @@ impl<T: Send + 'static> Latest<T> {
             start();
         } else {
             let mut start = Some(start);
-            fltk::app::add_timeout3(self.inner.debounce.as_secs_f64(), move |_| {
+            let timer = crate::timer::add(self.inner.debounce.as_secs_f64(), move |_| {
                 if let Some(mut f) = start.take() {
                     f();
                 }
             });
+            self.inner.pending.set(Some(timer));
         }
     }
 
-    /// Forgets pending and running requests (their answers are dropped).
-    pub fn cancel(&self) {
-        self.inner.gen.set(self.inner.gen.get() + 1);
-        if let Some(h) = self.inner.running.borrow_mut().take() {
-            h.cancel();
-        }
+    /// Cancels pending and running requests. Pending work is dropped now;
+    /// running work observes cooperative cancellation through its `Ctx`.
+    pub fn cancel(&self) { self.stop(); }
+
+    fn stop(&self) -> u64 {
+        let gen = self.inner.gen.get().checked_add(1).expect("Latest generation exhausted");
+        self.inner.gen.set(gen);
+        let pending = self.inner.pending.take();
+        let running = self.inner.running.borrow_mut().take();
+        if let Some(timer) = pending { timer.cancel(); }
+        if let Some(handle) = running { handle.cancel(); }
+        gen
+    }
+}
+impl<T> Drop for LatestInner<T> {
+    fn drop(&mut self) {
+        if let Some(timer) = self.pending.take() { timer.cancel(); }
+        if let Some(handle) = self.running.get_mut().take() { handle.cancel(); }
     }
 }

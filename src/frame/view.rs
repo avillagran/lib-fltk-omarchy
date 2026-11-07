@@ -646,7 +646,7 @@ impl FrameView {
         }
         let weak = Rc::downgrade(&self.st);
         let w = self.inner.clone();
-        app::add_timeout3(debounce.as_secs_f64(), move |_| {
+        crate::timer::add(debounce.as_secs_f64(), move |_| {
             let Some(st) = weak.upgrade() else { return };
             if w.was_deleted() || st.borrow().resize_gen != gen {
                 return;
@@ -832,7 +832,7 @@ impl FrameView {
         }
         if let Some(d) = wait {
             let weak = Rc::downgrade(&self.st);
-            app::add_timeout3(d.as_secs_f64(), move |_| {
+            crate::timer::add(d.as_secs_f64(), move |_| {
                 if let Some(st) = weak.upgrade() {
                     st.borrow_mut().move_timer = false;
                     flush_move_of(&st);
