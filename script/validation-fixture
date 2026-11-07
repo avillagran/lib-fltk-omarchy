@@ -1,0 +1,181 @@
+#!/usr/bin/env python3
+"""Retained Unix diagnostic fixtures. This is not an execution authorization."""
+import argparse
+import os
+from pathlib import Path
+import select
+import secrets
+import stat
+import struct
+import subprocess
+import sys
+import tempfile
+
+
+def checked(path):
+    if not hasattr(os, 'geteuid'):
+        raise ValueError('this diagnostic fixture launcher requires Unix')
+    path = Path(path)
+    if not path.is_absolute() or '..' in path.parts:
+        raise ValueError('fixture paths must be absolute without parent traversal')
+    for part in reversed((path, *path.parents)):
+        metadata = part.lstat()
+        if stat.S_ISLNK(metadata.st_mode):
+            raise ValueError(f'linked path refused: {part}')
+        if stat.S_ISDIR(metadata.st_mode):
+            trusted_sticky = metadata.st_uid == 0 and metadata.st_mode & stat.S_ISVTX
+            if (metadata.st_uid not in (0, os.geteuid())
+                    or (metadata.st_mode & 0o022 and not trusted_sticky)):
+                raise ValueError(f'ancestor replaceable by another user refused: {part}')
+    return path.lstat()
+
+
+def private_directory(path):
+    metadata = checked(path)
+    if not stat.S_ISDIR(metadata.st_mode):
+        raise ValueError('fixture parent must be a directory')
+    if metadata.st_uid != os.geteuid() or metadata.st_mode & 0o777 != 0o700:
+        raise ValueError('fixture parent must belong to this user with mode 0700')
+
+
+def allocate(prefix):
+    if not prefix or not all(c.isascii() and (c.isalnum() or c == '-') for c in prefix):
+        raise ValueError('fixture prefix must be a simple identifier')
+    parent = os.environ.get('OMARCHY_FLTK_UI_PARENT') or os.environ.get('TMPDIR')
+    if not parent:
+        raise ValueError('supply a private OMARCHY_FLTK_UI_PARENT or TMPDIR before validation')
+    private_directory(parent)
+    output = Path(tempfile.mkdtemp(prefix=f'native-{prefix}-', dir=parent))
+    private_directory(output)
+    print(f'NATIVE_FIXTURE_RETAINED {output}', file=sys.stderr, flush=True)
+    print(output, flush=True)
+
+
+def stop(process):
+    if process is None:
+        return
+    if process.poll() is None:
+        try:
+            process.terminate()
+        except ProcessLookupError:
+            pass
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=5)
+    else:
+        process.wait()
+
+
+def write_authority(path, number, cookie):
+    # Xauthority: network-order family and four counted byte strings.
+    # FamilyWild avoids depending on a particular local hostname spelling.
+    record = struct.pack('>H', 65535)
+    for value in (b'', number, b'MIT-MAGIC-COOKIE-1', cookie):
+        record += struct.pack('>H', len(value)) + value
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(descriptor, 'wb') as authority:
+        authority.write(record)
+
+
+def x11(output, binary, seconds, driver, arguments):
+    output, binary, driver = Path(output), Path(binary), Path(driver)
+    private_directory(output)
+    if not 0 < seconds <= 30:
+        raise ValueError('diagnostic duration must be between zero and 30 seconds')
+    if not stat.S_ISREG(checked(binary).st_mode) or not os.access(binary, os.X_OK):
+        raise ValueError('probe must be a regular executable')
+    if driver.parent != output or not stat.S_ISREG(checked(driver).st_mode):
+        raise ValueError('driver must be a regular file inside the fresh fixture')
+    report = output / 'report.json'
+    try:
+        report.lstat()
+    except FileNotFoundError:
+        pass
+    else:
+        raise ValueError('report already exists; use a fresh fixture')
+
+    env = os.environ.copy()
+    for name in ('DISPLAY', 'WAYLAND_DISPLAY', 'XAUTHORITY', 'HYPRLAND_INSTANCE_SIGNATURE',
+                 'DESKTOP_STARTUP_ID', 'XDG_ACTIVATION_TOKEN'):
+        env.pop(name, None)
+    for name, child in (
+        ('OMARCHY_FLTK_STATE_DIR', 'state'), ('OMARCHY_FLTK_RUNTIME_DIR', 'runtime'),
+        ('XDG_CONFIG_HOME', 'config'), ('XDG_DATA_HOME', 'data'),
+        ('XDG_STATE_HOME', 'app-state'), ('XDG_CACHE_HOME', 'cache'), ('TMPDIR', 'tmp'),
+    ):
+        directory = output / child
+        directory.mkdir(mode=0o700)
+        env[name] = str(directory)
+    env['XDG_RUNTIME_DIR'] = env['OMARCHY_FLTK_RUNTIME_DIR']
+    env.update(FLTK_BACKEND='x11', OMARCHY_FLTK_A11Y='off',
+               OMARCHY_FLTK_USER_SHELL=str(output / 'no-user-shell.toml'),
+               OMARCHY_FLTK_TOOLTIPS=str(output / 'tooltips.json'),
+               DBUS_SESSION_BUS_ADDRESS='unix:path=' + str(output / 'no-session-bus'))
+    cookie = secrets.token_bytes(16)
+    server_authority = output / 'server.auth'
+    # The server loads protocol/data independently of the display number,
+    # which -displayfd has not allocated yet. Clients get the actual number.
+    write_authority(server_authority, b'', cookie)
+    # Exclusive logs reject a reused run before any native process starts.
+    with (output / 'xvfb.log').open('x') as server_log, \
+            (output / 'application.log').open('x') as application_log, \
+            (output / 'driver.log').open('x') as driver_log:
+        read_fd, write_fd = os.pipe()
+        server = application = None
+        try:
+            try:
+                server = subprocess.Popen(
+                    ['Xvfb', '-displayfd', str(write_fd), '-screen', '0', '1280x800x24',
+                     '-nolisten', 'tcp', '-noreset', '-auth', str(server_authority)],
+                    env=env, cwd=output, pass_fds=(write_fd,), stdout=server_log, stderr=subprocess.STDOUT)
+            finally:
+                os.close(write_fd)
+            if not select.select([read_fd], [], [], 8)[0]:
+                raise RuntimeError('private Xvfb startup timeout; inspect xvfb.log')
+            number = os.read(read_fd, 32).strip()
+            if not number.isdigit() or server.poll() is not None:
+                raise RuntimeError('private Xvfb failed; inspect xvfb.log')
+            env['DISPLAY'] = ':' + number.decode('ascii')
+            client_authority = output / 'client.auth'
+            write_authority(client_authority, number, cookie)
+            env['XAUTHORITY'] = str(client_authority)
+            application = subprocess.Popen(
+                [str(binary), str(report), str(seconds), *arguments], env=env, cwd=output,
+                stdout=application_log, stderr=subprocess.STDOUT)
+            subprocess.run([sys.executable, '-I', str(driver)], env=env, cwd=output, check=True,
+                           timeout=seconds + 10, stdout=driver_log, stderr=subprocess.STDOUT)
+            status = application.wait(timeout=seconds + 10)
+            if status != 0:
+                raise RuntimeError(f'probe exited {status}; inspect application.log')
+        finally:
+            try:
+                stop(application)
+            finally:
+                try:
+                    stop(server)
+                finally:
+                    os.close(read_fd)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    modes = parser.add_subparsers(dest='mode', required=True)
+    new = modes.add_parser('allocate')
+    new.add_argument('prefix')
+    native = modes.add_parser('x11')
+    native.add_argument('output')
+    native.add_argument('binary')
+    native.add_argument('seconds', type=float)
+    native.add_argument('driver')
+    native.add_argument('arguments', nargs=argparse.REMAINDER)
+    args = parser.parse_args()
+    if args.mode == 'allocate':
+        allocate(args.prefix)
+    else:
+        x11(args.output, args.binary, args.seconds, args.driver, args.arguments)
+
+
+if __name__ == '__main__':
+    main()

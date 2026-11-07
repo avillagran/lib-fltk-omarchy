@@ -6,10 +6,12 @@
 # the FLTK move/resize fallback. Prints the JSON report and PASS/FAIL.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-REPORT="$ROOT/build/x11-check.json"; mkdir -p "$ROOT/build"; rm -f "$REPORT"
+RUN_FIXTURE="$(python3 -I "$ROOT/script/validation-fixture" allocate x11-check)"
+REPORT="$RUN_FIXTURE/report.json"
 BIN="$ROOT/target/release/examples/platform_check"
-[[ -x "$BIN" ]] || cargo build --release --example platform_check --manifest-path "$ROOT/Cargo.toml"
-DRIVER="$(mktemp -d)"; trap 'rm -rf "$DRIVER"' EXIT
+cargo build --release --example platform_check --manifest-path "$ROOT/Cargo.toml" \
+  --target-dir "$ROOT/target" >"$RUN_FIXTURE/build.log" 2>&1
+DRIVER="$RUN_FIXTURE"
 cat > "$DRIVER/drag.py" <<'PY'
 import ctypes, sys, time
 x11 = ctypes.CDLL("libX11.so.6"); xt = ctypes.CDLL("libXtst.so.6")
@@ -26,8 +28,7 @@ drag(100 + 210, 100 + 20, 150, 80)   # header: move to (250, 180)
 time.sleep(0.5)
 drag(250 + 420 - 4, 180 + 300 - 4, 60, 40)  # bottom-right grip: 480x340
 PY
-env -u WAYLAND_DISPLAY FLTK_BACKEND=x11 xvfb-run -a -s "-screen 0 1280x800x24" \
-  bash -c "\"$BIN\" \"$REPORT\" 5 >/dev/null 2>&1 & python3 -I \"$DRIVER/drag.py\"; wait"
+python3 -I "$ROOT/script/validation-fixture" x11 "$RUN_FIXTURE" "$BIN" 5 "$DRIVER/drag.py"
 cat "$REPORT"; echo
 python3 -I - "$REPORT" <<'PY'
 import json, sys

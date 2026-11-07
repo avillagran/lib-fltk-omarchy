@@ -21,7 +21,7 @@ def main():
     output.mkdir(parents=True, mode=0o700)
     (output/'sway.conf').write_text('output * resolution 1280x800\nfocus_follows_mouse no\nfocus_on_window_activation urgent\nseat seat0 fallback true\nxwayland disable\n')
     name = 'fltk-present-'+suffix
-    args = ['podman','run','--rm','-d','--name',name,'--network=none','--userns=keep-id','--user',f'{os.getuid()}:{os.getgid()}','--entrypoint','/bin/sh',
+    args = ['podman','run','--pull=never','--rm','-d','--name',name,'--network=none','--userns=keep-id','--user',f'{os.getuid()}:{os.getgid()}','--entrypoint','/bin/sh',
             '-v',f'{output}:/fixture:rw','-v',f'{ROOT}/target/debug/examples/present_check:/probe:ro','-v','/usr/bin/wtype:/wtype:ro']
     for lib in ('libXinerama.so.1','libXcursor.so.1','libXfixes.so.3'):
         args += ['-v',f'/usr/lib/{lib}:/usr/lib/{lib}:ro']
@@ -91,12 +91,12 @@ def main():
         assert events['count']==3 and events['events'][-1]['result']=={'backend':'Wayland','status':'Requested'},events
         # Sway's private launcher supplies a fresh startup token to a tiny
         # child. Forward it explicitly; never change the probe environment.
-        (output/'capture-token.sh').write_text('#!/bin/sh\nprintf "%s" "$XDG_ACTIVATION_TOKEN" > /fixture/launch-token\n')
         for seq,hint in ((4,'activation_token'),(5,'startup_id')):
             execute('swaymsg','[title="^present-probe-a$"] focus')
-            token_file=output/'launch-token'
-            if token_file.exists(): token_file.unlink()
-            execute('swaymsg','exec /bin/sh /fixture/capture-token.sh')
+            token_file=output/f'launch-token-{seq}'
+            launcher=output/f'capture-token-{seq}.sh'
+            launcher.write_text(f'#!/bin/sh\nprintf "%s" "$XDG_ACTIVATION_TOKEN" > /fixture/launch-token-{seq}\n')
+            execute('swaymsg',f'exec /bin/sh /fixture/capture-token-{seq}.sh')
             end=time.monotonic()+3
             while not token_file.exists() and time.monotonic()<end: time.sleep(.03)
             token=token_file.read_text()
@@ -107,7 +107,6 @@ def main():
             end=time.monotonic()+3
             while time.monotonic()<end and focused()!='present-probe-b': time.sleep(.05)
             assert focused()=='present-probe-b', 'explicit startup context did not activate target'
-            token_file.unlink()
         (output/'done').write_text('done\n')
         print('PASS Wayland: synthetic input cannot borrow native serial; native gesture respects urgent/smart policies; valid explicit token/startup-id activates own B; invalid hints preserve A; honest Requested and unchanged environment')
         print(output)

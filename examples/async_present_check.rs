@@ -57,10 +57,23 @@ fn main() {
     let start = Instant::now();
     std::fs::write(root.join("ready"), "ready").unwrap();
     let mut count = 0;
+    let mut synthetic_count = 0u64;
     while start.elapsed() < Duration::from_secs(40) && !root.join("done").exists() {
         let _ = fltk::app::wait_for(0.01);
-        if root.join("synthetic").exists() {
-            std::fs::remove_file(root.join("synthetic")).unwrap();
+        let marker = root.join("synthetic");
+        let requested = match std::fs::symlink_metadata(&marker) {
+            Ok(metadata) => {
+                assert!(metadata.file_type().is_file(), "synthetic marker must be a regular fixture file");
+                true
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+            Err(error) => panic!("inspect synthetic marker: {error}"),
+        };
+        if requested {
+            let retained = root.join(format!("synthetic-consumed-{synthetic_count}"));
+            std::fs::create_dir(&retained).expect("a new marker archive is required");
+            std::fs::rename(&marker, retained.join("request")).unwrap();
+            synthetic_count = synthetic_count.checked_add(1).expect("synthetic marker IDs exhausted");
             let used = fltk_omarchy::focus::press("1");
             std::fs::write(root.join("synthetic-reply"), used.to_string()).unwrap();
         }

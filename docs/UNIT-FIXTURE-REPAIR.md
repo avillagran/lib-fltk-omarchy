@@ -11,6 +11,10 @@ worktree. The main checkout and the Files author's worktree are unchanged.
 Its prerequisite includes the author's still-unvalidated UI/control changes;
 do not apply the unit follow-up without reviewing that prerequisite.
 
+The subsequent partial native-runner proposal is documented separately in
+[NATIVE-FIXTURE-REPAIR.md](NATIVE-FIXTURE-REPAIR.md); its execution is also on
+hold and its limited scope does not establish that every runner is repaired.
+
 ## Changes
 
 All Rust changes are under `cfg(test)`:

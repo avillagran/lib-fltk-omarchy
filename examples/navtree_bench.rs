@@ -10,6 +10,9 @@ use fltk_omarchy::widgets::glyph;
 use fltk_omarchy::{App, AppWindow, State};
 use std::time::{Duration, Instant};
 
+#[path = "../src/platform/test_fixture.rs"]
+mod bench_fixture;
+
 fn median(mut v: Vec<Duration>) -> Duration {
     v.sort();
     v[v.len() / 2]
@@ -20,6 +23,8 @@ fn main() {
         .nth(1)
         .and_then(|a| a.parse().ok())
         .unwrap_or(5000);
+    let output = bench_fixture::start().expect("a fresh retained benchmark fixture is required");
+    eprintln!("BENCH_FIXTURE_RETAINED {}", output.display());
     let _app = App::without_theme_watch("dev.omarchy.fltk.navtree-bench");
     fltk_omarchy::anim::set_enabled(false);
     let model = ListModel::new(|t: &NavItem| t.key.clone());
@@ -53,11 +58,14 @@ fn main() {
     row.end();
     win.end();
     tree.set_pinned(true);
-    let out = std::path::PathBuf::from("target/navtree-bench.png");
+    let frame_number = std::cell::Cell::new(0usize);
     let t = Instant::now();
     let shown = tree.visible_keys().len();
     let rebuild = t.elapsed();
     let frame = |w: &mut AppWindow| {
+        let number = frame_number.get();
+        frame_number.set(number + 1);
+        let out = output.join(format!("frame-{number:03}.png"));
         let t = Instant::now();
         let mut canvas = tree.rows_widget();
         canvas.redraw();
@@ -93,5 +101,4 @@ fn main() {
         median(structural).as_secs_f64() * 1e3,
         tree.rows_drawn()
     );
-    let _ = std::fs::remove_file(out);
 }

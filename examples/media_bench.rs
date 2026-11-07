@@ -11,6 +11,9 @@ use fltk_omarchy::media::{self, Fit, Image, Limits, Source, Target};
 use fltk_omarchy::{App, AppWindow};
 use std::time::{Duration, Instant};
 
+#[path = "../src/platform/test_fixture.rs"]
+mod bench_fixture;
+
 fn pss_kib() -> Option<u64> {
     let s = std::fs::read_to_string("/proc/self/smaps_rollup").ok()?;
     s.lines().find(|l| l.starts_with("Pss:"))?.split_whitespace().nth(1)?.parse().ok()
@@ -30,6 +33,8 @@ fn main() {
         eprintln!("usage: media_bench <image files>...");
         std::process::exit(2);
     }
+    let output = bench_fixture::start().expect("a fresh retained benchmark fixture is required");
+    eprintln!("BENCH_FIXTURE_RETAINED {}", output.display());
     let limits = Limits::default();
     for f in files.iter().filter(|_| !memory_only) {
         let bytes = std::fs::read(f).expect("read");
@@ -72,24 +77,22 @@ fn main() {
     row.close_fitted();
     body.fixed(&row, 105);
     win.end();
-    let shot = std::env::temp_dir().join(format!("media-bench-{}.png", std::process::id()));
     // Baseline: the window drawn once with empty images (fonts, theme,
     // placeholders and icon rasters loaded).
-    win.snapshot(&shot).expect("snapshot");
+    win.snapshot(output.join("baseline.png")).expect("snapshot");
     let before = pss_kib();
     for (i, img) in imgs.iter_mut().enumerate() {
         img.set_source(Some(&Source::file(&files[i % files.len()])));
     }
     let t = Instant::now();
-    win.snapshot(&shot).expect("snapshot");
+    win.snapshot(output.join("pending.png")).expect("snapshot");
     let end = Instant::now() + Duration::from_secs(30);
     while media::cache_stats().pending > 0 && Instant::now() < end {
         App::pump();
         std::thread::sleep(Duration::from_millis(5));
     }
-    win.snapshot(&shot).expect("snapshot");
+    win.snapshot(output.join("settled.png")).expect("snapshot");
     let shown_ms = t.elapsed().as_secs_f64() * 1000.0;
-    let _ = std::fs::remove_file(&shot);
     let after = pss_kib();
     let s = media::cache_stats();
     println!(

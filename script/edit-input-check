@@ -8,10 +8,12 @@
 # fails on any other difference.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-REPORT="$ROOT/build/edit-input.json"; mkdir -p "$ROOT/build"; rm -f "$REPORT"
+RUN_FIXTURE="$(python3 -I "$ROOT/script/validation-fixture" allocate edit-input)"
+REPORT="$RUN_FIXTURE/report.json"
 BIN="$ROOT/target/release/examples/edit_input_check"
-[[ -x "$BIN" ]] || cargo build --release --example edit_input_check --manifest-path "$ROOT/Cargo.toml"
-DRIVER="$(mktemp -d)"; trap 'rm -rf "$DRIVER"' EXIT
+cargo build --release --example edit_input_check --manifest-path "$ROOT/Cargo.toml" \
+  --target-dir "$ROOT/target" >"$RUN_FIXTURE/build.log" 2>&1
+DRIVER="$RUN_FIXTURE"
 cat > "$DRIVER/keys.py" <<'PY'
 import ctypes, time
 x11 = ctypes.CDLL("libX11.so.6"); xt = ctypes.CDLL("libXtst.so.6")
@@ -48,9 +50,8 @@ tap(spare[1]); tap(spare[2]); tap(spare[3])                                  # æ
 tap(kc(b"BackSpace"))                                                        # removes ðŸ‘
 tap(kc(b"space")); tap(kc(b"x"))
 PY
-env -u WAYLAND_DISPLAY FLTK_BACKEND=x11 LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 XMODIFIERS=@im=none \
-  xvfb-run -a -s "-screen 0 1280x800x24" \
-  bash -c "\"$BIN\" \"$REPORT\" 6 ${1:-} >/dev/null 2>&1 & python3 -I \"$DRIVER/keys.py\"; wait"
+env LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 XMODIFIERS=@im=none \
+  python3 -I "$ROOT/script/validation-fixture" x11 "$RUN_FIXTURE" "$BIN" 6 "$DRIVER/keys.py" "$@"
 cat "$REPORT"
 python3 -I - "$REPORT" <<'PY'
 import json, sys
