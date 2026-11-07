@@ -56,7 +56,9 @@ end any nested containers you create, as in an `AppWindow` body.
 - Dropping the last controller disposes its subtree. Deleting its owning
   window deletes all native children even if a controller survives. Such a
   controller reports closed/unbuilt and cannot reopen. Direct window
-  destruction does not invoke app dismissal callbacks.
+  destruction may first run FLTK's native Hide notification and report
+  `OwnerHidden` while controls still exist. No callback is promised after
+  deletion; do not use a dismissal callback as the window's destructor hook.
 - Hiding the owner dismisses the sheet with `SheetDismiss::OwnerHidden`.
   `on_dismiss` otherwise reports `Closed`, `Escape`, `CloseButton`, or
   `ClickOutside` once per opening. It may reopen the sheet synchronously.
