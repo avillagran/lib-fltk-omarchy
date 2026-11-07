@@ -96,6 +96,16 @@ fn track_with_shortcut(w: &mut Widget, st: Rc<RefCell<Interaction>>, keyboard: b
     a11y::default_click(w, on_activate.clone());
     w.handle(move |w, ev| {
         let mut s = st.borrow_mut();
+        // A retained/hidden control must never reuse a press after reopening.
+        // FLTK forwards parent deactivation to children as well.
+        if !w.active_r() || matches!(ev, Event::Deactivate | Event::Hide) {
+            s.hover = false;
+            s.pressed = false;
+            s.focus = false;
+            drop(s);
+            w.redraw();
+            return false;
+        }
         let changed = match ev {
             Event::Enter => { s.hover = true; true }
             Event::Leave => { s.hover = false; s.pressed = false; true }
@@ -113,11 +123,11 @@ fn track_with_shortcut(w: &mut Widget, st: Rc<RefCell<Interaction>>, keyboard: b
                 let inside = app::event_inside_widget(w);
                 drop(s);
                 w.redraw();
-                if inside && w.active() { on_activate(); }
+                if inside && w.active_r() { on_activate(); }
                 return true;
             }
             Event::Focus if keyboard => { s.focus = true; true }
-            Event::Unfocus => { s.focus = false; true }
+            Event::Unfocus => { s.focus = false; s.pressed = false; true }
             Event::Shortcut if shortcut().is_some_and(|k| k.matches_event()) && w.active_r() => {
                 drop(s);
                 on_activate();
@@ -127,7 +137,7 @@ fn track_with_shortcut(w: &mut Widget, st: Rc<RefCell<Interaction>>, keyboard: b
                 let k = app::event_key();
                 if k == Key::Enter || k == Key::KPEnter || k == Key::from_char(' ') {
                     drop(s);
-                    if w.active() { on_activate(); }
+                    if w.active_r() { on_activate(); }
                     return true;
                 }
                 false
@@ -161,6 +171,28 @@ pub(crate) fn interaction_of(w: &Widget, st: &Rc<RefCell<Interaction>>) -> Inter
 }
 
 // ================================================================== Button
+
+// Keep disabled styling local: selected controls retain their semantic state,
+// while hover, press and focus cannot advertise an unavailable action.
+fn button_look(t: &theme::Theme, mut state: Interaction, under: theme::Rgb,
+               base: Option<theme::Rgb>, bordered: bool) -> paint::Look {
+    if state.disabled {
+        state.hover = false;
+        state.pressed = false;
+        state.focus = false;
+    }
+    let mut look = paint::control_look(t, state, under, base, bordered);
+    if state.disabled {
+        look.fill = look.fill.over(under, 0.25);
+        look.border = look.border.over(under, 0.45);
+    }
+    look
+}
+
+fn inactive_foreground(t: &theme::Theme, under: theme::Rgb) -> theme::Rgb {
+    // Matches the theme's FLTK Color::Inactive without assuming a dark theme.
+    t.palette.foreground.over(under, 0.45)
+}
 
 #[derive(Default)]
 struct ButtonData {
@@ -208,7 +240,9 @@ impl Button {
                 s.selected |= d.selected || d.active;
                 let under = under();
                 let base = if d.accent { Some(t.palette.accent) } else { None };
-                let look = fade.get(paint::control_look(t, s, under, base, d.bordered || d.accent), 120, Ease::Linear, w);
+                let target = button_look(t, s, under, base, d.bordered || d.accent);
+                let look = if s.disabled { fade.jump(target) }
+                    else { fade.get(target, 120, Ease::Linear, w) };
                 paint::draw_look(w.x(), w.y(), w.w(), w.h(), t.radius, look, under);
                 let mut fg = if d.accent {
                     if t.palette.accent.luminance() > 0.55 { t.palette.background } else { t.palette.foreground }
@@ -218,7 +252,7 @@ impl Button {
                     t.palette.foreground
                 };
                 if s.disabled {
-                    fg = fg.darker(2.0);
+                    fg = inactive_foreground(t, under);
                 }
                 let fs = d.font_size.unwrap_or(t.font.body);
                 let gap = t.spacing.control_gap;
@@ -1188,6 +1222,21 @@ fltk::widget_extends!(TextField, fltk::group::Group, inner);
 
 type MaskSlot = Rc<RefCell<Option<crate::mask::Mask>>>;
 
+fn text_field_look(t: &theme::Theme, hover: bool, focus: bool, disabled: bool,
+                   under: theme::Rgb) -> paint::Look {
+    let style = if disabled { &t.controls.normal }
+        else if focus { &t.controls.focus }
+        else if hover { &t.controls.hover }
+        else { &t.controls.normal };
+    let fill = t.fill(style, under);
+    let border = t.border(style, fill);
+    paint::Look {
+        fill: if disabled { fill.over(under, 0.25) } else { fill },
+        border: if disabled { border.over(under, 0.45) } else { border },
+        border_width: style.border_width,
+    }
+}
+
 /// Formats the input's text to its mask (if any), keeping the caret.
 fn apply_mask(mask: &MaskSlot, input: &mut fltk::input::Input) -> String {
     let v = input.value();
@@ -1245,13 +1294,16 @@ impl TextField {
         let (inp, hv, ph) = (input.clone(), hover.clone(), placeholder.clone());
         inner.draw(move |g| {
             let mut inp = inp.clone();
-            let focused = app::focus().is_some_and(|f| f.as_widget_ptr() == inp.as_widget_ptr());
+            let disabled = !g.active_r() || !inp.active_r();
+            let focused = !disabled && app::focus().is_some_and(|f| f.as_widget_ptr() == inp.as_widget_ptr());
+            let mut fill = under();
             theme::with(|t| {
                 let under = under();
-                let s = Interaction { hover: *hv.borrow(), focus: focused, ..Default::default() };
-                let st = if focused { &t.controls.focus } else if s.hover { &t.controls.hover } else { &t.controls.normal };
-                let fill = t.fill(st, under);
-                paint::surface(g.x(), g.y(), g.w(), g.h(), t.radius, Some(fill), Some((t.border(st, under), st.border_width)));
+                let look = text_field_look(t, *hv.borrow(), focused, disabled, under);
+                fill = look.fill;
+                paint::surface(g.x(), g.y(), g.w(), g.h(), t.radius, Some(fill), Some((look.border, look.border_width)));
+                // FLTK itself attenuates inactive Input text once. Only chrome
+                // and our custom placeholder need explicit disabled colors.
                 style_input(&mut inp, fill);
             });
             g.draw_children();
@@ -1262,7 +1314,9 @@ impl TextField {
                     let rtl = crate::layout::is_rtl(g);
                     let x = inp.x() + if focused && !rtl { 3 } else { 0 };
                     let align = if rtl { Align::Right } else { Align::Left };
-                    paint::text_elided(&ph.borrow(), x, inp.y(), inp.w() - 3, inp.h(), t.font.body, false, t.palette.foreground.darker(1.6), align);
+                    let color = if disabled { inactive_foreground(t, fill) }
+                        else { t.palette.foreground.darker(1.6) };
+                    paint::text_elided(&ph.borrow(), x, inp.y(), inp.w() - 3, inp.h(), t.font.body, false, color, align);
                 });
             }
         });
@@ -1271,8 +1325,8 @@ impl TextField {
         inner.super_draw(false);
         let hv = hover.clone();
         inner.handle(move |g, ev| match ev {
-            Event::Enter => { *hv.borrow_mut() = true; g.redraw(); false }
-            Event::Leave => { *hv.borrow_mut() = false; g.redraw(); false }
+            Event::Enter => { *hv.borrow_mut() = g.active_r(); g.redraw(); false }
+            Event::Leave | Event::Deactivate | Event::Hide => { *hv.borrow_mut() = false; g.redraw(); false }
             _ => false,
         });
         let (c2, s2) = (change.clone(), submit.clone());
@@ -1322,9 +1376,13 @@ impl TextField {
             if inp.readonly() {
                 n.read_only(true);
             }
+            if !inp.active_r() {
+                n.disabled(true);
+            }
         });
         let (mut inp, c3, mut g3, mk3) = (input.clone(), change.clone(), inner.clone(), mask.clone());
         a11y::on_action(&inner, move |r| {
+            if !inp.active_r() { return false; }
             let text = inp.value();
             match (r.action, &r.value) {
                 (Action::Focus, _) => return inp.take_focus().is_ok(),
@@ -2092,5 +2150,81 @@ impl TabBar {
     /// Requests a remove-then-insert move; the app updates its model.
     pub fn reorderable(self, f: impl FnMut(usize,usize)+'static) -> Self {
         let mut f=f;*self.reorder.borrow_mut()=Some(Box::new(move |(from,to)|f(from,to)));self
+    }
+}
+
+#[cfg(test)]
+mod disabled_tests {
+    use super::*;
+
+    fn themes() -> [theme::Theme; 2] {
+        [
+            "background = \"#121212\"\nforeground = \"#dedede\"\naccent = \"#33aaff\"\n",
+            "background = \"#fafafa\"\nforeground = \"#202020\"\naccent = \"#0066bb\"\n",
+        ].map(|colors| theme::Theme::from_tables("disabled", &crate::toml::parse(colors), &Default::default(), 6, 5))
+    }
+
+    #[test]
+    fn enabled_button_looks_keep_every_existing_state_and_selected_style() {
+        for theme in themes() {
+            for bits in 0..16 {
+                let state = Interaction {
+                    hover: bits & 1 != 0,
+                    pressed: bits & 2 != 0,
+                    focus: bits & 4 != 0,
+                    selected: bits & 8 != 0,
+                    ..Default::default()
+                };
+                for base in [None, Some(theme.palette.accent)] {
+                    for bordered in [false, true] {
+                        assert_eq!(button_look(&theme, state, theme.palette.background, base, bordered),
+                            paint::control_look(&theme, state, theme.palette.background, base, bordered));
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn disabled_buttons_ignore_hot_states_but_keep_selection_distinct() {
+        for theme in themes() {
+            let under = theme.palette.background;
+            let disabled = Interaction { disabled: true, ..Default::default() };
+            for base in [None, Some(theme.palette.accent)] {
+                for selected in [false, true] {
+                    let state = Interaction { selected, ..disabled };
+                    let idle = button_look(&theme, state, under, base, true);
+                    let hot = button_look(&theme, Interaction { hover: true, pressed: true, focus: true, ..state }, under, base, true);
+                    assert_eq!(idle, hot);
+                }
+                assert_ne!(button_look(&theme, disabled, under, base, true),
+                    button_look(&theme, Interaction { selected: true, ..disabled }, under, base, true));
+            }
+            let primary = button_look(&theme, disabled, under, Some(theme.palette.accent), true);
+            assert_ne!(primary.fill, theme.palette.accent);
+            assert_ne!(primary.fill, under);
+            let text = inactive_foreground(&theme, under);
+            assert_ne!(text, theme.palette.foreground);
+            assert_ne!(text, under);
+        }
+    }
+
+    #[test]
+    fn text_field_enabled_tokens_are_exact_and_disabled_has_no_focus_affordance() {
+        for theme in themes() {
+            let under = theme.palette.background;
+            let inactive = text_field_look(&theme, false, false, true, under);
+            for hover in [false, true] {
+                for focus in [false, true] {
+                    let style = if focus { &theme.controls.focus } else if hover { &theme.controls.hover } else { &theme.controls.normal };
+                    let fill = theme.fill(style, under);
+                    assert_eq!(text_field_look(&theme, hover, focus, false, under), paint::Look {
+                        fill, border: theme.border(style, fill), border_width: style.border_width,
+                    });
+                    assert_eq!(text_field_look(&theme, hover, focus, true, under), inactive);
+                }
+            }
+            assert_ne!(inactive, text_field_look(&theme, false, true, false, under));
+        }
     }
 }

@@ -40,6 +40,7 @@ mod present_ui;
 mod sheet_ui;
 mod chart_ui;
 mod keys_ui;
+mod disabled_ui;
 mod list_ui;
 mod typo_ui;
 mod layer_ui;
@@ -2039,6 +2040,7 @@ fn main() {
     split_ui::checks(&mut run);
     chart_ui::checks(&mut run);
     keys_ui::checks(&mut run);
+    disabled_ui::checks(&mut run);
     list_ui::checks(&mut run);
     typo_ui::checks(&mut run);
     layer_ui::checks(&mut run);
