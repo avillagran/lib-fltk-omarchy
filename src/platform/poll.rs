@@ -104,9 +104,8 @@ mod tests {
 
     #[test]
     fn snapshot_sees_created_changed_and_removed_files() {
-        let d = std::env::temp_dir().join(format!("fltk-omarchy-poll-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&d);
-        std::fs::create_dir_all(&d).unwrap();
+        let d = crate::platform::unit_fixture::directory("poll")
+            .expect("a fresh retained poll fixture is required");
         let f = d.join("colors.toml");
         let paths = vec![f.clone()];
         let a = Snapshot::take(&paths, None);
@@ -117,9 +116,9 @@ mod tests {
         let c = Snapshot::take(&paths, None);
         assert_ne!(b, c, "longer");
         assert_ne!(c, Snapshot::take(&paths, Some(true)), "OS appearance");
-        std::fs::remove_file(&f).unwrap();
-        assert_eq!(a, Snapshot::take(&paths, None), "removed again");
-        let _ = std::fs::remove_dir_all(&d);
+        let retained = crate::platform::unit_fixture::preserve(&f).unwrap().unwrap();
+        assert_eq!(a, Snapshot::take(&paths, None), "absent after preservation");
+        assert_eq!(std::fs::read(&retained).unwrap(), b"background = \"#000000\"\nforeground = \"#ffffff\"\n");
     }
 
     #[test]

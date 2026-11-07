@@ -311,7 +311,6 @@ pub(crate) mod fake {
     use super::dbus::{self, Message, Value};
     use std::io::{Read, Write};
     use std::os::unix::net::{UnixListener, UnixStream};
-    use std::path::PathBuf;
     use std::sync::mpsc;
 
     pub(crate) enum Answer {
@@ -329,13 +328,6 @@ pub(crate) mod fake {
         pub address: String,
         /// The FileChooser call the fake received.
         pub calls: mpsc::Receiver<Message>,
-        dir: PathBuf,
-    }
-
-    impl Drop for Fake {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.dir);
-        }
     }
 
     fn read_msg(s: &mut UnixStream) -> Option<Message> {
@@ -392,11 +384,11 @@ pub(crate) mod fake {
     }
 
     pub(crate) fn start(tag: &str, answer: Answer) -> Fake {
-        let dir =
-            std::env::temp_dir().join(format!("fltk-omarchy-portal-{tag}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = crate::platform::unit_fixture::directory(&format!("portal-{tag}"))
+            .expect("a fresh retained portal fixture is required");
         let sock = dir.join("bus");
+        assert!(sock.as_os_str().as_encoded_bytes().len() <= 100,
+            "portal fixture socket path is too long; supply a shorter private fixture parent");
         let listener = UnixListener::bind(&sock).unwrap();
         let (tx, calls) = mpsc::channel();
         std::thread::spawn(move || {
@@ -519,7 +511,6 @@ pub(crate) mod fake {
         Fake {
             address: format!("unix:path={}", sock.display()),
             calls,
-            dir,
         }
     }
 }

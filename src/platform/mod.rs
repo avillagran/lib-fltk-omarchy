@@ -42,6 +42,11 @@ pub(crate) mod poll;
 pub(crate) mod portal;
 /// Native activation protocols for `native::present`.
 pub(crate) mod presentation;
+/// Retained fixture boundary, shared by library unit tests and the UI harness.
+#[cfg(test)]
+pub(crate) mod test_fixture;
+#[cfg(test)]
+pub(crate) mod unit_fixture;
 
 #[cfg(target_os = "linux")]
 mod linux;
