@@ -311,3 +311,12 @@ shortcut overlay, and `AppWindow::quit_key(unsaved)` makes `Q` quit, asking
 first when `unsaved()` is true. Both only take keys the focused control did
 not use, so typing `q` or `?` in a field types it. Space as the main action
 and Mod+Z / Mod+Shift+Z for undo and redo are the app's (`AppWindow::shortcut`).
+
+
+## Lazy modal sheets
+
+`overlay::Sheet` uses the same modal traversal as other dialogs, focusing the
+first content control on opening. Tab/Shift+Tab cycle through the content and
+close action; Escape dismisses the top sheet after any popup above it. Focus
+returns as soon as closing starts. Hidden retained content is excluded from
+traversal. See [SHEETS.md](SHEETS.md) for lifecycle and ownership.

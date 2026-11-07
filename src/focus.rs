@@ -407,6 +407,19 @@ pub fn first<W: WidgetExt>(window: &W) -> Option<Widget> {
     r
 }
 
+// A modal's initial content focus is an explicit subtree choice; normal
+// Tab traversal continues to respect the complete modal stack.
+pub(crate) fn first_in<W: WidgetExt>(group: &W) -> Option<Widget> {
+    for w in chain_of(group) {
+        let region = host_panels(&w).filter(|(n, _)| *n > 0).map(|_| 0);
+        if enter(&w, region) {
+            sync_panels(PanelFocusCause::Overlay);
+            return Some(w);
+        }
+    }
+    None
+}
+
 // ------------------------------------------------------------ panel hosts
 
 /// Makes `widget` (a canvas that draws several regions) host these keyboard

@@ -1,0 +1,20 @@
+{
+  "en": {
+    "Lazy sheets": "Lazy sheets",
+    "The form is built on demand and released 30 seconds after closing.": "The form is built on demand and released 30 seconds after closing.",
+    "Content builds: {count}": "Content builds: {count}",
+    "Name": "Name",
+    "Draft state survives content reconstruction.": "Draft state survives content reconstruction.",
+    "Cancel": "Cancel", "Save": "Save", "Saved: {name}": "Saved: {name}",
+    "Edit details": "Edit details", "Form": "Form", "Close": "Close"
+  },
+  "es": {
+    "Lazy sheets": "Paneles diferidos",
+    "The form is built on demand and released 30 seconds after closing.": "El formulario se crea al abrirlo y se libera 30 segundos después de cerrarlo.",
+    "Content builds: {count}": "Creaciones del contenido: {count}",
+    "Name": "Nombre",
+    "Draft state survives content reconstruction.": "El borrador se conserva al reconstruir el contenido.",
+    "Cancel": "Cancelar", "Save": "Guardar", "Saved: {name}": "Guardado: {name}",
+    "Edit details": "Editar detalles", "Form": "Formulario", "Close": "Cerrar"
+  }
+}

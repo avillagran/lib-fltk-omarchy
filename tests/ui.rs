@@ -37,6 +37,7 @@ mod split_ui;
 mod tabs_ui;
 mod notices_ui;
 mod present_ui;
+mod sheet_ui;
 mod chart_ui;
 mod keys_ui;
 mod list_ui;
@@ -597,6 +598,12 @@ fn main() {
         check(l.w() > 40, &format!("width {}", l.w()))
     });
     run("transitions: Omarchy durations, intermediate colors, timer stops, can be turned off", &|shots| {
+        struct Restore;
+        impl Drop for Restore {
+            fn drop(&mut self) { fltk_omarchy::anim::clock::resume(); fltk_omarchy::anim::set_enabled(false); }
+        }
+        let _restore = Restore;
+        fltk_omarchy::anim::clock::freeze();
         fltk_omarchy::anim::set_enabled(true);
         let mut win = AppWindow::new("t", 300, 140);
         let mut body = win.body();
@@ -621,12 +628,13 @@ fn main() {
         let _ = s0.take_focus();
         press("Shift+Tab"); // keyboard focus on the button: border goes to the accent ring
         check(focus::is_focused(&*b), "button focused")?;
-        let t0 = Instant::now();
         let first = edge(&shot("anim-2.png")?)?;
-        while t0.elapsed() < Duration::from_millis(60) { App::pump(); std::thread::sleep(Duration::from_millis(5)); }
+        fltk_omarchy::anim::clock::advance(Duration::from_millis(60));
+        App::pump();
         let mid = edge(&shot("anim-3-mid.png")?)?;
         let running = fltk_omarchy::anim::pending() > 0;
-        while t0.elapsed() < Duration::from_millis(250) { App::pump(); std::thread::sleep(Duration::from_millis(5)); }
+        fltk_omarchy::anim::clock::advance(Duration::from_millis(190));
+        App::pump();
         let end = edge(&shot("anim-4-end.png")?)?;
         App::pump();
         let acc = theme::current().palette.accent;
@@ -649,18 +657,22 @@ fn main() {
         };
         let x_off = knob_x(&shot("sw-0.png")?)?;
         on.set(true);
-        let t1 = Instant::now();
         shot("sw-1.png")?;
-        while t1.elapsed() < Duration::from_millis(40) { App::pump(); std::thread::sleep(Duration::from_millis(5)); }
+        fltk_omarchy::anim::clock::advance(Duration::from_millis(40));
+        App::pump();
         let x_mid = knob_x(&shot("sw-2-mid.png")?)?;
-        while t1.elapsed() < Duration::from_millis(250) { App::pump(); std::thread::sleep(Duration::from_millis(5)); }
+        fltk_omarchy::anim::clock::advance(Duration::from_millis(210));
+        App::pump();
         let x_on = knob_x(&shot("sw-3-end.png")?)?;
         check(x_off < x_mid && x_mid < x_on, &format!("knob x {x_off} → {x_mid} → {x_on}"))?;
         // Off: the change is immediate.
         fltk_omarchy::anim::set_enabled(false);
         on.set(false);
         let x_now = knob_x(&shot("sw-4-off.png")?)?;
-        check(x_now == x_off && fltk_omarchy::anim::pending() == 0, &format!("disabled: jumps to {x_now}"))
+        // Phases use the frozen clock; the shared native timer still uses
+        // real deadlines. Drain its final queued frame before checking idle.
+        pump_until(|| fltk_omarchy::anim::pending() == 0);
+        check(x_now == x_off && fltk_omarchy::anim::pending() == 0, &format!("disabled: jumps to {x_now}, pending {}", fltk_omarchy::anim::pending()))
     });
     run("portable shaders: same pixels as sl eval, backend choice, display rate on the CPU", &|shots| {
         let sh = gfx::shaders::gradient();
@@ -2017,6 +2029,7 @@ fn main() {
     tabs_ui::checks(&mut run);
     notices_ui::checks(&mut run);
     present_ui::checks(&mut run);
+    sheet_ui::checks(&mut run);
     motion_ui::checks(&mut run);
     sidebar_ui::checks(&mut run);
     navtree_ui::checks(&mut run);

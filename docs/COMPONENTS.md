@@ -1366,3 +1366,13 @@ theme::on_change(|t| {
     title_color.set(p.bright_foreground);
 });
 ```
+
+
+### Lazy modal sheet
+
+`overlay::Sheet::new(&window, title, width, height, |body, owner| ..)` builds
+arbitrary content on first use, reuses it on a warm reopen, and releases its
+widgets after 30 seconds closed. Keep drafts in `State`; move the supplied
+`WeakSheet` into content callbacks. CPU by default, shared modal focus and
+popup motion, live title/RTL, and the existing GPU overlay bridge.
+See [SHEETS.md](SHEETS.md) and `examples/sheets.rs`.
