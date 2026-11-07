@@ -1,0 +1,9 @@
+   Compiling lib-fltk-omarchy v0.0.10 (/home/node/Work/lib-fltk-omarchy-files-presentation)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.37s
+     Running tests/ui.rs (target-real/debug/deps/ui-eb809da1609e650e)
+XOpenIM() failed
+ok   presentation async: validation before mapping
+ok   presentation async: cancellation and lease lifecycle
+ok   presentation async: completed result is cached
+ok   presentation async: hidden and deleted pending targets
+all ui checks passed

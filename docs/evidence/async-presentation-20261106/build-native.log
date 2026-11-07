@@ -1,0 +1,34 @@
+   Compiling find-msvc-tools v0.1.15
+   Compiling shlex v2.0.1
+   Compiling crossbeam-utils v0.8.23
+   Compiling proc-macro2 v1.0.107
+   Compiling cc v1.10.0
+   Compiling zmij v1.0.23
+   Compiling serde_core v1.0.229
+   Compiling unicode-ident v1.0.27
+   Compiling bitflags v2.13.2
+   Compiling serde_json v1.0.154
+   Compiling pulldown-cmark v0.13.6
+   Compiling memchr v2.8.3
+   Compiling libc v0.2.191
+   Compiling cmake v0.1.58
+   Compiling minipaste v0.1.0
+   Compiling crossbeam-channel v0.5.17
+   Compiling itoa v1.0.18
+   Compiling unicase v2.10.0
+   Compiling ttf-parser v0.25.1
+   Compiling once_cell v1.21.4
+   Compiling fltk-sys v1.5.23
+   Compiling unicode-segmentation v1.12.0
+   Compiling unicode-bidi v0.3.18
+   Compiling fltk v1.5.23
+   Compiling lib-fltk-omarchy v0.0.10 (/home/node/Work/lib-fltk-omarchy-files-presentation)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 49.87s
+  Executable unittests src/lib.rs (target-real/debug/deps/fltk_omarchy-71d093a44d830ddd)
+  Executable tests/frame.rs (target-real/debug/deps/frame-6f4b633979b3e1b9)
+  Executable tests/instance.rs (target-real/debug/deps/instance-7d31da99ca559992)
+  Executable tests/ui.rs (target-real/debug/deps/ui-eb809da1609e650e)
+
+real	0m49.894s
+user	2m21.166s
+sys	0m23.130s

@@ -2029,6 +2029,7 @@ fn main() {
     tabs_ui::checks(&mut run);
     notices_ui::checks(&mut run);
     present_ui::checks(&mut run);
+    present_ui::async_checks(&mut run);
     sheet_ui::checks(&mut run);
     motion_ui::checks(&mut run);
     sidebar_ui::checks(&mut run);

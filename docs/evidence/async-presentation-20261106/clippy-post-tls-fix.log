@@ -1,0 +1,452 @@
+    Checking crossbeam-utils v0.8.23
+    Checking bitflags v2.13.2
+    Checking memchr v2.8.3
+    Checking zmij v1.0.23
+    Checking serde_core v1.0.229
+    Checking fltk-sys v1.5.23
+    Checking crossbeam-channel v0.5.17
+    Checking itoa v1.0.18
+    Checking ttf-parser v0.25.1
+    Checking once_cell v1.21.4
+    Checking unicase v2.10.0
+    Checking pulldown-cmark v0.13.6
+    Checking libc v0.2.191
+    Checking unicode-segmentation v1.12.0
+    Checking unicode-bidi v0.3.18
+    Checking fltk v1.5.23
+    Checking serde_json v1.0.154
+    Checking lib-fltk-omarchy v0.0.10 (/home/node/Work/lib-fltk-omarchy-files-presentation)
+warning: very complex type used. Consider factoring parts into `type` definitions
+   --> src/chart.rs:125:15
+    |
+125 |     index_at: Rc<dyn Fn(&Widget, i32) -> Option<usize>>,
+    |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#type_complexity
+    = note: `#[warn(clippy::type_complexity)]` on by default
+
+warning: very complex type used. Consider factoring parts into `type` definitions
+   --> src/chart.rs:126:16
+    |
+126 |     on_select: Rc<RefCell<Option<Box<dyn FnMut(usize)>>>>,
+    |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#type_complexity
+
+warning: very complex type used. Consider factoring parts into `type` definitions
+   --> src/chart.rs:212:16
+    |
+212 |     on_select: Rc<RefCell<Option<Box<dyn FnMut(usize)>>>>,
+    |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#type_complexity
+
+warning: very complex type used. Consider factoring parts into `type` definitions
+   --> src/chart.rs:223:24
+    |
+223 |         let on_select: Rc<RefCell<Option<Box<dyn FnMut(usize)>>>> = Rc::new(RefCell::new(None));
+    |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#type_complexity
+
+warning: very complex type used. Consider factoring parts into `type` definitions
+   --> src/chart.rs:228:23
+    |
+228 |         let index_at: Rc<dyn Fn(&Widget, i32) -> Option<usize>> = Rc::new(move |w, x| {
+    |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#type_complexity
+
+warning: very complex type used. Consider factoring parts into `type` definitions
+   --> src/chart.rs:392:23
+    |
+392 |         let index_at: Rc<dyn Fn(&Widget, i32) -> Option<usize>> = Rc::new(move |w, x| {
+    |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#type_complexity
+
+warning: using `contains()` instead of `iter().any()` is more efficient
+   --> src/focus.rs:441:17
+    |
+441 |             if !panels.iter().any(|n| *n == p) {
+    |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: try: `panels.contains(&p)`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#manual_contains
+    = note: `#[warn(clippy::manual_contains)]` on by default
+
+warning: this function has too many arguments (8/7)
+   --> src/gfx/sl.rs:474:5
+    |
+474 |     pub(crate) fn row(&mut self, sh: &Shader, x0: f32, y: f32, n: usize, scale: (f32, f32), u: &Uniforms, out: &mut [Color]) {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#too_many_arguments
+    = note: `#[warn(clippy::too_many_arguments)]` on by default
+
+warning: this `.filter_map(..)` can be written more simply using `.map(..)`
+   --> src/i18n/mod.rs:319:10
+    |
+319 |           .filter_map(|(code, v)| {
+    |  __________^
+320 | |             let s = |k: &str| v.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string();
+321 | |             let ch = |k: &str, d: char| v.get(k).and_then(|x| x.as_str()).and_then(|x| x.chars().next()).unwrap_or(d);
+322 | |             Some(LanguageInfo {
+...   |
+329 | |             })
+330 | |         })
+    | |__________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#unnecessary_filter_map
+    = note: `#[warn(clippy::unnecessary_filter_map)]` on by default
+
+warning: this function has too many arguments (8/7)
+   --> src/icon/svg.rs:159:5
+    |
+159 |     fn arc(&mut self, p0: Point, rx: f32, ry: f32, phi_deg: f32, large: bool, sweep: bool, p1: Point) -> bool {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#too_many_arguments
+
+warning: stripping a prefix manually
+   --> src/icon/svg.rs:647:17
+    |
+647 |         let h = &v[1..];
+    |                 ^^^^^^^
+    |
+note: the prefix was tested here
+   --> src/icon/svg.rs:642:5
+    |
+642 |     if v.starts_with('#') {
+    |     ^^^^^^^^^^^^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#manual_strip
+    = note: `#[warn(clippy::manual_strip)]` on by default
+help: try using the `strip_prefix` method
+    |
+642 ~     if let Some(h) = v.strip_prefix('#') {
+643 |         if let Some(c) = Color::hex(v) {
+...
+646 |         // #rgb
+647 ~         if h.len() == 3 {
+    |
+
+warning: this manual char comparison can be written more succinctly
+   --> src/icon/svg.rs:659:20
+    |
+659 |             .split(|c: char| c == ',' || c == ' ' || c == '/')
+    |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: consider using an array of `char`: `[',', ' ', '/']`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#manual_pattern_char_comparison
+    = note: `#[warn(clippy::manual_pattern_char_comparison)]` on by default
+
+warning: very complex type used. Consider factoring parts into `type` definitions
+   --> src/icon/mod.rs:300:12
+    |
+300 |     click: Rc<RefCell<Option<Box<dyn FnMut()>>>>,
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#type_complexity
+
+warning: very complex type used. Consider factoring parts into `type` definitions
+   --> src/keys.rs:161:22
+    |
+161 |     static RECORDER: RefCell<Option<Box<dyn FnMut(Option<String>)>>> = const { RefCell::new(None) };
+    |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#type_complexity
+
+warning: very complex type used. Consider factoring parts into `type` definitions
+   --> src/layout.rs:100:21
+    |
+100 |     static NATURAL: RefCell<HashMap<usize, (fltk::widget::Widget, (i32, i32))>> = RefCell::new(HashMap::new());
+    |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#type_complexity
+
+warning: very complex type used. Consider factoring parts into `type` definitions
+  --> src/list.rs:89:16
+   |
+89 |     select_cb: Rc<RefCell<Option<Box<dyn FnMut(usize)>>>>,
+   |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#type_complexity
+
+warning: very complex type used. Consider factoring parts into `type` definitions
+  --> src/list.rs:90:18
+   |
+90 |     activate_cb: Rc<RefCell<Option<Box<dyn FnMut(usize)>>>>,
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#type_complexity
+
+warning: very complex type used. Consider factoring parts into `type` definitions
+  --> src/list.rs:93:17
+   |
+93 |     reorder_cb: Rc<RefCell<Option<Box<dyn FnMut(usize, usize)>>>>,
+   |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#type_complexity
+
+warning: very complex type used. Consider factoring parts into `type` definitions
+   --> src/overlay/notices.rs:339:14
+    |
+339 |     dismiss: RefCell<Option<Box<dyn FnOnce(NoticeDismiss)>>>,
+    |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#type_complexity
+
+warning: very complex type used. Consider factoring parts into `type` definitions
+   --> src/overlay.rs:669:49
+    |
+669 |         let geom = Rc::new(move |l: &Widget| -> ((i32, i32, i32, i32), [(i32, i32, i32, i32); 2]) {
+    |                                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#type_complexity
+
+warning: this function has too many arguments (9/7)
+  --> src/paint.rs:62:1
+   |
+62 | pub fn control(t: &Theme, x: i32, y: i32, w: i32, h: i32, st: Interaction, under: Rgb, base: Option<Rgb>, bordered: bool) {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#too_many_arguments
+
+warning: this function has too many arguments (9/7)
+   --> src/paint.rs:136:1
+    |
+136 | pub fn text_weight(s: &str, x: i32, y: i32, w: i32, h: i32, size: i32, weight: Weight, color: Rgb, align: Align) {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#too_many_arguments
+
+warning: this function has too many arguments (9/7)
+   --> src/paint.rs:178:1
+    |
+178 | pub fn text(s: &str, x: i32, y: i32, w: i32, h: i32, size: i32, bold: bool, color: Rgb, align: Align) {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#too_many_arguments
+
+warning: this function has too many arguments (9/7)
+   --> src/paint.rs:192:1
+    |
+192 | pub fn text_elided(s: &str, x: i32, y: i32, w: i32, h: i32, size: i32, bold: bool, color: Rgb, align: Align) {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#too_many_arguments
+
+warning: manually constructing a nul-terminated string
+  --> src/platform/memory.rs:69:54
+   |
+69 |         let symbol = libc::dlsym(libc::RTLD_DEFAULT, b"mallinfo2\0".as_ptr().cast());
+   |                                                      ^^^^^^^^^^^^^^ help: use a `c""` literal: `c"mallinfo2"`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#manual_c_str_literals
+   = note: `#[warn(clippy::manual_c_str_literals)]` on by default
+
+warning: this function has too many arguments (9/7)
+  --> src/table.rs:41:1
+   |
+41 | fn draw_row_bg(t: &theme::Theme, x: i32, y: i32, w: i32, h: i32, selected: bool, cursor: bool, hot: bool, ring: bool) {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#too_many_arguments
+
+warning: very complex type used. Consider factoring parts into `type` definitions
+   --> src/task.rs:245:11
+    |
+245 |     done: Option<Box<dyn FnOnce(Box<dyn Any + Send>)>>,
+    |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#type_complexity
+
+warning: very complex type used. Consider factoring parts into `type` definitions
+    --> src/text/view.rs:1675:21
+     |
+1675 |     pub visibility: Hook<dyn FnMut(&str, bool)>,
+     |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#type_complexity
+
+warning: very complex type used. Consider factoring parts into `type` definitions
+    --> src/text/view.rs:1678:16
+     |
+1678 |     pub embed: Hook<dyn FnMut(&str, Option<(i32, i32)>)>,
+     |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#type_complexity
+
+warning: very complex type used. Consider factoring parts into `type` definitions
+   --> src/theme.rs:811:23
+    |
+811 |     static LISTENERS: RefCell<Vec<Box<dyn FnMut(&Theme) -> bool>>> = const { RefCell::new(Vec::new()) };
+    |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#type_complexity
+
+warning: `22` is never smaller than `14 + 6` and has therefore no effect
+   --> src/widgets.rs:851:33
+    |
+851 |         let h = theme::with(|t| 22.max(14 + 6).max(t.spacing.control_height - 6));
+    |                                 ^^^^^^^^^^^^^^ help: try: `22`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#unnecessary_min_or_max
+    = note: `#[warn(clippy::unnecessary_min_or_max)]` on by default
+
+warning: very complex type used. Consider factoring parts into `type` definitions
+  --> src/widgets/tabs.rs:61:13
+   |
+61 |     id_for: Rc<dyn Fn(&K) -> Option<u64>>,
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#type_complexity
+
+warning: very complex type used. Consider factoring parts into `type` definitions
+   --> src/widgets/tabs.rs:133:21
+    |
+133 |         let id_for: Rc<dyn Fn(&K) -> Option<u64>> =
+    |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#type_complexity
+
+warning: this OR pattern can be rewritten using a range
+    --> src/widgets.rs:1943:41
+     |
+1943 |                     if !matches!(button,1|2|3) {return true;}
+     |                                         ^^^^^ help: try: `1..=3`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#manual_range_patterns
+     = note: `#[warn(clippy::manual_range_patterns)]` on by default
+
+warning: very complex type used. Consider factoring parts into `type` definitions
+  --> src/window.rs:58:16
+   |
+58 |     shortcuts: Rc<RefCell<Vec<(crate::keys::Keys, Box<dyn FnMut()>)>>>,
+   |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#type_complexity
+
+warning: very complex type used. Consider factoring parts into `type` definitions
+   --> src/window.rs:178:24
+    |
+178 |         let shortcuts: Rc<RefCell<Vec<(crate::keys::Keys, Box<dyn FnMut()>)>>> = Rc::default();
+    |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#type_complexity
+
+warning: `lib-fltk-omarchy` (lib) generated 36 warnings (run `cargo clippy --fix --lib -p lib-fltk-omarchy -- -D clippy::correctness -D clippy::suspicious` to apply 5 suggestions)
+warning: very complex type used. Consider factoring parts into `type` definitions
+   --> examples/playground.rs:409:15
+    |
+409 |     let last: Rc<RefCell<(String, bool, String, (u32, u32))>> = Rc::default();
+    |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#type_complexity
+    = note: `#[warn(clippy::type_complexity)]` on by default
+
+warning: `lib-fltk-omarchy` (example "playground") generated 1 warning
+warning: redundant closure
+  --> examples/gallery.rs:28:55
+   |
+28 |     win.header().destructive_action(glyph::CLOSE, "", || fltk::app::quit()).bind_tooltip(&i18n::text("Close"));
+   |                                                       ^^^^^^^^^^^^^^^^^^^^ help: replace the closure with the function itself: `fltk::app::quit`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#redundant_closure
+   = note: `#[warn(clippy::redundant_closure)]` on by default
+
+warning: `lib-fltk-omarchy` (example "gallery") generated 1 warning (run `cargo clippy --fix --example "gallery" -p lib-fltk-omarchy -- -D clippy::correctness -D clippy::suspicious` to apply 1 suggestion)
+warning: called `Iterator::last` on a `DoubleEndedIterator`; this will needlessly iterate the entire iterator
+ --> examples/bench_minimal.rs:7:17
+  |
+7 |     let title = std::env::args().last().unwrap_or_else(|| "bench-minimal".into());
+  |                 ^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#double_ended_iterator_last
+  = note: `#[warn(clippy::double_ended_iterator_last)]` on by default
+help: try
+  |
+7 -     let title = std::env::args().last().unwrap_or_else(|| "bench-minimal".into());
+7 +     let title = std::env::args().next_back().unwrap_or_else(|| "bench-minimal".into());
+  |
+
+warning: `lib-fltk-omarchy` (example "bench_minimal") generated 1 warning (run `cargo clippy --fix --example "bench_minimal" -p lib-fltk-omarchy -- -D clippy::correctness -D clippy::suspicious` to apply 1 suggestion)
+warning: called `Iterator::last` on a `DoubleEndedIterator`; this will needlessly iterate the entire iterator
+ --> examples/bench_app.rs:9:17
+  |
+9 |     let title = std::env::args().last().unwrap_or_else(|| "bench-app".into());
+  |                 ^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#double_ended_iterator_last
+  = note: `#[warn(clippy::double_ended_iterator_last)]` on by default
+help: try
+  |
+9 -     let title = std::env::args().last().unwrap_or_else(|| "bench-app".into());
+9 +     let title = std::env::args().next_back().unwrap_or_else(|| "bench-app".into());
+  |
+
+warning: `lib-fltk-omarchy` (example "bench_app") generated 1 warning (run `cargo clippy --fix --example "bench_app" -p lib-fltk-omarchy -- -D clippy::correctness -D clippy::suspicious` to apply 1 suggestion)
+warning: very complex type used. Consider factoring parts into `type` definitions
+  --> examples/mode_check.rs:23:16
+   |
+23 |     let steps: Vec<(f64, Box<dyn Fn(&mut AppWindow) -> String>)> = vec![
+   |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#type_complexity
+   = note: `#[warn(clippy::type_complexity)]` on by default
+
+warning: `lib-fltk-omarchy` (example "mode_check") generated 1 warning
+warning: `lib-fltk-omarchy` (lib test) generated 36 warnings (36 duplicates)
+warning: very complex type used. Consider factoring parts into `type` definitions
+  --> tests/tabs_ui/plain_frames.rs:37:20
+   |
+37 | pub fn checks(run: &mut dyn FnMut(&str, &dyn Fn(&Path) -> Result<(), String>)) {
+   |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#type_complexity
+   = note: `#[warn(clippy::type_complexity)]` on by default
+
+warning: very complex type used. Consider factoring parts into `type` definitions
+  --> tests/tabs_ui/mod.rs:28:20
+   |
+28 | pub fn checks(run: &mut dyn FnMut(&str, &dyn Fn(&Path) -> Result<(), String>)) {
+   |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#type_complexity
+
+warning: consider using `sort_by_key`
+   --> tests/diff_ui/mod.rs:191:13
+    |
+191 |             seen.sort_by(|a, b| b.1.cmp(&a.1));
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#unnecessary_sort_by
+    = note: `#[warn(clippy::unnecessary_sort_by)]` on by default
+help: try
+    |
+191 -             seen.sort_by(|a, b| b.1.cmp(&a.1));
+191 +             seen.sort_by_key(|a| std::cmp::Reverse(a.1));
+    |
+
+warning: consider using `sort_by_key`
+   --> tests/diff_ui/mod.rs:351:13
+    |
+351 |             cs.sort_by(|a, b| b.1.cmp(&a.1));
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#unnecessary_sort_by
+help: try
+    |
+351 -             cs.sort_by(|a, b| b.1.cmp(&a.1));
+351 +             cs.sort_by_key(|a| std::cmp::Reverse(a.1));
+    |
+
+warning: the borrowed expression implements the required traits
+    --> tests/ui.rs:1447:24
+     |
+1447 |         std::fs::write(&colors_path(&state), COLORS_A).unwrap();
+     |                        ^^^^^^^^^^^^^^^^^^^^ help: change this to: `colors_path(&state)`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#needless_borrows_for_generic_args
+     = note: `#[warn(clippy::needless_borrows_for_generic_args)]` on by default
+
+warning: `lib-fltk-omarchy` (test "ui") generated 5 warnings (run `cargo clippy --fix --test "ui" -p lib-fltk-omarchy -- -D clippy::correctness -D clippy::suspicious` to apply 1 suggestion)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 12.41s

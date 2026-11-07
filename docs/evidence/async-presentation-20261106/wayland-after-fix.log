@@ -1,0 +1,3 @@
+cc5ef21c3aa3bbf0c4e0ea9e2fbbd67a4f4fb47ba4c36fe974b722c8a094dad4
+PASS async Wayland: native gesture captured before poll; synthetic input cannot borrow prior serial
+/home/node/Work/lib-fltk-omarchy-files-presentation/build/present-wayland-7421a6e3ba714eb3b3f71d38eda2ba6d

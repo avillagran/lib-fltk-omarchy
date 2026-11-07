@@ -1,0 +1,54 @@
+#!/usr/bin/env python3
+"""Exercise xdg-activation in an isolated rootless headless Sway container.
+
+Requires the local o3-qml-wayland-tests image and host wtype. Mounts only
+this probe, three X11 client libraries, and a new private fixture directory.
+No host display/runtime/input socket is exposed; no image is published.
+"""
+import json
+import os
+from pathlib import Path
+import subprocess
+import time
+import uuid
+
+ROOT = Path(__file__).resolve().parent.parent
+IMAGE = os.environ.get('PRESENT_WAYLAND_IMAGE', 'localhost/o3-qml-wayland-tests:local')
+
+def main():
+    suffix = uuid.uuid4().hex
+    output = ROOT/'build'/('present-wayland-'+suffix)
+    output.mkdir(parents=True, mode=0o700)
+    (output/'sway.conf').write_text('output * resolution 1280x800\nfocus_follows_mouse no\nfocus_on_window_activation urgent\nseat seat0 fallback true\nxwayland disable\n')
+    name = 'fltk-present-'+suffix
+    args = ['podman','run','--pull=never','--rm','-d','--name',name,'--network=none','--userns=keep-id','--user',f'{os.getuid()}:{os.getgid()}','--entrypoint','/bin/sh',
+            '-v',f'{output}:/fixture:rw','-v',f'{ROOT}/target-real/debug/examples/async_present_check:/probe:ro','-v','/usr/bin/wtype:/wtype:ro']
+    for lib in ('libXinerama.so.1','libXcursor.so.1','libXfixes.so.3'):
+        args += ['-v',f'/usr/lib/{lib}:/usr/lib/{lib}:ro']
+    args += ['-e','XDG_RUNTIME_DIR=/fixture','-e','WLR_BACKENDS=headless','-e','WLR_RENDERER=pixman','-e','WLR_LIBINPUT_NO_DEVICES=1',IMAGE,'-c',
+             'cp /usr/sbin/sway /fixture/sway && exec /fixture/sway -c /fixture/sway.conf > /fixture/sway.log 2>&1']
+    subprocess.run(args,check=True,stdout=subprocess.DEVNULL)
+    keyboard = None
+    try:
+        end = time.monotonic()+10
+        while not list(output.glob('wayland-*.lock')) or not list(output.glob('sway-ipc.*.sock')):
+            if time.monotonic()>end: raise RuntimeError('compositor startup timeout; inspect sway.log')
+            time.sleep(.05)
+        display = next(output.glob('wayland-*.lock')).name.removesuffix('.lock')
+        sock = '/fixture/'+next(output.glob('sway-ipc.*.sock')).name
+        def execute(*command):
+            return subprocess.check_output(['podman','exec','-e',f'SWAYSOCK={sock}','-e',f'WAYLAND_DISPLAY={display}',name,*command],text=True,timeout=8)
+        result=subprocess.run(['podman','exec','-e',f'WAYLAND_DISPLAY={display}','-e','FLTK_BACKEND=wayland','-e','OMARCHY_FLTK_A11Y=off','-e','XDG_CONFIG_HOME=/fixture/config','-e','OMARCHY_FLTK_STATE_DIR=/fixture/state',name,'/bin/sh','-c','ulimit -c 0; /probe /fixture --tls-exit > /fixture/application.log 2>&1'], timeout=15)
+        assert (output/'tls-request-stored').exists(), 'request was not stored; inspect application.log'
+        print(f'probe exit status: {result.returncode}')
+        print(f'evidence: {output}')
+        if result.returncode != 0:
+            print((output/'application.log').read_text())
+            raise SystemExit(result.returncode)
+        print('PASS async Wayland: pending TLS request dropped at process exit')
+    finally:
+        subprocess.run(['podman','stop','--time','3',name],stdout=subprocess.DEVNULL,check=False,timeout=8)
+        if keyboard is not None:
+            keyboard.wait(timeout=5)
+
+if __name__=='__main__': main()

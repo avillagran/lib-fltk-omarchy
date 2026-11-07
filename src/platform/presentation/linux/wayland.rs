@@ -6,6 +6,7 @@ use std::{
     cell::{Cell, RefCell},
     ffi::{c_char, c_int, c_void, CStr, CString},
     ptr,
+    task::Poll,
     time::{Duration, Instant},
 };
 
@@ -228,7 +229,7 @@ unsafe extern "C" fn done(data: *mut c_void, _: *mut c_void, token: *const c_cha
     }
 }
 unsafe extern "C" fn synced(data: *mut c_void, _: *mut c_void, _: u32) {
-    // SAFETY: the private sync proxy is destroyed before this stack cell.
+    // SAFETY: the private sync proxy is destroyed before its signal storage.
     unsafe {
         (*data.cast::<Cell<bool>>()).set(true);
     }
@@ -528,7 +529,571 @@ unsafe fn token(connection: &Connection) -> Result<CString, PresentError> {
         })
     }
 }
-pub(super) fn present<W: WindowExt>(
+
+/// Permission is captured at API entry, before mapping can dispatch another
+/// widget event. No later poll borrows the serial of a different gesture.
+pub(super) struct InputContext {
+    display: *mut c_void,
+    identity: Option<(u64, u64)>,
+    serial: u32,
+    seat: *mut c_void,
+    origin: Option<Box<dyn WindowExt>>,
+}
+impl InputContext {
+    pub(super) fn empty() -> Self {
+        Self {
+            display: ptr::null_mut(),
+            identity: None,
+            serial: 0,
+            seat: ptr::null_mut(),
+            origin: None,
+        }
+    }
+
+    pub(super) fn capture() -> Self {
+        // SAFETY: the portable facade calls on the FLTK UI thread. Native
+        // pointers are only compared after yielding, never dereferenced until
+        // the display and the current seat have been checked again.
+        unsafe {
+            let display = fl_wl_display();
+            if display.is_null() || wl_display_get_error(display) != 0 {
+                return Self::empty();
+            }
+            let Some(identity) = identity(display) else {
+                return Self::empty();
+            };
+            let mut input = Self {
+                display,
+                identity: Some(identity),
+                ..Self::empty()
+            };
+            if crate::focus::in_native_dispatch()
+                && matches!(
+                    fltk::app::event(),
+                    fltk::enums::Event::Push
+                        | fltk::enums::Event::Released
+                        | fltk::enums::Event::KeyDown
+                        | fltk::enums::Event::Shortcut
+                )
+            {
+                let driver = fl_screen_driver();
+                if !driver.is_null() {
+                    input.serial = get_serial(driver);
+                    if input.serial != 0 {
+                        input.seat = get_seat(driver);
+                    }
+                }
+            }
+            input.origin = crate::focus::current()
+                .filter(|w| !w.was_deleted())
+                .and_then(|w| w.top_window());
+            input
+        }
+    }
+
+    unsafe fn apply(&self, connection: &Connection, object: *mut c_void) {
+        // SAFETY: connection.live was checked in this poll, and no application
+        // callbacks run while its private queue is dispatched. A seat pointer
+        // captured before yielding is not an owned proxy; only use it when
+        // FLTK still reports that exact live seat on the same connection.
+        unsafe {
+            if self.display != connection.display || self.identity != Some(connection.identity) {
+                return;
+            }
+            let driver = fl_screen_driver();
+            if !driver.is_null()
+                && self.permits_serial(connection.display, connection.identity, get_seat(driver))
+            {
+                wl_proxy_marshal_flags(object, 0, ptr::null(), 1, 0, self.serial, self.seat);
+            }
+            if let Some(origin) = self
+                .origin
+                .as_ref()
+                .filter(|w| !w.was_deleted() && w.shown() && w.parent().is_none())
+            {
+                // The wrapper tracks deletion. Resolve its current surface
+                // now rather than retaining a raw wl_surface across a yield.
+                let origin = surface(origin.as_ref());
+                if !origin.is_null() {
+                    wl_proxy_marshal_flags(object, 2, ptr::null(), 1, 0, origin);
+                }
+            }
+        }
+    }
+
+    fn permits_serial(
+        &self,
+        display: *mut c_void,
+        identity: (u64, u64),
+        seat: *mut c_void,
+    ) -> bool {
+        self.display == display
+            && self.identity == Some(identity)
+            && self.serial != 0
+            && !self.seat.is_null()
+            && self.seat == seat
+    }
+}
+
+const PHASE_TIMEOUT: Duration = Duration::from_secs(2);
+const MAX_TOKEN_BYTES: usize = 60 * 1024;
+
+struct SyncPending {
+    object: *mut c_void,
+    ready: Box<Cell<bool>>,
+}
+struct TokenPending {
+    object: *mut c_void,
+    reply: Box<RefCell<Option<Result<CString, PresentError>>>>,
+}
+enum Phase {
+    Prepare,
+    Discovery(SyncPending),
+    Token(TokenPending),
+}
+static ASYNC_TOKEN_LISTENER: TokenListener = TokenListener { done: async_done };
+unsafe extern "C" fn async_done(data: *mut c_void, _: *mut c_void, token: *const c_char) {
+    // SAFETY: the boxed reply is stable until the token proxy is retired;
+    // cancellation destroys that proxy before freeing this allocation.
+    unsafe {
+        let value = CStr::from_ptr(token);
+        let result = if value.to_bytes().len() <= MAX_TOKEN_BYTES {
+            Ok(value.to_owned())
+        } else {
+            Err(PresentError::Native(
+                "Wayland activation token exceeds the supported limit".into(),
+            ))
+        };
+        *(*data.cast::<RefCell<Option<Result<CString, PresentError>>>>()).borrow_mut() =
+            Some(result);
+    }
+}
+
+fn expired(started: Instant, now: Instant) -> bool {
+    now.saturating_duration_since(started) >= PHASE_TIMEOUT
+}
+
+unsafe fn flush(connection: &Connection) -> Result<bool, PresentError> {
+    // SAFETY: libwayland's connection socket is nonblocking. EAGAIN means
+    // output remains queued, not that this call should wait for POLLOUT.
+    unsafe {
+        if wl_display_flush(connection.display) >= 0 {
+            return Ok(false);
+        }
+        match std::io::Error::last_os_error().kind() {
+            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted => Ok(true),
+            _ => Err(PresentError::Native(
+                "Wayland activation flush failed".into(),
+            )),
+        }
+    }
+}
+
+/// Run one protocol pass without waiting for the compositor. FLTK owns this
+/// display and all reads occur on its UI thread. Every prepare is paired with
+/// read_events or cancel_read before returning to the application's loop.
+unsafe fn pump(connection: &Connection) -> Result<(), PresentError> {
+    unsafe {
+        if wl_display_dispatch_queue_pending(connection.display, connection.queue) < 0 {
+            return Err(PresentError::Native(
+                "Wayland activation dispatch failed".into(),
+            ));
+        }
+        if wl_display_prepare_read_queue(connection.display, connection.queue) != 0 {
+            // A pending event or interruption is handled on the next UI turn;
+            // retrying in a loop here would turn a poll into a busy wait.
+            return if wl_display_get_error(connection.display) == 0 {
+                Ok(())
+            } else {
+                Err(PresentError::Native(
+                    "Wayland activation prepare failed".into(),
+                ))
+            };
+        }
+        struct Prepared {
+            display: *mut c_void,
+            armed: bool,
+        }
+        impl Drop for Prepared {
+            fn drop(&mut self) {
+                if self.armed {
+                    // SAFETY: this guard only exists after a successful
+                    // prepare, on the same UI thread and connection.
+                    unsafe { wl_display_cancel_read(self.display) }
+                }
+            }
+        }
+        let mut prepared = Prepared {
+            display: connection.display,
+            armed: true,
+        };
+        let write = flush(connection)?;
+        let mut fd = libc::pollfd {
+            fd: wl_display_get_fd(connection.display),
+            events: libc::POLLIN | if write { libc::POLLOUT } else { 0 },
+            revents: 0,
+        };
+        let n = libc::poll(&mut fd, 1, 0);
+        if n < 0 {
+            return if std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted {
+                Ok(())
+            } else {
+                Err(PresentError::Native(
+                    "Wayland activation poll failed".into(),
+                ))
+            };
+        }
+        if n == 0 {
+            return Ok(());
+        }
+        if fd.revents & (libc::POLLERR | libc::POLLHUP | libc::POLLNVAL) != 0 {
+            return Err(PresentError::Native(
+                "Wayland activation connection closed".into(),
+            ));
+        }
+        if fd.revents & libc::POLLIN != 0 {
+            prepared.armed = false;
+            if wl_display_read_events(connection.display) < 0 {
+                let transient = matches!(
+                    std::io::Error::last_os_error().kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted
+                );
+                return if transient && wl_display_get_error(connection.display) == 0 {
+                    Ok(())
+                } else {
+                    Err(PresentError::Native(
+                        "Wayland activation read failed".into(),
+                    ))
+                };
+            }
+        } else {
+            // Cancel the read intent before a second flush. No prepared read
+            // may leak into FLTK's next event-dispatch iteration.
+            wl_display_cancel_read(connection.display);
+            prepared.armed = false;
+        }
+        if write && fd.revents & libc::POLLOUT != 0 {
+            let _ = flush(connection)?;
+        }
+        if wl_display_dispatch_queue_pending(connection.display, connection.queue) < 0 {
+            return Err(PresentError::Native(
+                "Wayland activation dispatch failed".into(),
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// The request temporarily owns the cached private connection. The facade
+/// permits one asynchronous presentation per UI thread and excludes the
+/// synchronous API until this request completes or is dropped.
+pub(in crate::platform::presentation) struct Request {
+    connection: Option<Connection>,
+    input: Option<InputContext>,
+    hint: Option<CString>,
+    phase: Phase,
+    started: Instant,
+    finished: Option<Result<Presentation, PresentError>>,
+}
+impl Request {
+    pub(super) fn begin<W: WindowExt + ?Sized>(
+        window: &W,
+        options: PresentOptions<'_>,
+        input: InputContext,
+    ) -> Result<Self, PresentError> {
+        // SAFETY: the facade supplies a mapped own window on the UI thread.
+        // Taking the cache out avoids retaining a RefCell borrow across UI
+        // turns; callback userdata resides in stable heap allocations.
+        unsafe {
+            let display = fl_wl_display();
+            if display.is_null() || surface(window).is_null() {
+                return Err(PresentError::Native("missing Wayland surface".into()));
+            }
+            if wl_display_get_error(display) != 0 {
+                return Err(PresentError::Native("Wayland display has an error".into()));
+            }
+            let hint = options
+                .activation_token
+                .filter(|s| !s.is_empty())
+                .or(options.startup_id.filter(|s| !s.is_empty()));
+            let hint = hint
+                .map(|s| {
+                    if s.len() > MAX_TOKEN_BYTES {
+                        Err(PresentError::InvalidHint)
+                    } else {
+                        CString::new(s).map_err(|_| PresentError::InvalidHint)
+                    }
+                })
+                .transpose()?;
+            let connection = CONNECTION.with(|slot| {
+                let mut slot = slot.try_borrow_mut().map_err(|_| PresentError::Busy)?;
+                let connection = slot.take();
+                match connection {
+                    Some(connection) if connection.live() => Ok(connection),
+                    _ => Connection::new(display),
+                }
+            })?;
+            let mut request = Self {
+                connection: Some(connection),
+                input: Some(input),
+                hint,
+                phase: Phase::Prepare,
+                started: Instant::now(),
+                finished: None,
+            };
+            let c = request.connection.as_ref().unwrap();
+            if !c.discovered.get() {
+                request.phase = Phase::Discovery(start_sync(c)?);
+            }
+            let _ = flush(c)?;
+            Ok(request)
+        }
+    }
+
+    pub(super) fn poll<W: WindowExt + ?Sized>(
+        &mut self,
+        window: &W,
+    ) -> Poll<Result<Presentation, PresentError>> {
+        if let Some(result) = &self.finished {
+            return Poll::Ready(result.clone());
+        }
+        let Some(connection) = self.connection.take() else {
+            return Poll::Ready(Err(PresentError::Native(
+                "Wayland activation request has no connection".into(),
+            )));
+        };
+        // SAFETY: the cache connection is exclusively leased to this request.
+        // Its identity is checked before any proxy access on each UI turn.
+        let result = unsafe {
+            if !connection.live() {
+                Err(PresentError::Native(
+                    "Wayland activation connection changed".into(),
+                ))
+            } else if wl_display_get_error(connection.display) != 0 {
+                Err(PresentError::Native("Wayland display has an error".into()))
+            } else {
+                self.advance(&connection, window)
+            }
+        };
+        self.connection = Some(connection);
+        match result {
+            Ok(Poll::Pending) => Poll::Pending,
+            Ok(Poll::Ready(value)) => self.finish(Ok(value)),
+            Err(error) => self.finish(Err(error)),
+        }
+    }
+
+    unsafe fn advance<W: WindowExt + ?Sized>(
+        &mut self,
+        connection: &Connection,
+        window: &W,
+    ) -> Result<Poll<Presentation>, PresentError> {
+        unsafe {
+            if expired(self.started, Instant::now()) {
+                return Err(PresentError::TimedOut);
+            }
+            pump(connection)?;
+            if expired(self.started, Instant::now()) {
+                return Err(PresentError::TimedOut);
+            }
+            match &self.phase {
+                Phase::Discovery(sync) if !sync.ready.get() => return Ok(Poll::Pending),
+                Phase::Discovery(_) => {
+                    self.retire_phase(connection);
+                    connection.discovered.set(true);
+                    self.started = Instant::now();
+                }
+                Phase::Token(token) => {
+                    let value = token.reply.borrow_mut().take();
+                    let Some(value) = value else {
+                        return Ok(Poll::Pending);
+                    };
+                    self.retire_phase(connection);
+                    return self.activate(connection, window, &value?).map(Poll::Ready);
+                }
+                Phase::Prepare => {}
+            }
+            if connection.globals.activation.get().is_null() {
+                return Ok(Poll::Ready(unsupported()));
+            }
+            if let Some(hint) = self.hint.take() {
+                self.input = None;
+                return self.activate(connection, window, &hint).map(Poll::Ready);
+            }
+            self.phase = Phase::Token(start_token(connection, self.input.take().as_ref())?);
+            self.started = Instant::now();
+            let _ = flush(connection)?;
+            Ok(Poll::Pending)
+        }
+    }
+
+    unsafe fn activate<W: WindowExt + ?Sized>(
+        &self,
+        connection: &Connection,
+        window: &W,
+        value: &CStr,
+    ) -> Result<Presentation, PresentError> {
+        unsafe {
+            let activation = connection.globals.activation.get();
+            if activation.is_null() {
+                return Ok(unsupported());
+            }
+            let target = surface(window);
+            if target.is_null() {
+                return Err(PresentError::Native("missing Wayland surface".into()));
+            }
+            wl_proxy_marshal_flags(activation, 2, ptr::null(), 1, 0, value.as_ptr(), target);
+            let _ = flush(connection)?;
+            Ok(Presentation {
+                backend: PresentBackend::Wayland,
+                status: PresentStatus::Requested,
+            })
+        }
+    }
+
+    unsafe fn retire_phase(&mut self, connection: &Connection) {
+        // SAFETY: destroy proxies before their boxed listener userdata drops.
+        // A disconnected FLTK display already invalidated its objects; never
+        // dereference their old pointers in that case.
+        unsafe {
+            let phase = std::mem::replace(&mut self.phase, Phase::Prepare);
+            if connection.live() {
+                match &phase {
+                    Phase::Discovery(sync) => wl_proxy_destroy(sync.object),
+                    Phase::Token(token) => {
+                        if wl_display_get_error(connection.display) == 0 {
+                            destroy(token.object, 4);
+                        } else {
+                            wl_proxy_destroy(token.object);
+                        }
+                    }
+                    Phase::Prepare => {}
+                }
+            }
+        }
+    }
+
+    fn finish(
+        &mut self,
+        result: Result<Presentation, PresentError>,
+    ) -> Poll<Result<Presentation, PresentError>> {
+        self.release();
+        self.finished = Some(result.clone());
+        Poll::Ready(result)
+    }
+
+    fn release(&mut self) {
+        self.input = None;
+        self.hint = None;
+        if let Some(connection) = self.connection.take() {
+            // SAFETY: same UI-thread lifetime as begin/poll. Returning an
+            // undiscovered connection after cancellation requires the next
+            // request to perform its own sync; no old signal is reused.
+            unsafe { self.retire_phase(&connection) };
+            // A caller may retain its handle in TLS that was initialized
+            // before this cache. During thread exit the cache can already be
+            // destroyed; then drop our connection instead of caching it.
+            let _ = CONNECTION.try_with(|slot| {
+                if let Ok(mut slot) = slot.try_borrow_mut() {
+                    if slot.is_none() && unsafe { connection.live() } {
+                        *slot = Some(connection);
+                    }
+                }
+            });
+        }
+    }
+}
+impl Drop for Request {
+    fn drop(&mut self) {
+        self.release();
+    }
+}
+
+fn unsupported() -> Presentation {
+    Presentation {
+        backend: PresentBackend::Wayland,
+        status: PresentStatus::Unsupported,
+    }
+}
+
+unsafe fn start_sync(connection: &Connection) -> Result<SyncPending, PresentError> {
+    unsafe {
+        let wrapper = wl_proxy_create_wrapper(connection.display);
+        if wrapper.is_null() {
+            return Err(PresentError::Native("Wayland sync wrapper failed".into()));
+        }
+        wl_proxy_set_queue(wrapper, connection.queue);
+        let object = wl_proxy_marshal_flags(
+            wrapper,
+            0,
+            ptr::addr_of!(wl_callback_interface).cast(),
+            1,
+            0,
+            ptr::null_mut::<c_void>(),
+        );
+        wl_proxy_wrapper_destroy(wrapper);
+        if object.is_null() {
+            return Err(PresentError::Native(
+                "Wayland sync allocation failed".into(),
+            ));
+        }
+        let mut pending = SyncPending {
+            object,
+            ready: Box::new(Cell::new(false)),
+        };
+        if wl_proxy_add_listener(
+            object,
+            &SYNC_LISTENER as *const SyncListener as *mut *const c_void,
+            (&mut *pending.ready as *mut Cell<bool>).cast(),
+        ) != 0
+        {
+            wl_proxy_destroy(object);
+            return Err(PresentError::Native("Wayland sync listener failed".into()));
+        }
+        Ok(pending)
+    }
+}
+
+unsafe fn start_token(
+    connection: &Connection,
+    input: Option<&InputContext>,
+) -> Result<TokenPending, PresentError> {
+    unsafe {
+        let object = wl_proxy_marshal_flags(
+            connection.globals.activation.get(),
+            1,
+            ptr::addr_of!(TOKEN).cast(),
+            1,
+            0,
+            ptr::null_mut::<c_void>(),
+        );
+        if object.is_null() {
+            return Err(PresentError::Native(
+                "Wayland token allocation failed".into(),
+            ));
+        }
+        let mut pending = TokenPending {
+            object,
+            reply: Box::new(RefCell::new(None)),
+        };
+        if wl_proxy_add_listener(
+            object,
+            &ASYNC_TOKEN_LISTENER as *const TokenListener as *mut *const c_void,
+            (&mut *pending.reply as *mut RefCell<Option<Result<CString, PresentError>>>).cast(),
+        ) != 0
+        {
+            destroy(object, 4);
+            return Err(PresentError::Native("Wayland token listener failed".into()));
+        }
+        if let Some(input) = input {
+            input.apply(connection, object);
+        }
+        wl_proxy_marshal_flags(object, 3, ptr::null(), 1, 0);
+        Ok(pending)
+    }
+}
+
+pub(super) fn present<W: WindowExt + ?Sized>(
     window: &W,
     options: PresentOptions<'_>,
 ) -> Result<Presentation, PresentError> {
@@ -592,5 +1157,67 @@ pub(super) fn present<W: WindowExt>(
                 status: PresentStatus::Requested,
             })
         })
+    }
+}
+
+#[cfg(test)]
+mod async_tests {
+    use super::*;
+
+    #[test]
+    fn phase_deadline_expires_at_the_bound_and_resets_for_token_acquisition() {
+        let begin = Instant::now();
+        assert!(!expired(
+            begin,
+            begin + PHASE_TIMEOUT - Duration::from_nanos(1)
+        ));
+        assert!(expired(begin, begin + PHASE_TIMEOUT));
+        let token_begin = begin + Duration::from_millis(1900);
+        assert!(!expired(token_begin, begin + PHASE_TIMEOUT));
+        assert!(expired(token_begin, token_begin + PHASE_TIMEOUT));
+    }
+
+    #[test]
+    fn native_permission_is_not_borrowed_after_a_seat_or_display_replacement() {
+        // These addresses are identity values only; this test never calls a
+        // native API or dereferences them.
+        let display = 1usize as *mut c_void;
+        let seat = 2usize as *mut c_void;
+        let other = 3usize as *mut c_void;
+        let mut input = InputContext {
+            display,
+            identity: Some((5, 7)),
+            serial: 11,
+            seat,
+            origin: None,
+        };
+        assert!(input.permits_serial(display, (5, 7), seat));
+        assert!(!input.permits_serial(display, (5, 8), seat));
+        assert!(!input.permits_serial(other, (5, 7), seat));
+        assert!(!input.permits_serial(display, (5, 7), other));
+        input.serial = 0;
+        assert!(!input.permits_serial(display, (5, 7), seat));
+        assert!(!InputContext::empty().permits_serial(display, (5, 7), seat));
+    }
+
+    #[test]
+    fn token_reply_is_owned_bounded_and_does_not_copy_rejected_context_into_errors() {
+        let mut reply: Box<RefCell<Option<Result<CString, PresentError>>>> =
+            Box::new(RefCell::new(None));
+        let storage = (&mut *reply as *mut RefCell<Option<Result<CString, PresentError>>>).cast();
+        let ordinary = CString::new("private-context").unwrap();
+        unsafe { async_done(storage, ptr::null_mut(), ordinary.as_ptr()) };
+        assert_eq!(reply.borrow_mut().take().unwrap().unwrap(), ordinary);
+        let limit = CString::new(vec![b'x'; MAX_TOKEN_BYTES]).unwrap();
+        unsafe { async_done(storage, ptr::null_mut(), limit.as_ptr()) };
+        assert_eq!(reply.borrow_mut().take().unwrap().unwrap(), limit);
+        let oversized = CString::new(vec![b'z'; MAX_TOKEN_BYTES + 1]).unwrap();
+        unsafe { async_done(storage, ptr::null_mut(), oversized.as_ptr()) };
+        let error = reply.borrow_mut().take().unwrap().unwrap_err();
+        assert!(matches!(error, PresentError::Native(_)));
+        assert!(!error.to_string().contains("zzzz"));
+        let empty = CString::new("").unwrap();
+        unsafe { async_done(storage, ptr::null_mut(), empty.as_ptr()) };
+        assert_eq!(reply.borrow_mut().take().unwrap().unwrap(), empty);
     }
 }

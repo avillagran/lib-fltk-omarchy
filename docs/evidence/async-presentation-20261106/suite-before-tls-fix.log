@@ -1,0 +1,570 @@
+   Compiling lib-fltk-omarchy v0.0.10 (/home/node/Work/lib-fltk-omarchy-files-presentation)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 18.41s
+     Running unittests src/lib.rs (target-real/debug/deps/fltk_omarchy-71d093a44d830ddd)
+
+running 285 tests
+test anim::tests::easings_start_at_0_and_end_at_1 ... ok
+test anim::tests::omarchy_ease_out_matches_its_bezier ... ok
+test anim::tests::app_choice_wins_and_none_follows_the_system_again ... ok
+test anim::tests::paced_schedule ... ok
+test anim::tests::system_setting_parsing ... ok
+test anim::tests::tween_and_anim_follow_the_clock_and_retarget_mid_way ... ok
+test dialog::tests::backend_order ... ok
+test dialog::tests::busy_while_open ... ok
+test dialog::tests::native_filters ... ok
+test diff::parse::tests::binary_patch_blocks_are_skipped ... ok
+test diff::files::tests::tree_folders_compress_and_order ... ok
+test diff::parse::tests::format_patch_mail_and_signature_are_skipped ... ok
+test diff::parse::tests::hunk_text_that_looks_like_headers_follows_the_counts ... ok
+test diff::parse::tests::header_split_with_spaces ... ok
+test diff::parse::tests::modified_file_lines_numbers_and_section ... ok
+test diff::parse::tests::plain_unified_diff_with_timestamps_and_multiple_files ... ok
+test diff::parse::tests::insert_context_above_below_and_merge ... ok
+test diff::review::tests::find_lines_by_side ... ok
+test diff::parse::tests::quoted_paths_with_octal_escapes ... ok
+test diff::review::tests::ranges ... ok
+test diff::parse::tests::rename_copy_mode_binary_and_new_deleted ... ok
+test diff::parse::tests::no_newline_markers_and_crlf ... ok
+test diff::rows::tests::cells_tabs_wide_and_wrap ... ok
+test diff::rows::tests::word_ranges ... ok
+test diff::rows::tests::unified_split_fold_context_and_ids ... ok
+test edit::buffer::tests::backspace_runs_undo_together_and_restore_the_caret ... ok
+test edit::buffer::tests::char_indices_for_accessibility ... ok
+test edit::buffer::tests::chips_are_atomic ... ok
+test edit::buffer::tests::compose_replaces_the_marked_text_in_one_group ... ok
+test edit::buffer::tests::expanded_text_uses_chip_data ... ok
+test edit::buffer::tests::graphemes_are_deleted_whole ... ok
+test edit::buffer::tests::paste_and_set_text_are_single_steps ... ok
+test edit::buffer::tests::caret_moves_break_the_group ... ok
+test edit::buffer::tests::words_and_paragraphs ... ok
+test edit::composer::tests::prompt_history_keeps_the_draft ... ok
+test edit::composer::tests::file_lists_from_pastes_and_drops ... ok
+test edit::buffer::tests::typing_undoes_one_word_at_a_time ... ok
+test edit::composer::tests::queries_follow_o3_rules ... ok
+test edit::layout::tests::cached_metrics_match ... ok
+test edit::layout::tests::caret_and_hit_round_trip ... ok
+test edit::layout::tests::chips_are_their_own_runs_and_rtl_aligns_right ... ok
+test edit::layout::tests::edits_relayout_only_touched_paragraphs ... ok
+test edit::layout::tests::wraps_words_and_counts_lines ... ok
+test edit::layout::tests::selection_rects_cover_lines ... ok
+test edit::layout::tests::merged_changes_cover_every_edit ... ok
+test focus::presentation_dispatch_tests::nested_synthetic_dispatch_never_borrows_native_permission ... ok
+test frame::event::tests::every_event_round_trips_through_a_json_line ... ok
+test frame::event::tests::messages_parse_known_types_and_keep_the_rest ... ok
+test frame::qt::tests::keys_and_modifiers_map_to_qt_codes ... ok
+test frame::event::tests::wire_format_is_stable ... ok
+test frame::file::tests::bmp_24_bit_bottom_up_with_row_padding ... ok
+test frame::ring::tests::full_ring_drops_whole_messages_only ... ok
+test frame::ring::tests::lines_keep_a_partial_tail ... ok
+test frame::ring::tests::messages_round_trip_across_the_wrap_and_the_counter_wrap ... ok
+test frame::qt::tests::qt_json_matches_o3_helper_fields ... ok
+test frame::file::tests::bmp_32_bit_with_zero_alpha_is_opaque_and_top_down_works ... ok
+test frame::shm::tests::triple_buffer_hands_the_newest_frame_and_never_shares_a_slot ... ok
+test dialog::tests::fake_portal_end_to_end ... ok
+test frame::view::tests::conversion_swizzles_and_unpremultiplies ... ok
+test frame::surface::tests::handles_parse_and_reject_garbage ... ok
+test frame::view::tests::placement_letterboxes_and_keeps_one_to_one ... ok
+test frame::shm::tests::header_round_trips_and_rejects_garbage ... ok
+test gfx::path::tests::contains_and_outline ... ok
+test frame::view::tests::key_names_are_w3c_style ... ok
+test glass::tests::only_glassy_below_one_is_glass ... ok
+test gfx::sl::tests::evaluates_like_the_formula ... ok
+test gfx::canvas::tests::unit_scale_keeps_widget_coordinates ... ok
+test gfx::sl::tests::rows_match_single_pixels_and_uniforms_are_hoisted ... ok
+test gfx::canvas::tests::clip_layer_blend ... ok
+test gfx::sl::tests::glsl_is_generated ... ok
+test frame::ring::tests::concurrent_writer_and_reader_see_every_message_in_order ... ok
+test gfx::canvas::tests::strokes_joins_caps ... ok
+test glass::tests::mode_follows_omarchy_toggle_files ... ok
+test i18n::catalog::tests::placeholders_and_isolates ... ok
+test i18n::catalog::tests::o3_lookup_fallbacks ... ok
+test gfx::canvas::tests::fill_antialias_and_shapes ... ok
+test i18n::catalog::tests::rejects_other_formats_and_merges ... ok
+test frame::shm::tests::requested_size_and_flags ... ok
+test frame::surface::tests::named_transport_exchanges_frames_input_and_messages ... ok
+test i18n::catalog::tests::finds_keys_in_source ... ok
+test glass::tests::opacity_is_the_theme_glass_or_omarchys ... ok
+test i18n::catalog::tests::check_reports_missing_extra_and_placeholders ... ok
+test frame::surface::tests::inherit_transport_exchanges_frames_input_and_messages ... ok
+test i18n::locale::tests::normalizes_posix_and_bcp47_tags ... ok
+test i18n::locale::tests::omarchy_codes ... ok
+test i18n::locale::tests::environment_follows_gettext ... ok
+test frame::surface::tests::file_transport_exchanges_frames_input_and_messages ... ok
+test i18n::tests::omarchy_catalogs_and_number_formats ... ok
+test icon::svg::tests::arcs_land_on_their_end_point_and_bulge_the_right_way ... ok
+test icon::svg::tests::inheritance_style_and_transforms ... ok
+test icon::svg::tests::numbers_flags_and_compact_arcs ... ok
+test i18n::plural::tests::slavic_arabic_and_cjk ... ok
+test i18n::catalog::tests::plural_lookup ... ok
+test icon::tests::fixed_colors_stay_and_current_color_follows_the_tint ... ok
+test instance::tests::complete_rejection_survives_write_failure_without_accepting_success ... ok
+test instance::tests::frames_and_messages_round_trip ... ok
+test instance::tests::invalid_app_ids_run_without_ipc ... ok
+test icon::tests::translucent_tint_does_not_double_where_strokes_cross ... ok
+test icon::tests::even_odd_cuts_holes_and_non_square_view_boxes_center ... ok
+test icon::tests::builtins_parse_and_rasterize_in_the_tint ... ok
+test icon::tests::tint_roles_follow_the_theme ... ok
+test icon::svg::tests::smooth_curves_reflect_their_control_points ... ok
+test gfx::canvas::tests::gradients ... ok
+test keys::tests::parses_common_shortcuts ... ok
+test gfx::canvas::tests::shadow_blur_shader ... ok
+test instance::tests::unsafe_runtime_dirs_are_refused ... ok
+test diff::parse::tests::limits_and_errors ... ok
+test dialog::tests::simple_requests ... ok
+test dialog::tests::picker_replaces_dialogs ... ok
+test i18n::tests::global_lookup_switches_language ... ok
+test keys::tests::repeat_and_suspend ... ok
+test keys::tests::primary_modifier_is_portable ... ok
+test mask::tests::caret_follows_inserted_literals ... ok
+test keys::tests::spec_of_round_trips ... ok
+test mask::tests::iso_date_time_with_letter_literal ... ok
+test mask::tests::time_of_day ... ok
+test model::tests::granular_ops_and_ids ... ok
+test model::tests::panel_selection_survives_reorder_by_key ... ok
+test frame::shm::tests::triple_buffer_under_threads_delivers_increasing_frames ... ok
+test model::tests::refit_anchors_and_lists_dirty_slots ... ok
+test model::tests::sync_from_is_minimal_and_short_circuits ... ok
+test motion::tests::rects_interpolate_and_end_exactly ... ok
+test motion::tests::spans_grow_from_the_start_edge ... ok
+test native::presentation::tests::completed_lease_cannot_release_a_new_request ... ok
+test native::presentation::tests::failed_reentrant_call_keeps_the_outer_guard ... ok
+test native::presentation::tests::hints_are_bounded_and_debug_redacts_context ... ok
+test list::tests::drop_gap_to_index ... ok
+test overlay::tests::menu_filter_ranks_exact_prefix_contains ... ok
+test panel::tests::grid_moves_and_partial_last_row ... ok
+test navtree::flat::tests::search_keeps_ancestors_and_orders_by_score ... ok
+test panel::tests::ids_survive_reorder_and_removal ... ok
+test navtree::flat::tests::tree_order_folds_footer_and_orphans ... ok
+test panel::tests::list_cursor_selection_and_ranges ... ok
+test platform::dirs::tests::dirs_are_absolute_and_app_dirs_append_the_id ... ok
+test platform::fonts::tests::faces_follow_the_os_backend ... ok
+test platform::frame::tests::ids_are_short_and_unique ... ok
+test platform::portal::dbus::tests::addresses ... ok
+test platform::portal::dbus::tests::big_endian_values ... ok
+test platform::poll::tests::snapshot_sees_created_changed_and_removed_files ... ok
+test platform::portal::dbus::tests::rejects_bad_bytes ... ok
+test platform::portal::dbus::tests::known_bytes ... ok
+test platform::portal::dbus::tests::signatures_round_trip ... ok
+test platform::portal::dbus::tests::values_round_trip_with_alignment ... ok
+test platform::portal::dbus::tests::messages_round_trip ... ok
+test platform::memory::tests::optional_allocator_snapshot_has_consistent_arena_accounting ... ok
+test platform::portal::tests::fake_portal_missing ... ok
+test gfx::canvas::tests::parallel_shading_matches_single_thread ... ok
+test platform::portal::tests::fake_portal_old_handle ... ok
+test platform::portal::tests::no_bus ... ok
+test platform::portal::tests::real_bus_reads_portal_version ... ignored
+test platform::portal::tests::open_arguments ... ok
+test platform::portal::tests::request_paths ... ok
+test platform::portal::tests::responses ... ok
+test platform::portal::tests::fake_portal_save_cancel ... ok
+test platform::portal::tests::save_arguments ... ok
+test platform::portal::tests::uris_to_paths ... ok
+test platform::presentation::linux::wayland::async_tests::native_permission_is_not_borrowed_after_a_seat_or_display_replacement ... ok
+test platform::presentation::linux::wayland::async_tests::phase_deadline_expires_at_the_bound_and_resets_for_token_acquisition ... ok
+test platform::portal::tests::fake_portal_vanishes ... ok
+test platform::presentation::linux::x11::tests::startup_time_is_an_x_server_timestamp ... ok
+test platform::presentation::tests::deferred_hints_own_exact_context_without_importing_environment ... ok
+test platform::presentation::linux::wayland::async_tests::token_reply_is_owned_bounded_and_does_not_copy_rejected_context_into_errors ... ok
+test png::tests::png_signature_and_crc ... ok
+test rowmotion::tests::displaced_moved_arriving_and_leaving_rows ... ok
+test rowmotion::tests::off_or_first_draw_jumps ... ok
+test scene::image::tests::rejects_invalid_resources_and_retains_owned_pixels ... ok
+test scene::image::tests::resampling_uses_pixel_centers_and_does_not_bleed_transparent_colors ... ok
+test scene::layer::tests::rejects_empty_and_overflowing_bounds_without_native_drawing ... ok
+test scene::motion::tests::invalid_retarget_is_atomic_and_cancellation_holds_the_current_pose ... ok
+test scene::image::tests::scaled_resources_share_a_bounded_cache_across_clones_and_workers ... ok
+test scene::motion::tests::unchanged_hidden_and_reduced_motion_targets_do_not_start_a_frame_loop ... ok
+test instance::tests::stale_socket_is_taken_over_and_files_are_private ... ok
+test instance::tests::long_runtime_dirs_use_a_short_socket_path ... ok
+test scene::node::tests::duplicate_ids_fail_before_mutation_and_invalid_values_leave_content_unchanged ... ok
+test scene::node::tests::stable_ids_survive_clips_offscreen_positions_zero_opacity_and_append ... ok
+test scene::tests::damage_rejects_unbounded_backing_storage_before_drawing ... ok
+test scene::tests::intersection_does_not_overflow_or_include_empty_rects ... ok
+test scene::node::tests::raised_nodes_and_hits_keep_ancestor_clips_and_skip_zero_alpha ... ok
+test scroll::tests::clamps_huge_deltas_and_changed_bounds_without_overshoot ... ok
+test scroll::tests::external_navigation_and_explicit_jump_cancel_travel ... ok
+test scene::tests::recording_is_nested_and_unwind_safe ... ok
+test scroll::tests::frame_rate_does_not_change_motion_or_distance ... ok
+test scroll::tests::keeps_magnitude_and_accumulated_distance_without_extra_momentum ... ok
+test scroll::tests::passes_at_the_edges ... ok
+test scroll::tests::reduced_motion_is_immediate_and_invalid_deltas_are_ignored ... ok
+test scroll::tests::reversal_moves_back_immediately_instead_of_finishing_old_travel ... ok
+test shortcuts::tests::bind_rebind_conflicts ... ok
+test state::tests::append_hints_and_set_text ... ok
+test state::tests::batch_coalesces_into_one_notification_per_state ... ok
+test state::tests::dropping_subscription_unsubscribes ... ok
+test state::tests::listeners_read_without_clone_and_may_read_the_state ... ok
+test state::tests::map_and_combine ... ok
+test state::tests::notifies_on_change_only ... ok
+test state::tests::setting_inside_own_listener_panics - should panic ... ok
+test testkit::frames::tests::frame_line_fields ... ok
+test frame::file::tests::watch_sees_a_replaced_file ... ok
+test testkit::gate::tests::a_teleport_jumps ... ok
+test testkit::gate::tests::blinks_pop ... ok
+test testkit::gate::tests::excused_inputs_may_jump ... ok
+test testkit::gate::tests::opacity_dips_pop ... ok
+test testkit::gate::tests::passing_through_a_scroll_is_no_pop_or_jump ... ok
+test testkit::gate::tests::springs_overshoot ... ok
+test testkit::gate::tests::still_and_eased_moves_pass ... ok
+test testkit::script::tests::ops_and_steps ... ok
+test testkit::script::tests::report_json ... ok
+test testkit::script::tests::targets_match_by_fields ... ok
+test testkit::tree::tests::element_json_skips_defaults ... ok
+test testkit::tree::tests::labels_and_clipping ... ok
+test text::doc::tests::runs_merge_and_cover_the_text ... ok
+test text::doc::tests::plain_text_and_ranges_line_up ... ok
+test text::highlight::tests::diff_lines_and_code_tokens ... ok
+test text::doc::tests::tables_copy_as_markdown_and_csv ... ok
+test text::layout::tests::bidi_ltr_cell_in_rtl_table_keeps_its_order ... ok
+test text::layout::tests::bidi_rtl_paragraph_reorders_and_right_aligns ... ok
+test text::layout::tests::bidi_rtl_table_mirrors_columns ... ok
+test text::layout::tests::bidi_selection_covers_separate_spans_in_mixed_lines ... ok
+test text::layout::tests::bidi_wrapped_lines_and_indentation_mirror ... ok
+test text::layout::tests::code_tabs_and_empty_lines ... ok
+test text::layout::tests::bidi_styled_runs_and_ltr_text_are_untouched ... ok
+test text::layout::tests::estimate_is_close_for_prose ... ok
+test text::layout::tests::styled_runs_make_fragments_and_hard_breaks_lines ... ok
+test text::layout::tests::long_words_break_at_graphemes_and_cjk_anywhere ... ok
+test text::layout::tests::tables_hit_testing_and_selection_rects ... ok
+test text::layout::tests::wraps_at_spaces_and_hyphens_and_hangs_blanks ... ok
+test text::markdown::tests::alerts_and_html_blocks ... ok
+test text::markdown::tests::chip_links_are_chips ... ok
+test text::markdown::tests::blocks_and_inline_styles ... ok
+test edit::layout::tests::long_paragraph_edits_match_a_full_layout ... ok
+test text::markdown::tests::inline_label_markdown ... ok
+test text::markdown::tests::image_blocks_and_code_path_links ... ok
+test text::markdown::tests::lists_tasks_nesting_and_numbers ... ok
+test text::markdown::tests::math_is_text_only_when_enabled ... ok
+test text::markdown::tests::settle_tail_closes_and_holds_back ... ok
+test text::markdown::tests::settled_stream_shows_styles_and_finishes_exact ... ok
+test text::markdown::tests::model_lists_continue_after_paragraph_text ... ok
+test text::highlight::tests::huge_blocks_are_capped ... ok
+test text::markdown::tests::tables_and_autolinks ... ok
+test text::math::tests::common_constructs ... ok
+test text::math::tests::deep_nesting_is_bounded ... ok
+test text::layout::tests::incremental_relayout_equals_full_layout ... ok
+test text::math::tests::delimiters_outside_code ... ok
+test text::markdown::tests::streamed_images_equal_one_shot ... ok
+test text::store::tests::blocks_round_trip_and_compare ... ok
+test platform::portal::tests::fake_portal_open ... ok
+test text::store::tests::splice_in_the_middle_and_embeds ... ok
+test text::view::api::tests::find_follows_new_content ... ok
+test text::view::api::tests::positions_and_offsets_round_trip ... ok
+test i18n::tests::toolkit_catalog_is_complete ... ok
+test text::view::api::tests::keyed_messages_insert_replace_move_remove ... ok
+test text::view::tests::heights_prefix_find_push_truncate ... ok
+test text::view::tests::word_bounds ... ok
+test text::view::tests::word_pacing_holds_a_partial_word ... ok
+test theme::tests::alpha_over ... ok
+test text::view::api::tests::set_message_streams_when_the_text_extends ... ok
+test theme::tests::corner_preference ... ok
+test theme::tests::defaults_follow_omarchy_style_tokens ... ok
+test model::tests::sync_from_with_duplicate_keys_keeps_one ... ok
+test theme::tests::extended_background_and_foreground_tokens ... ok
+test theme::tests::shell_toml_overrides_and_font_scale ... ok
+test theme::tests::named_terminal_and_project_colors ... ok
+test toml::tests::sections_strings_numbers_comments ... ok
+test toml::tests::strict_rejects_cut_and_malformed_lines ... ok
+test tooltip::tests::placement_centers_above_flips_below_and_stays_inside ... ok
+test tooltip::tests::settings_follow_omarchy_tooltip_preferences ... ok
+test text::layout::tests::bidi_incremental_relayout_equals_full_layout ... ok
+test text::view::api::tests::prepend_and_embed_growth_keep_the_view_still ... ok
+test instance::tests::size_limits_are_enforced ... ok
+test instance::tests::concurrent_clients_all_get_their_reply ... ok
+test text::markdown::tests::streaming_keeps_the_tail_small ... ok
+test text::store::tests::dense_markdown_costs_under_two_bytes_per_byte ... ok
+test platform::frame::tests::fd_kind_shares_memory_and_rings_in_process ... ok
+test platform::frame::tests::named_kind_shares_memory_and_rings ... ok
+test text::markdown::tests::streaming_every_split_equals_one_shot ... ok
+test model::tests::transaction_coalesces_into_one_notification ... ok
+test text::store::tests::huge_blocks_use_wide_runs ... ok
+test platform::frame::tests::file_kind_shares_memory_and_polls ... ok
+test icon::svg::tests::errors_are_values ... ok
+test instance::tests::second_acquire_is_a_secondary_and_calls_reach_handlers ... ok
+test text::markdown::tests::streaming_random_chunks_of_a_long_text_equal_one_shot ... ok
+test instance::tests::too_many_connections_get_busy ... ok
+test i18n::tests::toolkit_sources_use_catalog_keys ... ok
+test model::tests::sync_from_randomized_matches_snapshot_and_replays ... ok
+test testkit::frames::tests::a_sleeping_callback_warns_once_per_site ... ok
+test platform::poll::tests::watch_stops_promptly ... ok
+test instance::tests::timeouts_bound_handlers_clients_and_idle_connections ... ok
+
+test result: ok. 284 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.73s
+
+     Running tests/frame.rs (target-real/debug/deps/frame-6f4b633979b3e1b9)
+
+running 4 tests
+test child_producer ... ok
+test inherited_surface_round_trip ... ok
+test named_surface_round_trip ... ok
+test file_surface_round_trip ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/instance.rs (target-real/debug/deps/instance-7d31da99ca559992)
+
+running 2 tests
+test child_entry ... ok
+test second_process_reaches_the_primary ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/ui.rs (target-real/debug/deps/ui-eb809da1609e650e)
+XOpenIM() failed
+ok   theme loads omarchy colors and shell tokens
+ok   primary button is painted with the accent
+ok   text field two-way binding and placeholder
+ok   toggle, switch, slider, button group follow their State
+ok   button click, bound text and enabled state
+ok   virtual list builds only visible rows of 1 000 000
+ok   menu overlay opens on top and filter ranks
+ok   notification toast is stacked and counted
+ok   task progress/done run on the UI thread; cancel stops work
+ok   corner preference: square vs rounded button corner pixel
+ok   popup menu, tab bar, searchable filter, window mode parse
+ok   operation toast pause/cancel callbacks
+ok   bindings live as long as the widget, not the Rust handle
+ok   opening a layer while a dropdown is open does not crash
+ok   popup menu: 12 entries in 800x440 at a large font clamp, scroll and stay usable
+ok   popup menu fits 800x440 at font sizes 12, 18 and 24
+ok   popup menu lifecycle: Esc, click outside, close(), deleted window
+ok   keyboard panels: dual pane in one canvas, path field, app Ctrl+Tab once, menus
+ok   gfx View: paint with alpha, area limit, budget, hit shape, keyboard, pause, theme
+ok   label bound before fit keeps its text width
+ok   transitions: Omarchy durations, intermediate colors, timer stops, can be turned off
+ok   portable shaders: same pixels as sl eval, backend choice, display rate on the CPU
+ok   issue #6: app shortcuts reach the window while a popup is open; j/k only unmodified
+ok   issue #7: keyboard panel focus events are synchronous, ordered and carry the panel
+ok   file manager pieces: overflowing tabs, bounded help, localized toast, popup card
+ok   virtual table and tree on keyboard panels; native gesture guard
+ok   real clicks (fltk event path) on every clickable control: no re-entrancy panic
+ok   keyboard only: Tab order, arrows, shortcuts, focus comes back
+ok   data models: rows redraw by item, scroll anchored on insert above, selection by key, feeds coalesce
+ok   live theme switch: omarchy-theme-set style rename is picked up
+ok   theme: partial writes keep the last valid theme, recovery and overrides apply
+ok   platform: Mod+, shortcut, built-in light/dark theme, theme dir override
+ok   i18n: switching the locale re-labels bound widgets live
+ok   i18n: Arabic and CJK render; start-aligned labels follow RTL
+ok   i18n: toolkit overlays draw their own strings translated
+ok   rtl: header, rows, toggles mirror live (no rebuild); direction(Ltr) override; plain Flex rows
+ok   rtl: Left/Right follow the screen (tabs, button group, slider, grid panel, tree); Tab goes start to end
+ok   rtl: list scrollbar, popup menu glyphs, toast corner, rich text bidi
+ok   rich text: bold ink, code chip, link underline, code surface, selection color
+ok   rich text: 5 000 messages are virtual; sticks to the bottom while streaming; keys scroll
+ok   rich text: links by click and by Tab / Enter, copy button stop, Ctrl+A, Esc
+ok   rich text: a theme change re-colors without parsing or laying out again
+ok   rich text: bind_markdown follows appends and replacements; sender() from a thread
+ok   rich label: inline markdown, natural size, link click
+ok   tooltip: hover shows the Omarchy tooltip after 400 ms, styled by the theme
+ok   tooltip: the next one shows at once while one is up; a click hides it
+ok   tooltip: live theme switch (omarchy-theme-set), black themes, corners
+ok   tooltip: tooltips.json shape and border are read live; invalid keeps the last
+ok   tooltip: after a dialog, in a second window, plain fltk widgets, glass
+ok   tooltip: canvases with one tooltip per region, large widgets, wrapping
+ok   tooltip: bound text relabels a shown tooltip; right to left aligns right
+ok   text area: typing, Enter, word undo, grapheme Backspace through the key path
+ok   text area: caret and selection pixels, placeholder, focus ring colors
+ok   text area: auto-grows from min to max lines, then scrolls with the caret in view
+ok   text area: Tab leaves, Ctrl+Tab inserts when configured; read-only; clipboard
+ok   composer: Enter submits, Shift+Enter is a new line, busy shows stop
+ok   composer: completion list at the caret, Down + Enter inserts a chip, Esc closes
+ok   composer: async completions, stale answers ignored; files from paste; attachment chips
+     perf: paste 98 KB 21.860428ms, typing 78.337µs/key, typing at the start of one 97 KB paragraph 8.061754ms/key
+ok   text area: 100 KB paste and typing latency stay interactive
+ok   composer: Up/Down prompt history keeps the draft, expanded editor swaps Enter and Mod+Enter (hint), attach button and Mod+Shift+A, bottom-row slots in Tab order and mirrored
+tabs-host-initial: native/fresh max_rgb_delta=0
+tabs-host-hover: native/fresh max_rgb_delta=0
+tabs-host-hover-cleared: native/fresh max_rgb_delta=0
+tabs-host-motion-start: native/fresh max_rgb_delta=0
+tabs-host-motion-middle: native/fresh max_rgb_delta=0
+tabs-host-motion-end: native/fresh max_rgb_delta=0
+ok   tabs keyed: plain FLTK background host clears hover and every animated native frame
+ok   tabs keyed: activating the same selected key reveals it after independent cursor scrolling
+ok   tabs keyed: composite pane/tab keys and actual close hit geometry under scroll/RTL
+ok   tabs keyed: reentrant context, deferred model diffs, snapshot IDs and RTL cursor reorder
+ok   tabs keyed: auxiliary buttons never select or fire primary close; context targets identity
+ok   tabs keyed: model patches/moves/removal preserve selection; gestures cancel stale IDs
+ok   tabs keyed: drag and keyboard reorder cursor without selecting; stable insertion requests
+ok   notices: action IDs, primary release ownership, keyboard and exact focus restoration
+ok   notices: stacks belong to a window, close gaps, coexist with legacy notifications
+ok   notices: live labels, action wrapping, resize and RTL use actual geometry
+ok   notices: persistence, callback reentry and captured resources end with the native widget
+ok   presentation: validate before mapping, reject child/deleted/worker targets
+ok   presentation async: validation before mapping
+ok   presentation async: cancellation and lease lifecycle
+ok   presentation async: hidden and deleted pending targets
+ok   sheet: lazy build, warm reuse, exact 30-second release and app-owned draft reconstruction
+ok   sheet: modal focus, stacked popup, primary release ownership and owner destruction
+ok   sheet: retained fade reversals, reduced motion, resize and live RTL title
+ok   sheet: weak content actions, reentrant reopen, keep-content and final-owner drop
+ok   sheet: child hide callback may release retained controls without a borrow conflict
+ok   motion: a sidebar's width slides (190 ms), ends on FLTK's layout; off jumps
+ok   motion: a window resize mid-way snaps to the final layout and keeps fixed sizes
+ok   motion: set_visible collapses and fades out, show grows in; first layout and RTL flips are not animated
+ok   motion: popups fade in (180 ms) and out (120 ms); focus comes back at once
+ok   motion: the tab indicator slides (160 ms)
+ok   motion: list rows (model) make room, arrive and leave; last frame = no animation
+ok   motion: tree branches open and close (200 ms); last frame = no animation
+ok   sidebar: hover intent (350 ms), leave grace, keyboard (focus expands, arrows, Enter, Esc), pin
+ok   sidebar files: headers, detail rows two lines tall when expanded, usage bars (accent, urgent), secondary button, dimmed and disabled
+ok   sidebar files: clicks (activate, header folds, disabled, secondary with tooltip, right click context) with app indexes
+ok   sidebar files: keyboard skips plain headers, disabled and folded rows; Enter/Left/Right fold; Delete = secondary; Menu and Shift+F10 = context
+ok   sidebar files: set_items keeps selection, cursor and folded sections by key; rows arrive, leave and slide (frozen clock); instant when off
+ok   sidebar files: section fold animates (rows below slide, 200 ms)
+ok   sidebar files: drop target highlight, accept filter, on_drop and on_drop_files with the item index
+ok   sidebar files: busy spinner is static with animations off and turns (one frame per tick) when on
+ok   sidebar files: rows scroll (wheel, keyboard keeps the cursor in view), footers stay
+ok   sidebar files: nested in a Group inside the body: push hover-expand (frozen clock) moves the content, overlay layer at the offset rail, pinned
+ok   navtree: o3 tree order, folded parent summary, tree keys (Right opens / first child, Left closes / parent), type-ahead, activate
+ok   navtree: hover-only actions, section '+' action, Delete = first action, Menu key, context and the menu helper
+ok   navtree: search filters and ranks, highlights matches, keeps ancestors, opens folded parents; Down from the field, Enter opens the first
+ok   navtree: drag to reorder among siblings and into another parent, drop line, accept filter
+ok   navtree: live updates repaint only rows in view, keep selection and the first row in view; pause holds them
+     5000 rows: rebuild 11.176713ms, first draw (snapshot) 58.046645ms, 60 patches 247.716µs, structural change + rebuild 7.637831ms
+ok   navtree: 5 000 rows: rebuild, draw and live patches stay bounded, only rows in view are drawn
+ok   navtree: reveal opens ancestors and scrolls (animated, 120 ms); scroll_to
+ok   navtree: the edge drags the width (min/max, State<i32>), presence hidden/rail/expanded, side Right
+ok   navtree: header and footer widgets (search) show when expanded (push) and ride in the overlay panel
+ok   navtree: custom renderer (own height and paint), right to left mirrors and swaps Left/Right
+ok   navtree: o3 cards (82 px, three lines) and slim rows, status text replaced by hover/cursor actions, tree guides, Delete
+ok   navtree: action menu (right-click, Menu, Shift+F10) lists the row's actions without on_context
+ok   navtree: hover preview card opens after 500 ms beside the row, stays while on the card, closes 140 ms after leaving, on scroll and on keys
+ok   navtree: shelf resizer sets the shelf height (keys ±20, Home resets, drag up grows, range), Slider role
+ok   popup submenus: keys open and close levels, nested paths, ids, disabled entries skipped
+ok   popup submenus: hover opens after 200 ms (animation clock), aim keeps it, clicks
+ok   popup submenus: beside the entry, flip near the right edge, clamp to the window, right to left
+ok   popup submenus: the card is drawn (animations off), chevrons on the trailing side
+ok   popup submenus: with animations on a submenu fades in and out; keys keep working
+ok   split: drag resizes the pane, clamps to the range, two-way State
+ok   split: keys move the grip on the screen; Home/End/Enter
+ok   split: a pane after the grip, a right-to-left row and a column
+ok   split: the focus ring draws the grip in the accent
+ok   chart: bars, highlighted bar, keys, select, right to left
+ok   chart: meter colors and expected mark, ring arc
+ok   chart: line chart cursor, guide and fixed range
+ok   shortcuts: table runs commands, conditions, rebind, repeat
+ok   shortcuts: the focused control keeps its keys; Suspend; reentrant callbacks
+ok   shortcuts: record the next key as a spec; Escape cancels
+ok   list: reorder by dragging (threshold, drop line) and Alt+Up/Down
+ok   list: the wheel goes to the scroll area around it at the list's edges
+ok   rich text: the wheel goes to the scroll area around it at its end
+ok   paint: font weights (semibold has at least regular's ink) and letter spacing
+ok   text field mask: typed literals, paste, dropped letters, bound state
+ok   rich text: a settled streaming tail hides open markers; finish gives the exact text
+ok   rich text: on_far_from_bottom reports only beyond its threshold; follow_end returns
+ok   rich text: word pacing holds a partial word from a sender for at most 80 ms
+ok   composer: page keys scroll the transcript while the text fits
+ok   task::Latest: debounced, latest wins, slow older answers are dropped
+ok   rich text: chip links draw as accent pills and still open
+ok   i18n: follows Omarchy's Setup > Language file, unless the app picked a language
+ok   Omarchy keys: ? opens the shortcut overlay, q in a field types, Q asks with unsaved work
+ok   layer: capture, real opacity, effect on the picture, cross-fade
+ok   scene nodes order: raising and hits respect nested scopes; callbacks update their surface
+ok   scene nodes CPU: stable updates match fresh recording and clear damage caches
+ok   scene images: shared resampling is independent of destination and outer clipping
+ok   scene motion: frozen frames, retarget, painter invalidation and deferred completion
+ok   scene motion: static CPU scene paces, settles on reduced motion/hide, then idles
+ok   scene surface bounded shader: final phase, restart, explicit time and reduced motion
+ok   scene surface CPU: retained painter, coordinates, invalidation, snapshots and keyboard
+ok   scene surface clock: paced frames stop when hidden or motion is disabled
+ok   scene: isolated group opacity, translation, nested layers and live backdrop
+ok   scene: immediate/replay pixel parity and clipped damage
+ok   lava reference: live language, rounded cards and mirrored completion target
+ok   lava reference: pointer reorder, detached preview, falling removal and gap
+ok   lava reference: keyboard pick/drop, reorder, cancel and reset
+ok   scroll blit: moved pixels + exposed strip == full repaint (down and up)
+ok   stream blit: growing the last message while following moves pixels == full repaint
+ok   stream pace: pushes between paced frames are painted together, content exact
+ok   bottom slack: a shrinking inset does not dip the rows; the room goes after growth stops
+ok   icons: every Lucide / o3 fixture parses; tinted pixels at the icon's place; theme restyles live; raster cache
+ok   transcript: keyed messages, embed painter, visibility callbacks, height change keeps the view
+ok   transcript: follow the end stops on scroll up and resumes; bottom inset; prepend and anchors keep the view
+ok   transcript: code header and table footer actions by Tab/Enter/Space and click, built-in copies
+ok   transcript: custom link schemes, inline code paths as links, activatable embeds, hosted widget
+ok   transcript: images are requested in view, sized placeholders, then pixels; alt text until then
+ok   transcript: find highlights every match, F3 / Shift+F3 move; selection rect and programmatic select
+ok   transcript: bind_model follows a ListModel by key (updates stream, inserts, removals)
+ok   diff: unified rows, add/delete tints from the theme, word highlight, virtualized
+ok   diff: keys: n/p and Alt+Down hunks, Mod+Right files, Enter and Left/Right fold, Space collapses a file
+ok   diff: split pairs removed/added lines side by side; wrap grows rows; shared horizontal offset
+ok   diff: Shift+Down selects lines, Mod+C copies text or a patch; mouse drag selects
+ok   diff: find highlights every match, F3 walks them and unfolds; Esc clears
+ok   diff: expand context: hunk header button and e ask the app; lines arrive with numbers; the end of a file
+ok   diff: mouse: hunk header click folds, file header click collapses, wheel scrolls
+ok   diff: file tree shows folders and counts, drives the view and follows Mod+Right
+ok   diff: line numbers select by file, side and number; Shift+click extends; gutter drag; the range survives split, fold, wrap and more context
+ok   diff: comment button on the hovered and cursor line (accent), click or Enter call on_comment with the line or the range
+ok   diff: annotations reserve rows under lines, painted or hosting a widget; heights change with the view anchored; hidden with their line
+ok   diff: Tab goes from the diff into hosted annotation widgets in display order, Shift+Tab back; Escape returns to the annotated line
+ok   diff: code stays left to right in a right-to-left language
+ok   frame: shared-memory frames reach the screen 1:1, letterboxed, RGBA zero-copy and BGRA
+ok   frame: keys go to the producer except Tab and Esc; clicks, wheel and hover map to frame pixels; resize and copy
+ok   frame: content size and clipboard messages, producer exit, PNG/BMP frame files
+ok   testkit: tree lists widgets and list rows with names, rects, focus; JSON
+ok   testkit: a transcript exposes rows near its viewport, inside the view
+ok   testkit: a script types, clicks by name, presses Mod+K, wheels a list and checks; failures are reported
+XOpenIM() failed
+ok   testkit: OMARCHY_FLTK_SCRIPT runs an example app headlessly and writes tree and report
+ok   testkit gate: a deliberately jumping widget fails; toolkit layout motion passes
+ok   testkit gate: RichText streaming, follow_end and prepend keep messages from jumping
+ok   testkit gate: NavTree rows below an arriving row glide down without jumps or pops
+fltk-omarchy: the UI thread waited 80 ms (0 ms CPU) in a callback set at tests/testkit_ui/mod.rs:341:37: move blocking work into a Task
+ok   testkit: frame log writes one JSON line per painted frame; a sleeping click warns
+all ui checks passed
+   Doc-tests fltk_omarchy
+
+running 51 tests
+test src/frame/mod.rs - frame (line 28) - compile ... ok
+test src/frame/surface.rs - frame::surface::Producer (line 180) - compile ... ok
+test src/dialog.rs - dialog (line 7) - compile ... ok
+test src/layout.rs - layout (line 28) - compile ... ok
+test src/gfx/view.rs - gfx::view::View (line 180) - compile ... ok
+test src/icon/mod.rs - icon (line 8) - compile ... ok
+test src/edit/area.rs - edit::area::TextArea (line 211) - compile ... ok
+test src/chart.rs - chart (line 16) - compile ... ok
+test src/model.rs - model (line 14) - compile ... ok
+test src/list.rs - list::List::from_model (line 129) - compile ... ok
+test src/list.rs - list (line 4) - compile ... ok
+test src/model.rs - model::Feed (line 1141) - compile ... ok
+test src/i18n/mod.rs - i18n (line 10) - compile ... ok
+test src/edit/mod.rs - edit (line 6) - compile ... ok
+test src/frame/mod.rs - frame (line 15) - compile ... ok
+test src/instance.rs - instance (line 4) - compile ... ok
+test src/layout.rs - layout (line 49) - compile ... ok
+test src/a11y/mod.rs - a11y::AccessibleExt (line 674) - compile ... ok
+test src/layout.rs - layout (line 6) - compile ... ok
+test src/layout.rs - layout::Mirror (line 322) - compile ... ok
+test src/layer.rs - layer (line 10) - compile ... ok
+test src/diff/mod.rs - diff (line 28) - compile ... ok
+test src/native/presentation.rs - native::presentation::PresentRequest (line 134) - compile fail ... ok
+test src/popups.rs - popups::PopupMenu (line 259) - compile ... ok
+test src/popups.rs - popups::PopupCard (line 1766) - compile ... ok
+test src/scene/surface.rs - scene::surface::Surface (line 129) - compile ... ok
+test src/navtree/mod.rs - navtree (line 44) - compile ... ok
+test src/panel.rs - panel (line 11) - compile ... ok
+test src/state.rs - state::State<T>::modify (line 251) - compile ... ok
+test src/state.rs - state (line 3) - compile ... ok
+test src/navtree/shelf.rs - navtree::shelf::ShelfResizer (line 24) - compile ... ok
+test src/state.rs - state (line 26) - compile ... ok
+test src/shortcuts.rs - shortcuts (line 12) - compile ... ok
+test src/state.rs - state::TextFeed (line 557) - compile ... ok
+test src/state.rs - state::StateFeed (line 443) - compile ... ok
+test src/table.rs - table (line 6) - compile ... ok
+test src/task.rs - task::Latest (line 494) - compile ... ok
+test src/split.rs - split (line 8) - compile ... ok
+test src/native/presentation.rs - native::presentation::PresentRequest (line 138) - compile fail ... ok
+test src/text/label.rs - text::label::RichLabel (line 25) - compile ... ok
+test src/testkit/gate.rs - testkit::gate::Gate (line 85) - compile ... ok
+test src/task.rs - task (line 3) - compile ... ok
+test src/a11y/mod.rs - a11y::Accessible (line 534) ... ok
+test src/text/view.rs - text::view::RichText (line 1743) - compile ... ok
+test src/text/mod.rs - text (line 9) - compile ... ok
+test src/text/view_api.rs - text::view::api::RichText::bind_model (line 287) - compile ... ok
+test src/sidebar.rs - sidebar (line 36) - compile ... ok
+test src/gfx/sl.rs - gfx::sl (line 5) ... ok
+test src/diff/mod.rs - diff (line 12) ... ok
+test src/a11y/mod.rs - a11y::Node (line 205) ... ok
+test src/text/markdown.rs - text::markdown::MarkdownStream (line 269) ... ok
+
+test result: ok. 51 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.37s
+

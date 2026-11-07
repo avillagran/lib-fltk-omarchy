@@ -1,0 +1,54 @@
+{
+  "date": "2026-11-06",
+  "base_commit": "8be476bdfc66d921f611fe7fa8ed8d487912198c",
+  "source_manifest": "source-sha256.txt",
+  "scope": "The manifest records the final source and fixture contents. The full suite and four directed UI checks ran before the TLS release fix; the TLS exit, X11 wire, Wayland gesture and Clippy checks ran after it. The test/example sources were subsequently rustfmt-formatted without semantic changes. Cross-target checks include the final TLS mode and examples.",
+  "native_build": {
+    "result": "pass",
+    "seconds": 49.894,
+    "build": "fresh target-real, without CARGO_CHECK",
+    "log": "build-native.log"
+  },
+  "full_suite_before_tls_fix": {
+    "unit_passed": 284,
+    "unit_ignored": 1,
+    "integration_passed": 6,
+    "ui_checks_passed": 189,
+    "doctests_passed": 51,
+    "log": "suite-before-tls-fix.log"
+  },
+  "directed_ui_before_tls_fix": {
+    "checks_passed": 4,
+    "log": "ui-async-before-tls-fix.log"
+  },
+  "tls_exit": {
+    "before_exit_code": 134,
+    "after_exit_code": 0,
+    "core_dumps": "disabled",
+    "before_log": "tls-before-fix.log",
+    "after_log": "tls-after-fix.log"
+  },
+  "post_fix": {
+    "x11_wire": "pass",
+    "x11_log": "x11-wire-after-fix.log",
+    "wayland_real_and_synthetic_gesture": "pass",
+    "wayland_log": "wayland-after-fix.log",
+    "clippy": "pass: all-targets, correctness and suspicious denied; existing unrelated warnings remain",
+    "clippy_log": "clippy-post-tls-fix.log"
+  },
+  "incremental_check_all_targets": {
+    "windows_msvc": "pass",
+    "macos_arm": "pass",
+    "rust_1_80": "pass",
+    "logs": [
+      "check-windows.log",
+      "check-macos.log",
+      "check-msrv.log"
+    ]
+  },
+  "limitations": [
+    "Windows and macOS checks are typechecks, not native runtime tests.",
+    "The source manifest is not a commit identifier.",
+    "Build target directories and binary artifacts are excluded."
+  ]
+}

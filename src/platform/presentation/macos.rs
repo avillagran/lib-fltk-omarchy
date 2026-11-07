@@ -6,7 +6,7 @@ extern "C" {
     fn sel_registerName(name: *const c_char) -> *mut c_void;
     fn objc_msgSend();
 }
-pub(super) fn present<W: WindowExt>(
+pub(super) fn present<W: WindowExt + ?Sized>(
     window: &W,
     _: PresentOptions<'_>,
 ) -> Result<Presentation, PresentError> {

@@ -12,7 +12,7 @@ extern "system" {
 extern "system" {
     fn GetCurrentProcessId() -> u32;
 }
-pub(super) fn present<W: WindowExt>(
+pub(super) fn present<W: WindowExt + ?Sized>(
     window: &W,
     _: PresentOptions<'_>,
 ) -> Result<Presentation, PresentError> {

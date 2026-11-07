@@ -1,0 +1,8 @@
+probe exit status: 134
+evidence: /home/node/Work/lib-fltk-omarchy-files-presentation/build/present-wayland-7220ec48c53d457bb7a7fc847676b23f
+
+thread 'main' (17) panicked at /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/std/src/thread/local.rs:429:25:
+cannot access a Thread Local Storage value during or after destruction: AccessError
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+fatal runtime error: thread local panicked on drop, aborting
+

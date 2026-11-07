@@ -1,22 +1,57 @@
 # Presenting an existing window
 
-`native::present` maps a hidden application-owned FLTK top-level window and
-requests activation through the native platform. For an `AppWindow` wrapper,
-pass `&mut *win` to borrow its underlying FLTK window. Call on the UI thread,
-for example after a FileManager1 request has been handed to the UI queue:
+`native::begin_present` maps a hidden application-owned FLTK top-level window
+and returns a manually polled `PresentRequest`. It does not send activation
+before the first poll. For an `AppWindow` wrapper, pass `&mut *win` to borrow
+its underlying FLTK window. Begin and poll on the UI thread, for example
+after a FileManager1 request has been handed to the UI queue:
 
 ```rust,no_run
-use fltk_omarchy::native::{self, PresentOptions, PresentStatus};
-# fn example(mut window: fltk::window::DoubleWindow, startup_id: Option<&str>) -> Result<(), native::PresentError> {
-let outcome = native::present(&mut window, PresentOptions {
+use fltk_omarchy::native::{self, PresentOptions};
+# fn example(mut window: fltk::window::DoubleWindow, startup_id: Option<&str>) -> Result<native::PresentRequest, native::PresentError> {
+let request = native::begin_present(&mut window, PresentOptions {
     startup_id,
     ..Default::default()
 })?;
-if outcome.status == PresentStatus::Unsupported {
-    // The window is visible, but native activation is unavailable.
-}
-# Ok(()) }
+# Ok(request) }
 ```
+
+Store the handle in UI-owned state. Once during each ordinary UI iteration,
+recheck that the request still belongs to the current navigation, modal and
+window context, then poll it outside application model borrows:
+
+```rust,no_run
+use std::task::Poll;
+use fltk_omarchy::native::{PresentRequest, PresentStatus};
+# fn advance(request: &mut PresentRequest, context_is_current: bool) {
+if !context_is_current {
+    request.cancel();
+}
+match request.poll() {
+    Poll::Pending => {
+        // Keep the handle and return to the ordinary UI loop.
+    }
+    Poll::Ready(Ok(outcome)) => {
+        if outcome.status == PresentStatus::Unsupported {
+            // The window is visible, but native activation is unavailable.
+        }
+        // Consume the outcome and stop scheduling polls for this handle.
+    }
+    Poll::Ready(Err(error)) => {
+        // Consume the error, including intentional cancellation.
+        let _ = error;
+    }
+}
+# }
+```
+
+There is no internal timer, worker or future executor. While a request is
+pending, the application's loop must continue to make ordinary UI turns;
+do not spin on `Pending` or sleep inside a callback. Stop polling after a
+terminal result. The handle is neither `Send` nor `Sync`, tracks deletion
+without extending the widget's lifetime, and must remain on the UI thread.
+Before each pending poll, the facade rejects a deleted or child window and
+cancels a window that has become hidden.
 
 Pass the startup context from the incoming request explicitly. On Wayland,
 `activation_token` takes precedence over `startup_id`; either is treated as
@@ -24,13 +59,37 @@ an opaque xdg-activation token. On X11, `startup_id` is used for startup
 notification. `timestamp` is an optional X server timestamp, not Unix time;
 otherwise the `_TIME` suffix in `startup_id` is used, then CurrentTime.
 Empty strings mean absent. Hints containing NUL or exceeding 60 KiB are
-rejected before mapping the window. Debug output redacts both hints.
+rejected before mapping the window. The request owns the retained hints,
+so caller strings can be dropped after `begin_present` returns. Debug
+output redacts both hints and the request exposes no token in its errors.
 Windows and macOS ignore these hints.
 
 The API never reads or mutates `XDG_ACTIVATION_TOKEN` or `DESKTOP_STARTUP_ID`.
 If an application imports its initial launch environment, it owns that
 startup-only policy. Worker threads should forward owned strings to the UI
-thread with `task::post`; they must not call `present` directly.
+thread with `task::post`; they must not call either presentation API directly.
+
+## Completion and cancellation
+
+At most one asynchronous presentation lease can be pending on a UI thread.
+Another `begin_present`, or the synchronous `present` API, returns `Busy`
+while it is held. Reentrant presentation calls are also rejected. Completion,
+`cancel` or dropping a pending handle releases the lease. Keeping or later
+dropping a completed handle cannot release a newer request's lease.
+
+The first terminal `Result<Presentation, PresentError>` is cached. Repeated
+polls return that result without resending activation or touching the window.
+`cancel()` returns `true` for pending work and makes subsequent polls return
+`PresentError::Cancelled`; after completion or a previous cancellation it
+returns `false` and preserves the terminal result. Dropping pending work
+retires its private resources. Neither operation automatically retries.
+
+Cancellation before native activation dispatch prevents that activation.
+Mapping already performed by `begin_present` follows normal FLTK/compositor
+policy and cannot be undone by cancellation. A terminal `Requested` result
+means native dispatch already happened; cancel or drop cannot recall it or
+claim that focus was restored. Application ownership checks remain the
+caller's responsibility before every pending poll.
 
 ## Outcomes
 
@@ -45,7 +104,8 @@ thread with `task::post`; they must not call `present` directly.
 is **not** a focus guarantee and must not be displayed as successful focus.
 The status describes activation rather than visibility. Errors identify
 wrong-thread calls, deleted/child windows, invalid hints, reentrancy, native
-failures and handshake timeout. An error after mapping need not undo mapping.
+failures, cancellation and handshake timeout. An error after mapping need
+not undo mapping.
 
 ## Platform behavior
 
@@ -77,16 +137,83 @@ compositor. A newly mapped surface may require an event-loop turn before an
 activation is honored. `AppWindow::raise` is a separate legacy convenience
 with different fallback behavior; this API does not call it.
 
-Wayland discovery/token acquisition is synchronous but bounded (at most two
-2-second private-queue handshakes on the first no-token call, one thereafter).
-It dispatches only its private protocol queue, avoiding application callback
-reentrancy. The cached registry/queue is reused per FLTK connection. There
-are no threads, timers, polling while idle, external commands, compositor
-IPC, foreign-window IDs, or retries that bypass platform policy.
+With `begin_present`, Wayland discovery and token acquisition advance without
+waiting for the compositor. Each poll makes one protocol pass with a
+zero-timeout socket poll and pairs every prepared read with a read or
+cancellation before returning. Only the private protocol queue is dispatched,
+so these handshakes do not run application callbacks. Each handshake phase
+has a two-second elapsed deadline checked when polled; discovery and token
+acquisition have separate deadlines. A first no-token request can require
+both phases; a cached connection skips completed discovery, and an explicit
+token skips token acquisition. These deadlines do not create an internal
+wakeup or bound normal window mapping.
+
+Wayland input permission is captured at API entry, before `window.show()`
+can dispatch another event. Later polls never substitute a newer gesture's
+seat/serial. Before using captured context, the backend checks the same
+display/socket identity and current live seat. The origin window has a
+deletion tracker; its current surface is resolved only if it is still a
+shown top-level window. The target surface is resolved again immediately
+before activation. A replaced display terminates the request instead of
+accessing old proxies. Private callback storage remains alive until its
+proxy is retired, including cancellation and drop.
+
+The cached registry/queue is reused per live FLTK connection and exclusively
+leased while a request is pending. The API adds no background threads,
+internal timers, external commands, compositor IPC, foreign-window IDs, or
+retries that bypass platform policy.
+
+On X11, Windows, macOS and other backends, `begin_present` defers the existing
+native presentation call until the first poll. In particular, X11's existing
+server roundtrips can still wait in that poll. The portable handle provides
+cancellation and ownership checks before dispatch; it does not promise
+asynchronous execution of every platform's native API.
+
+## Synchronous compatibility
+
+`native::present(&mut window, options)` remains available and returns
+`Result<Presentation, PresentError>` directly. Its Wayland discovery/token
+acquisition still waits on the private queue: at most two two-second
+handshakes on a first no-token call, one after discovery is cached. It does
+not use the new manually polled flow. Prefer `begin_present` when the UI
+must remain responsive during Wayland handshakes, and call either API outside
+application model borrows. Neither API bypasses compositor focus policy.
 
 ## Local validation
 
-Build `cargo build --offline --example present_check`, then run:
+NODE CPU/default validation passed 284 unit tests (one ignored), six
+integration checks, 189 UI checks and 51 doctests. Four final directed async
+UI checks cover rejection before mapping, cancellation/lease ownership,
+terminal caching and hidden/deleted targets. All-target Windows MSVC,
+macOS ARM and Rust 1.80 checks passed; these are typechecks rather than native
+runtime or nonblocking guarantees for those platforms.
+
+`script/async-present-wayland-check` verifies that a real keyboard gesture
+captured in `begin_present` can activate the target when polled later, while
+a synthetic key does not borrow an earlier native serial. It uses private
+Sway policies. `script/async-present-x11-check` verifies wire-level absence
+of activation/startup messages before polling or after cancel/drop, one
+activation on the first poll and no replay on terminal polls. It also checks
+that dropping an old completed handle cannot release a newer lease.
+
+`script/async-present-tls-exit-check` retains a pending request in thread-local
+state created before the connection cache. It reproduced an exit abort when
+cleanup accessed an already destroyed cache, and passed after cleanup used
+fallible TLS access. Core dumps were disabled. The X11 wire and Wayland
+gesture drivers passed again after this fix, as did the repository Clippy
+correctness/suspicious gates (unrelated existing warnings remain).
+
+The [local receipt](evidence/async-presentation-20261106/summary.json) records
+the exact scope, source/fixture hashes and retained failures. Delayed-peer UI
+progress, pending cancellation during both handshake phases and all origin/
+reconnect edge cases still need broader integration evidence. Do not
+interpret the synchronous checkpoint below as proof of those async paths.
+
+### Synchronous checkpoint 767235b
+
+The following records the original synchronous implementation and its
+historical validation. Build `cargo build --offline --example present_check`,
+then run:
 
 ```sh
 script/present-check

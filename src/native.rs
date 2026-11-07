@@ -21,14 +21,20 @@ use std::ffi::c_void;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 mod presentation;
-pub use presentation::{present, PresentBackend, PresentError, PresentOptions, PresentStatus, Presentation};
+pub use presentation::{
+    begin_present, present, PresentBackend, PresentError, PresentOptions, PresentRequest,
+    PresentStatus, Presentation,
+};
 
 static MOVES: AtomicU32 = AtomicU32::new(0);
 static RESIZES: AtomicU32 = AtomicU32::new(0);
 
 /// Native gestures started so far: (moves, resizes). Diagnostics.
 pub fn gesture_counts() -> (u32, u32) {
-    (MOVES.load(Ordering::Relaxed), RESIZES.load(Ordering::Relaxed))
+    (
+        MOVES.load(Ordering::Relaxed),
+        RESIZES.load(Ordering::Relaxed),
+    )
 }
 
 /// Window edge or corner for [`begin_resize`] (libdecor's order).
@@ -53,11 +59,17 @@ fn gesture<W: WidgetExt>(w: &W, edge: Option<Edge>, dry_run: bool) -> bool {
     if app::event() != Event::Push {
         return false; // the serial must be the one of this button press
     }
-    let Some(win) = w.top_window() else { return false };
+    let Some(win) = w.top_window() else {
+        return false;
+    };
     if !win.shown() {
         return false;
     }
-    crate::platform::native_gesture(win.as_widget_ptr() as *const c_void, edge.map(|e| e as i32), dry_run)
+    crate::platform::native_gesture(
+        win.as_widget_ptr() as *const c_void,
+        edge.map(|e| e as i32),
+        dry_run,
+    )
 }
 
 /// True when [`begin_move`]/[`begin_resize`] would work for `w` now.
@@ -90,7 +102,9 @@ pub fn begin_resize<W: WidgetExt>(w: &W, edge: Edge) -> bool {
 /// the real resolution on a 2× output. X11 and unshown windows: FLTK's scaling.
 /// macOS and Windows: FLTK's own `pixels_per_unit` (it includes Retina).
 pub fn pixels_per_unit<W: WidgetExt>(w: &W) -> f32 {
-    let Some(win) = w.top_window() else { return 1.0 };
+    let Some(win) = w.top_window() else {
+        return 1.0;
+    };
     if !win.shown() {
         // Offscreen renders and windows not shown yet: FLTK's scaling only
         // (asking macOS's backend about a window without a native one
@@ -98,7 +112,8 @@ pub fn pixels_per_unit<W: WidgetExt>(w: &W) -> f32 {
         let s = app::screen_scale(0);
         return if s.is_finite() && s > 0.0 { s } else { 1.0 };
     }
-    let ppu = match crate::platform::output_scale(win.as_widget_ptr() as *const c_void, win.shown()) {
+    let ppu = match crate::platform::output_scale(win.as_widget_ptr() as *const c_void, win.shown())
+    {
         Some(output) => app::screen_scale(win.screen_num()) * output as f32,
         None => {
             // SAFETY: `win` is a live top-level window; the wrapper only reads it.
@@ -106,5 +121,9 @@ pub fn pixels_per_unit<W: WidgetExt>(w: &W) -> f32 {
             w.pixels_per_unit()
         }
     };
-    if ppu.is_finite() && ppu > 0.0 { ppu } else { 1.0 }
+    if ppu.is_finite() && ppu > 0.0 {
+        ppu
+    } else {
+        1.0
+    }
 }

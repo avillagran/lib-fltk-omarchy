@@ -99,7 +99,7 @@ unsafe fn property(d: *mut c_void, window: c_ulong, name: Atom, expected: Atom) 
 fn time_from_id(id: &str) -> Option<u32> {
     id.rsplit_once("_TIME")?.1.parse().ok()
 }
-pub(super) fn present<W: WindowExt>(
+pub(super) fn present<W: WindowExt + ?Sized>(
     window: &W,
     options: PresentOptions<'_>,
 ) -> Result<Presentation, PresentError> {
