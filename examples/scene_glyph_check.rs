@@ -311,17 +311,62 @@ mod linux {
             .max()
             .unwrap_or(0)
     }
+    fn coverage_difference(candidate: &[u8], reference: &[u8]) -> serde_json::Value {
+        assert_eq!(candidate.len(), reference.len());
+        assert_eq!(candidate.len(), (W * H * 3) as usize);
+        let mut maximum = 0u8;
+        let mut changed = 0usize;
+        let mut above_gate = 0usize;
+        let mut bounds: Option<[usize; 4]> = None;
+        let mut peak_count = 0usize;
+        let mut peaks = Vec::new();
+        for (index, (a, b)) in candidate.chunks_exact(3)
+            .zip(reference.chunks_exact(3)).enumerate()
+        {
+            let difference = a.iter().zip(b).map(|(a, b)| a.abs_diff(*b)).max().unwrap_or(0);
+            if difference == 0 { continue; }
+            let (x, y) = (index % W as usize, index / W as usize);
+            changed += 1;
+            above_gate += usize::from(difference > 2);
+            bounds = Some(match bounds {
+                None => [x, y, x + 1, y + 1],
+                Some(old) => [old[0].min(x), old[1].min(y),
+                    old[2].max(x + 1), old[3].max(y + 1)],
+            });
+            if difference > maximum {
+                maximum = difference;
+                peak_count = 0;
+                peaks.clear();
+            }
+            if difference == maximum {
+                peak_count += 1;
+                if peaks.len() < 16 {
+                    peaks.push(json!({"x":x,"y":y,"candidate_rgb":a,"reference_rgb":b}));
+                }
+            }
+        }
+        json!({"comparison_threshold":2,"max_delta":maximum,"changed_pixels":changed,"above_gate_pixels":above_gate,
+            "changed_bounds_surface":bounds,"peak_pixel_count":peak_count,
+            "peak_pixels":peaks,"peak_limit":16})
+    }
+    struct InkPartition {
+        groups: Vec<std::ops::Range<usize>>,
+        font_ink: Vec<[i32; 4]>,
+        padded_run_ink: Vec<[i64; 4]>,
+    }
     // Diagnostic quadratic reference, not the eventual hot-path algorithm.
     // Candidate: render overlapping ink/clusters together so Cairo combines
     // their masks in one operation. The separate --require-groups gate can
     // reject this partition even when whole native runs reproduce exactly.
-    unsafe fn ink_groups(font: Ptr, glyphs: &[GlyphInfo]) -> Vec<std::ops::Range<usize>> {
+    unsafe fn ink_groups(font: Ptr, glyphs: &[GlyphInfo]) -> InkPartition {
         let mut groups: Vec<std::ops::Range<usize>> = Vec::new();
         let mut bounds: Vec<[i64; 4]> = Vec::new();
+        let mut font_ink = Vec::new();
         let mut advance = 0i64;
         for (i, glyph) in glyphs.iter().enumerate() {
             let mut ink = Rectangle::default();
             pango_font_get_glyph_extents(font, glyph.glyph, &mut ink, ptr::null_mut());
+            font_ink.push([ink.x, ink.y, ink.width, ink.height]);
             let left = advance + glyph.geometry.x_offset as i64 + ink.x as i64 - 1024;
             let top = glyph.geometry.y_offset as i64 + ink.y as i64 - 1024;
             let rect = [
@@ -348,7 +393,7 @@ mod linux {
             bounds.push(rect);
             advance += glyph.geometry.width as i64;
         }
-        groups
+        InkPartition { groups, font_ink, padded_run_ink: bounds }
     }
     unsafe fn probe(case: &Case, output: &std::path::Path) -> Result<serde_json::Value, String> {
         let native_black = native(case, 0);
@@ -427,9 +472,22 @@ mod linux {
                     let mut logical = Rectangle::default();
                     pango_layout_iter_get_run_extents(iter.0, ptr::null_mut(), &mut logical);
                     let baseline = pango_layout_iter_get_run_baseline(iter.0);
-                    let original_glyphs =
-                        std::slice::from_raw_parts(glyphs.glyphs, glyphs.count as usize);
-                    let groups = ink_groups(item.analysis.font, original_glyphs);
+                    // Even an empty slice requires a non-NULL pointer in Rust.
+                    // Borrow both arrays only while the owned layout is alive.
+                    let (original_glyphs, original_clusters): (&[GlyphInfo], &[i32]) =
+                        if glyphs.count == 0 {
+                            (&[], &[])
+                        } else {
+                            if glyphs.glyphs.is_null() || glyphs.clusters.is_null() {
+                                return Err("native glyph storage is NULL for a nonempty run".into());
+                            }
+                            (
+                                std::slice::from_raw_parts(glyphs.glyphs, glyphs.count as usize),
+                                std::slice::from_raw_parts(glyphs.clusters, glyphs.count as usize),
+                            )
+                        };
+                    let InkPartition { groups, font_ink, padded_run_ink } =
+                        ink_groups(item.analysis.font, original_glyphs);
                     for group in &groups {
                         let mut subset = original_glyphs[group.clone()].to_vec();
                         let advance: i64 = original_glyphs[..group.start]
@@ -462,6 +520,18 @@ mod linux {
                             );
                         }
                     }
+                    let group_audit: Vec<_> = groups.iter().map(|group| {
+                        // This union is only a font-metric envelope, not a
+                        // measured raster mask or proof of disjoint coverage.
+                        let union = group.clone().map(|index| padded_run_ink[index])
+                            .reduce(|a, b| [a[0].min(b[0]), a[1].min(b[1]),
+                                a[2].max(b[2]), a[3].max(b[3])]);
+                        let splits_cluster = group.start > 0
+                            && original_clusters[group.start - 1] == original_clusters[group.start];
+                        json!({"glyph_start":group.start,"glyph_end":group.end,
+                            "padded_run_ink_union_pango":union,
+                            "starts_inside_log_cluster":splits_cluster})
+                    }).collect();
                     for canvas in &batched {
                         canvas.paint(
                             origin.0 + logical.x as f64 / SCALE,
@@ -471,9 +541,9 @@ mod linux {
                     }
                     let mut advance = 0i64;
                     let mut ids = Vec::new();
-                    for original in std::slice::from_raw_parts(glyphs.glyphs, glyphs.count as usize)
-                    {
+                    for (index, original) in original_glyphs.iter().enumerate() {
                         let mut glyph = *original;
+                        let pen = advance;
                         let x = origin.0
                             + (logical.x as i64 + advance + glyph.geometry.x_offset as i64) as f64
                                 / SCALE;
@@ -503,12 +573,23 @@ mod linux {
                             );
                         }
                         ids.push(json!({"glyph":glyph.glyph,"x":x,"y":y,
+                            "advance_before_pango":pen,
+                            "geometry_pango":{"width":original.geometry.width,
+                                "x_offset":original.geometry.x_offset,"y_offset":original.geometry.y_offset},
+                            "log_cluster":original_clusters[index],
+                            "font_ink_rect_pango":font_ink[index],
+                            "padded_run_ink_pango":padded_run_ink[index],
                             "cluster_start":glyph.attributes & 1 != 0,
                             "color":glyph.attributes & 2 != 0}));
                     }
                     glyph_count += glyphs.count;
                     runs.push(json!({"font":face_name(item.analysis.font),
                         "ink_group_sizes":groups.iter().map(|g|g.len()).collect::<Vec<_>>(),
+                        "coverage_audit":{"version":1,"padding_pango":1024,
+                            "run_origin_surface":[origin.0 + logical.x as f64 / SCALE,
+                                origin.1 + baseline as f64 / SCALE],
+                            "logical_rect_pango":[logical.x,logical.y,logical.width,logical.height],
+                            "baseline_pango":baseline,"groups":group_audit},
                         "byte_offset":item.offset,"byte_length":item.length,
                         "characters":item.num_chars,"bidi_level":item.analysis.level,"glyphs":ids}));
                 }
@@ -543,6 +624,9 @@ mod linux {
         }
         Ok(json!({"case":case.name,"text":case.text,"size":case.size,
             "lines":lines.len(),"glyph_count":glyph_count,"runs":runs,
+            "group_delta_audit":{"version":1,
+                "black":coverage_difference(&group_black,&native_black),
+                "white":coverage_difference(&group_white,&native_white)},
             "layout_native_max_delta":delta(&layout_black,&native_black).max(delta(&layout_white,&native_white)),
             "run_native_max_delta":delta(&batch_black,&native_black).max(delta(&batch_white,&native_white)),
             "group_native_max_delta":delta(&group_black,&native_black).max(delta(&group_white,&native_white)),

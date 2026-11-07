@@ -92,6 +92,11 @@ over operations is therefore not admitted as an equivalent atlas path.
 The candidate partition is a quadratic diagnostic reference, not a hot-path
 algorithm or an approved fallback policy.
 
+A [static coverage-audit proposal](GLYPH-COVERAGE-AUDIT.md) adds the original
+ink rectangles, geometry, cluster offsets and group boundaries to future
+reports. It has not been compiled or executed, does not resolve the recorded
+Nastaliq discrepancy, and does not change the existing replay or gates.
+
 Next work must preserve native coverage for connected glyphs, then validate
 actual bounded tile rasterization, alpha/color handling, stable font/glyph/
 phase identities, CPU cache eviction, GL page residency and uploads, context
