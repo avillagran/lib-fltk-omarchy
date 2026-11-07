@@ -1,0 +1,296 @@
+{
+  "date": "2026-11-06",
+  "checkpoint": "dd481f1c7b29a06c0eedeb61780c112f3e603679",
+  "base_commit": "3eea6c1",
+  "contract": {
+    "permission": "Sheet::bind_dismissible(&State<bool>), default true, is_dismissible reports current UI policy. Temporary mapped State retained; weak subscription; versioned rebind.",
+    "user_paths": [
+      "Escape",
+      "ClickOutside",
+      "CloseButton"
+    ],
+    "false": "Close disabled; no dismiss callback, focus/transition/retention/open-state mutation. Recheck at release; blocked outside press cannot acquire a later release.",
+    "owner_close": "close() and weak-owner close bypass the binding for explicit completion/ACK/abort. App Cancel must request rollback and wait for ACK before closing.",
+    "owner_cleanup": "OwnerHidden/deletion bypass policy, retire modal input/focus return and do not remap hidden owner. Child Hide may release content with deferred detach/deletion."
+  },
+  "source_sha256": {
+    "src/overlay/sheet.rs": "87b983678838833a57328aa726875ae930836fb1d5a6ee7890b97abb88f82150",
+    "src/focus.rs": "03e153a68f3c6478a3ce5e1594fae914e7c6a22aa7c41093149dd14dfe85400e",
+    "tests/sheet_ui/mod.rs": "c71fd51125a8fc2b8da4d34a8ea27790277d683fc438987c59eb3fa8d04b9819",
+    "tests/sheet_ui/guard.rs": "f836e3ead7c2d44a1c24d41d6c4838b3552a7eba2ef7936b6872e96b6ab94de3",
+    "tests/scene_ui/sheet.rs": "a3a7287c6424dccc31f71bfa3583685ff80ba7bce83ec08ad663d5c64538a2c0",
+    "examples/sheet_guard_input_check.rs": "63f46cc749defc50d3f91674b0b8892d54fb837c8064b67668cfa2ced0275375",
+    "script/sheet-guard-input-check": "168a002029c559c8807e0f2d327a10bd8238b44aa03b7cb5201d9ec11d12eedd",
+    "script/sheet-guard-wayland-check": "e39a581e6ba58b0f02ed8e1c5e13e3ec3b40f19774b8bf9d431f3ac10949deb9"
+  },
+  "suites": {
+    "cpu": {
+      "unit_passed": 285,
+      "unit_ignored": 1,
+      "integration_passed": 6,
+      "ui_passed": 196,
+      "doctests_passed": 52,
+      "timer_runtime": "pass"
+    },
+    "features": {
+      "unit_passed": 359,
+      "unit_ignored": 1,
+      "integration_passed": 6,
+      "ui_passed": 246,
+      "doctests_passed": 59,
+      "timer_runtime": "pass"
+    }
+  },
+  "directed_gpu": {
+    "checks": 7,
+    "drivers": [
+      "NVIDIA RTX 3070 Ti",
+      "Mesa llvmpipe LLVM 23.1.3"
+    ],
+    "result": "pass",
+    "pixel_threshold_rgb": 2,
+    "static_overlay": "zero recaptures/uploads/parent redraws; zero cached idle frames and overlay bytes after hide"
+  },
+  "native": {
+    "x11": {
+      "denied": {
+        "open": true,
+        "built": true,
+        "allowed": false,
+        "focused": true,
+        "anchor_focused": false,
+        "draft": "x",
+        "close_disabled": true,
+        "reasons": [],
+        "builds": 1,
+        "drops": 0,
+        "hide_reopen": null,
+        "listeners": 1,
+        "peer_text": ""
+      },
+      "accepted": {
+        "open": false,
+        "built": true,
+        "allowed": true,
+        "focused": false,
+        "anchor_focused": true,
+        "draft": "x",
+        "close_disabled": false,
+        "reasons": [
+          "Escape"
+        ],
+        "builds": 1,
+        "drops": 0,
+        "hide_reopen": null,
+        "listeners": 1,
+        "peer_text": ""
+      },
+      "owner_finish": {
+        "open": false,
+        "built": true,
+        "allowed": false,
+        "focused": false,
+        "anchor_focused": true,
+        "draft": "",
+        "close_disabled": false,
+        "reasons": [
+          "Escape",
+          "Closed"
+        ],
+        "builds": 2,
+        "drops": 1,
+        "hide_reopen": null,
+        "listeners": 1,
+        "peer_text": ""
+      },
+      "owner_hidden": {
+        "open": false,
+        "built": true,
+        "allowed": false,
+        "focused": false,
+        "anchor_focused": false,
+        "draft": "",
+        "close_disabled": false,
+        "reasons": [
+          "Escape",
+          "Closed",
+          "OwnerHidden"
+        ],
+        "builds": 3,
+        "drops": 2,
+        "hide_reopen": false,
+        "listeners": 1,
+        "peer_text": ""
+      },
+      "owner_deleted": {
+        "open": false,
+        "built": false,
+        "allowed": false,
+        "focused": false,
+        "anchor_focused": false,
+        "draft": null,
+        "close_disabled": false,
+        "reasons": [
+          "Escape",
+          "Closed",
+          "OwnerHidden",
+          "OwnerHidden"
+        ],
+        "builds": 3,
+        "drops": 2,
+        "hide_reopen": false,
+        "listeners": 1,
+        "peer_text": "a"
+      },
+      "final": {
+        "open": false,
+        "built": false,
+        "allowed": false,
+        "focused": false,
+        "anchor_focused": false,
+        "draft": null,
+        "close_disabled": false,
+        "reasons": [
+          "Escape",
+          "Closed",
+          "OwnerHidden",
+          "OwnerHidden"
+        ],
+        "builds": 3,
+        "drops": 3,
+        "hide_reopen": false,
+        "listeners": 0,
+        "peer_text": "ab"
+      }
+    },
+    "wayland": {
+      "denied": {
+        "open": true,
+        "built": true,
+        "allowed": false,
+        "focused": true,
+        "anchor_focused": false,
+        "draft": "x",
+        "close_disabled": true,
+        "reasons": [],
+        "builds": 1,
+        "drops": 0,
+        "hide_reopen": null,
+        "listeners": 1,
+        "peer_text": ""
+      },
+      "accepted": {
+        "open": false,
+        "built": true,
+        "allowed": true,
+        "focused": false,
+        "anchor_focused": true,
+        "draft": "x",
+        "close_disabled": false,
+        "reasons": [
+          "CloseButton"
+        ],
+        "builds": 1,
+        "drops": 0,
+        "hide_reopen": null,
+        "listeners": 1,
+        "peer_text": ""
+      },
+      "owner_finish": {
+        "open": false,
+        "built": true,
+        "allowed": false,
+        "focused": false,
+        "anchor_focused": true,
+        "draft": "",
+        "close_disabled": false,
+        "reasons": [
+          "CloseButton",
+          "Closed"
+        ],
+        "builds": 2,
+        "drops": 1,
+        "hide_reopen": null,
+        "listeners": 1,
+        "peer_text": ""
+      },
+      "owner_hidden": {
+        "open": false,
+        "built": true,
+        "allowed": false,
+        "focused": false,
+        "anchor_focused": false,
+        "draft": "",
+        "close_disabled": false,
+        "reasons": [
+          "CloseButton",
+          "Closed",
+          "OwnerHidden"
+        ],
+        "builds": 3,
+        "drops": 2,
+        "hide_reopen": false,
+        "listeners": 1,
+        "peer_text": ""
+      },
+      "owner_deleted": {
+        "open": false,
+        "built": false,
+        "allowed": false,
+        "focused": false,
+        "anchor_focused": false,
+        "draft": null,
+        "close_disabled": false,
+        "reasons": [
+          "CloseButton",
+          "Closed",
+          "OwnerHidden",
+          "OwnerHidden"
+        ],
+        "builds": 4,
+        "drops": 3,
+        "hide_reopen": false,
+        "listeners": 1,
+        "peer_text": "a"
+      },
+      "final": {
+        "open": false,
+        "built": false,
+        "allowed": false,
+        "focused": false,
+        "anchor_focused": false,
+        "draft": null,
+        "close_disabled": false,
+        "reasons": [
+          "CloseButton",
+          "Closed",
+          "OwnerHidden",
+          "OwnerHidden"
+        ],
+        "builds": 4,
+        "drops": 4,
+        "hide_reopen": false,
+        "listeners": 0,
+        "peer_text": "ab"
+      }
+    }
+  },
+  "reproductions": {
+    "stale_binding": "red: old callback already queued by State notification overwrote newer binding; green after revision identity check.",
+    "owner_hide": "red: focus restoration remapped hidden owner, then allowed modal reopen; green after retiring focus-return target and guarding owner teardown.",
+    "child_hide": "Existing resource release/sibling-order test passes; settle owner dismissal before child release when native owner is unmapping."
+  },
+  "gates": {
+    "fmt": "pass: platform and changed leaf modules/examples/tests; git diff --check",
+    "clippy": "pass: all-targets/all-features, correctness+suspicious denied; legacy warnings remain",
+    "msrv": "pass: Rust 1.80 native Linux, all-targets with gpu",
+    "cross": "pass: Windows MSVC and macOS ARM all-targets/all-features; typecheck only"
+  },
+  "scope": [
+    "X11 uses XTest on a private Xvfb. Wayland uses a private rootless Sway/virtual keyboard. No host runtime/display/input socket.",
+    "wtype keeps devices alive for focus checks and reserves keycode slots 10..19 normalized to digits by pinned FLTK; no product key mapping changed.",
+    "Guarded frozen reversal PNGs are byte-identical before/after rejected Escape; image inspected.",
+    "No native Windows/macOS or physical-device claim. Files Sheet adoption/acceptance is separate.",
+    "No remote push/tag/CI or vault push."
+  ]
+}
