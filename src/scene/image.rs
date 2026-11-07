@@ -4,8 +4,27 @@ use super::{record, Command, Rect};
 use fltk::{enums::ColorDepth, image::RgbImage, prelude::*};
 use std::{
     fmt,
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc, Mutex,
+    },
 };
+
+// Identities outlive the CPU allocation used during GPU preparation. A
+// recycled pixel pointer must never name a resident texture from before.
+pub(super) fn next_identity() -> u64 {
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    let mut identity = NEXT.load(Ordering::Relaxed);
+    loop {
+        let next = identity
+            .checked_add(1)
+            .expect("scene resource identities exhausted");
+        match NEXT.compare_exchange_weak(identity, next, Ordering::Relaxed, Ordering::Relaxed) {
+            Ok(_) => return identity,
+            Err(current) => identity = current,
+        }
+    }
+}
 
 /// Largest image resource accepted by the scene (64 MiB of RGBA pixels).
 /// Decode or downsample oversized sources before constructing a resource.
@@ -13,7 +32,8 @@ pub const MAX_IMAGE_BYTES: usize = 64 * 1024 * 1024;
 const MAX_SCALED_CACHE_BYTES: usize = 8 * 1024 * 1024;
 #[derive(Debug)]
 struct Scaled {
-    source: usize,
+    source: u64,
+    identity: u64,
     width: u32,
     height: u32,
     pixels: Arc<[u8]>,
@@ -34,6 +54,7 @@ impl std::error::Error for ImageError {}
 /// no decoding, file I/O, widget creation or GPU allocation.
 #[derive(Debug, Clone)]
 pub struct Image {
+    identity: u64,
     width: i32,
     height: i32,
     pixels: Arc<[u8]>,
@@ -56,6 +77,7 @@ impl Image {
             return Err(ImageError);
         }
         Ok(Self {
+            identity: next_identity(),
             width: width as i32,
             height: height as i32,
             pixels: pixels.into(),
@@ -75,6 +97,10 @@ impl Image {
     #[cfg(feature = "gpu")]
     pub(super) fn shared_pixels(&self) -> Arc<[u8]> {
         self.pixels.clone()
+    }
+    #[cfg(feature = "gpu")]
+    pub(super) fn identity(&self) -> u64 {
+        self.identity
     }
 
     /// Deterministic pixel-center bilinear sampling in premultiplied alpha.
@@ -99,13 +125,14 @@ impl Image {
         if width == self.width() && height == self.height() {
             return Ok(self.clone());
         }
-        let source = self.pixels.as_ptr() as usize;
+        let source = self.identity;
         let mut cache = self.scaled.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(c) = cache
             .as_ref()
             .filter(|c| c.source == source && c.width == width && c.height == height)
         {
             return Ok(Self {
+                identity: c.identity,
                 width: width as i32,
                 height: height as i32,
                 pixels: c.pixels.clone(),
@@ -150,15 +177,18 @@ impl Image {
             }
         }
         let pixels: Arc<[u8]> = pixels.into();
+        let identity = next_identity();
         if size <= MAX_SCALED_CACHE_BYTES {
             *cache = Some(Scaled {
                 source,
+                identity,
                 width,
                 height,
                 pixels: pixels.clone(),
             });
         }
         Ok(Self {
+            identity,
             width: width as i32,
             height: height as i32,
             pixels,
@@ -209,6 +239,28 @@ impl Image {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn immutable_identities_survive_clones_and_cached_resampling_without_pointer_keys() {
+        let image = Image::rgba(2, 1, vec![128; 8]).unwrap();
+        assert_eq!(image.identity, image.clone().identity);
+        let scaled = image.resampled(3, 1).unwrap();
+        assert_ne!(scaled.identity, image.identity);
+        let copy = image.clone();
+        let worker = std::thread::spawn(move || copy.resampled(3, 1).unwrap())
+            .join()
+            .unwrap();
+        assert_eq!(scaled.identity, worker.identity);
+        image.clear_cache();
+        assert_ne!(scaled.identity, image.resampled(3, 1).unwrap().identity);
+        let mut ids = std::collections::HashSet::new();
+        for _ in 0..512 {
+            // The allocator may recycle the same pixel address immediately;
+            // no live GPU cache entry can be confused with its successor.
+            let next = Image::rgba(2, 1, vec![128; 8]).unwrap();
+            assert!(ids.insert(next.identity));
+            assert_ne!(next.identity, image.identity);
+        }
+    }
     #[test]
     fn rejects_invalid_resources_and_retains_owned_pixels() {
         assert!(Image::rgba(0, 1, vec![]).is_err());

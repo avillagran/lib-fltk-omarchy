@@ -116,6 +116,10 @@ name = "gpu_bench"
 required-features = ["gpu"]
 
 [[example]]
+name = "scene_residency_check"
+required-features = ["gpu"]
+
+[[example]]
 name = "a11y_check"
 required-features = ["a11y"]
 

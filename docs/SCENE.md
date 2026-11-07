@@ -191,8 +191,9 @@ a generic native widget capture is not automatically detectable everywhere.
 The widget retains scene content across shader time changes. `SurfaceStats`
 separates scene builds, parent surface draws, CPU frames, GPU submissions,
 GPU preparations, scene uploads and retained texture bytes. Frame counts
-are not presentation callbacks; scene uploads count renderer creation,
-including resource recovery after context loss.
+are not presentation callbacks; scene uploads count installed revisions,
+including resource recovery after context loss. Actual texture uploads and
+program links have separate counters (see residency below).
 
 ## CPU widget overlays over a GPU surface
 
@@ -441,6 +442,8 @@ AppWindow controls keep their CPU renderer.
    and compiles shader programs. It deduplicates shared image resources and
    shader sources. Textures and the retained instance buffer together are
    capped at 64 MiB.
+   Install later prepared revisions with `Renderer::replace_scene` to reuse
+   their still-shared immutable images and programs.
 3. `Renderer::move_to` and `set_opacity` update a prepared card/sprite
    without reflow, rasterization or texture uploads. Changed instance
    records are uploaded on the next draw. Indexes use visible prepared
@@ -465,9 +468,10 @@ recovers the GPU without an application invalidation or backend error.
 Consecutive solid/image quads with the same texture and clip use instanced
 batches. Per-instance rectangles and colors use a retained 48-byte record (rectangle, color and UV region)
 per prepared primitive, plus one reserved overlay record. CPU storage is
-allocated once per renderer; the matching GPU store is allocated lazily
-when a batch first needs it and updated only after instance properties/order
-change. Isolated quads use the simple uniform path, without instance-store
+retained and resized on scene replacement; the matching GPU store is allocated
+lazily when a batch first needs it and updated after instance properties/order
+change. A changed primitive count releases the old GPU store before resizing.
+Isolated quads use the simple uniform path, without instance-store
 allocation/uploads or attribute-offset updates. Textures and reserved
 instance data share the aggregate 64 MiB GPU resource budget. Batches stop
 at shaders, texture changes, clips and culled entries; paint order and
@@ -708,14 +712,15 @@ retained renderer.
 
 ## Bounded image page
 
-The renderer can pack distinct retained fallback/image resources into one
+The renderer can pack a batch of distinct fallback/image resources into a
 page of at most 2048×2048 (also limited by the driver's maximum texture
 size). A deterministic shelf plan chooses the smallest fitting candidate;
 allocation including padding must remain within twice the packed source
 bytes plus 4 KiB, and the combined 64 MiB resource budget. A single resource,
 images too large for the page, a non-fitting set or a budget conflict use
-individual textures. This is a per-renderer page, not a residency cache
-across scene revisions or a glyph atlas.
+individual textures. Pages belong to a renderer/context. The residency
+policy below can retain several pages across revisions; this is not a glyph
+atlas.
 
 Each tile has a one-pixel extruded gutter with premultiplied edge colors.
 The page receives individual padded tile uploads, without a full-size CPU
@@ -735,6 +740,76 @@ its parent eight times). Warm/first-normal/cache-disabled runs measured
 These are one observation per condition, not proof of a CPU/PSS saving.
 Idle phases submit zero frames or instance uploads and all runs keep focus
 unchanged. Cold memory still exceeds the budget. [Raw atlas observations](scene-atlas-2026-11-06.json).
+
+## Resources across scene revisions
+
+Managed `Surface` now replaces a prepared scene in its existing renderer.
+Low-level users can call `Renderer::replace_scene(prepared)` with that
+renderer’s original GL context current. Shared immutable `Image` resources
+and cached `Layer` rasters reuse textures, page UVs and shader programs.
+New images upload individually or into a new bounded page. Programs absent
+from the new scene are deleted; still-used source programs, uniform
+locations, basic pipeline and VAO remain. Instance storage is resized safely
+when the primitive count changes. Overlay capture/upload remains independent.
+
+Resources have monotonic identities independent of pixel addresses. Clones
+and cached resampling preserve the corresponding immutable identity;
+`Layer::clear_raster`, a new image, or an uncached resample gets a new one.
+GPU residency metadata does not pin an extra CPU pixel copy. Removed IDs
+are forgotten immediately. A page survives only while at least one current
+tile uses it; the last removal deletes it. Vacant slots are not reused under
+an old identity. If holes prevent a new scene fitting in the combined
+64 MiB texture/instance/overlay budget, the current images are repacked
+before new allocations. Individual textures avoid padding that would exceed
+the budget. This bounds live resource accounting, not driver-internal
+transients, total process PSS or shader compiler memory.
+
+Preparation still rasterizes unretained native text/borders into new
+fallback images; it is not a glyph atlas or automatic content-hash cache.
+Reuse requires an immutable resource shared with the previous scene.
+Explicitly cached `Layer` content must be invalidated for theme/font/scale
+changes as before. Hiding, zero area, deleting, switching backend or losing
+the context releases/abandons the context-local cache; recovery uploads
+again. No cache spans unrelated contexts or holds unused past scenes.
+
+`Renderer::resource_stats()` describes the last scene installation:
+`texture_uploads` (unique image payloads), `texture_upload_bytes` (including
+gutters), `reused_images`, `program_links` and pressure `repacks`. Its
+`resident_images`, `texture_objects` and `shader_programs` describe current
+residency; the last includes the basic program. `SurfaceStats` accumulates
+`gpu_texture_uploads`, `gpu_texture_upload_bytes`, `gpu_image_reuses`,
+`gpu_program_links` and `gpu_image_repacks`. The older `gpu_scene_uploads`
+counts installed revisions, even when no texture upload occurs. Overlay
+uploads have their own counter. An invalid instance budget leaves the
+renderer unchanged; a later installation/allocation error clears scene
+images/draws/programs, and another valid replacement can recover.
+
+The native gate prepares all CPU references before GL, then checks complete
+readback pixels in 256 revisions with changing images, overlapping native
+Unicode text layers and varying instance counts. A same-binary
+`--recreate` control discards the renderer each revision. It also exercises
+63 MiB of live texture data, pressure compaction, rejection of 64 MiB plus
+instances, recovery and final empty-scene release:
+
+```sh
+env -u WAYLAND_DISPLAY xvfb-run -a cargo run --offline --features gpu --example scene_residency_check
+env -u WAYLAND_DISPLAY xvfb-run -a cargo run --offline --features gpu --example scene_residency_check -- --recreate
+```
+
+The control isolates renderer lifetime within the current binary; it is
+not a historical-binary performance comparison. Readback wall time includes
+driver synchronization and pixel comparison. Upload/link counts establish
+less resource work, without proving CPU, PSS, power or presentation savings.
+Glyph residency, full-window rendering and the cold-memory gate remain open.
+
+On NVIDIA RTX 3070 Ti and Mesa llvmpipe LLVM 23.1.3, the 255 replacements
+uploaded 587,520 bytes in 255 image uploads, reused 510 resources and linked
+zero programs. The recreation control uploaded 7,254,240 bytes in 765 uploads
+and linked 510 programs. Both modes/drivers passed complete readback with
+maximum RGB delta 1, pressure compaction and rejection/recovery. Small-scene
+texture accounting stayed at 33,024 bytes with retention, matching the initial
+page plus one replacement tile, and returned to zero on empty replacement.
+[Raw residency observations and source hashes](scene-residency-2026-11-06.json).
 
 
 ## Post-compilation heap diagnostic

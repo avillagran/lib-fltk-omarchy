@@ -54,6 +54,11 @@ accessibility and CPU rendering while changing submission and caching.
    draws and keeps presentation demand.
 4. Add bounded glyph/image atlases and persistent resources across scene
    revisions. Validate native shaping, Unicode, DPI, eviction and reuse.
+   Image pages and current-scene image/program residency are now implemented
+   ([SCENE.md](SCENE.md#resources-across-scene-revisions)): stable identities,
+   retirement, bounded pressure compaction and native readback checks.
+   Native Unicode layers reuse their rasters; unretained text still prepares
+   a new fallback image. Glyph atlases and mixed-DPI gates remain outstanding.
 5. Add native isolated shader scopes, remaining common primitives,
    affine transforms and bounded offscreen-target reuse.
 6. Integrate the common painter with full-window controls and virtual
