@@ -1229,7 +1229,7 @@ fn text_field_look(t: &theme::Theme, hover: bool, focus: bool, disabled: bool,
         else if hover { &t.controls.hover }
         else { &t.controls.normal };
     let fill = t.fill(style, under);
-    let border = t.border(style, fill);
+    let border = t.border(style, under);
     paint::Look {
         fill: if disabled { fill.over(under, 0.25) } else { fill },
         border: if disabled { border.over(under, 0.45) } else { border },
@@ -2219,7 +2219,7 @@ mod disabled_tests {
                     let style = if focus { &theme.controls.focus } else if hover { &theme.controls.hover } else { &theme.controls.normal };
                     let fill = theme.fill(style, under);
                     assert_eq!(text_field_look(&theme, hover, focus, false, under), paint::Look {
-                        fill, border: theme.border(style, fill), border_width: style.border_width,
+                        fill, border: theme.border(style, under), border_width: style.border_width,
                     });
                     assert_eq!(text_field_look(&theme, hover, focus, true, under), inactive);
                 }
