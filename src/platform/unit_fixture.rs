@@ -66,6 +66,50 @@ pub(crate) fn preserve(path: impl AsRef<Path>) -> io::Result<Option<PathBuf>> {
     super::test_fixture::preserve(path)
 }
 
+/// Ordinary IPC cases must fit their supplied runtime. Refuse before they
+/// can silently select the production Unix fallback outside their case.
+/// Windows pipe names hash the runtime path and have no socket-path limit.
+pub(crate) fn require_short_socket(runtime: &Path, app_id: &str) -> io::Result<()> {
+    #[cfg(unix)]
+    {
+        let socket = runtime.join(app_id).join("instance.sock");
+        if socket.as_os_str().as_encoded_bytes().len() > 100 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "IPC fixture socket path is too long; supply a shorter private parent",
+            ));
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = (runtime, app_id);
+    Ok(())
+}
+
+/// The deliberate long-runtime regression uses the real `/tmp` fallback.
+/// It requires a private `/tmp` fixture parent, supplied by an authorized
+/// confined run. This preflight never chmods, redirects, or creates `/tmp`.
+#[cfg(unix)]
+pub(crate) fn require_private_socket_fallback() -> io::Result<()> {
+    use std::os::unix::fs::MetadataExt;
+    let run = root()?;
+    let _ = super::test_fixture::directory("")?;
+    let fallback = Path::new("/tmp");
+    if run.parent() != Some(fallback) {
+        return Err(io::Error::new(io::ErrorKind::PermissionDenied,
+            "long IPC regression requires a retained private /tmp fixture parent"));
+    }
+    let metadata = std::fs::symlink_metadata(fallback)?;
+    // SAFETY: geteuid has no arguments and does not modify process state.
+    let uid = unsafe { libc::geteuid() };
+    if !metadata.file_type().is_dir() || metadata.uid() != uid
+        || metadata.mode() & 0o777 != 0o700
+    {
+        return Err(io::Error::new(io::ErrorKind::PermissionDenied,
+            "long IPC regression refuses shared, linked or foreign /tmp"));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -105,6 +149,19 @@ mod tests {
         assert!(preserve(&run).is_err());
         assert!(preserve(run.join("..").join("outside")).is_err());
         assert!(fs::symlink_metadata(run).unwrap().is_dir());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn socket_length_preflight_refuses_before_resolving_an_endpoint() {
+        // Pure path checks: these names are never read, created or connected.
+        assert!(require_short_socket(Path::new("/short"), "dev.test.ipc").is_ok());
+        let long = PathBuf::from(format!("/{}", "x".repeat(110)));
+        assert_eq!(require_short_socket(&long, "dev.test.ipc").unwrap_err().kind(),
+            io::ErrorKind::InvalidInput);
+        let unicode = PathBuf::from(format!("/{}", "é".repeat(60)));
+        assert_eq!(require_short_socket(&unicode, "dev.test.ipc").unwrap_err().kind(),
+            io::ErrorKind::InvalidInput);
     }
 
     #[cfg(unix)]

@@ -1,6 +1,6 @@
 //! Single instance across processes: this test binary starts copies of
 //! itself as second launches against a primary in this process. Every
-//! process uses a private runtime directory under the system temp dir
+//! process uses a fresh retained private runtime directory
 //! (never the user's runtime dir) and test-only app ids. No window, no
 //! display needed: requests reach handlers through the real UI-thread
 //! queue (`task::post`), drained here.
@@ -13,7 +13,13 @@ use std::process::{Command, Stdio};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-const APP: &str = "dev.omarchy.fltk.test-instance";
+#[path = "../src/platform/test_fixture.rs"]
+mod test_fixture;
+#[path = "../src/platform/unit_fixture.rs"]
+mod unit_fixture;
+
+// A short test-only ID leaves space for the retained fixture root on Unix.
+const APP: &str = "dev.test.ipc";
 const CHILD: &str = "FLTK_OMARCHY_INSTANCE_TEST_CHILD";
 
 /// Second launch, run in a child process (`CHILD` = mode). In the normal
@@ -45,32 +51,17 @@ fn child_entry() {
     }
 }
 
-/// A private runtime dir; Drop removes only the files the instance layer
-/// makes and then the empty directories.
+/// A fresh retained runtime. The real IPC layer still owns its socket;
+/// fixture teardown does not remove files or directories.
 struct TempRuntime(PathBuf);
 
 impl TempRuntime {
     fn new() -> TempRuntime {
-        let p = std::env::temp_dir().join(format!("fo-ipc-it-{}", std::process::id()));
-        std::fs::create_dir(&p).unwrap();
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o700)).unwrap();
-        }
-        TempRuntime(p)
-    }
-}
-
-impl Drop for TempRuntime {
-    fn drop(&mut self) {
-        let d = self.0.join(APP);
-        if std::fs::symlink_metadata(&d).is_ok_and(|m| m.file_type().is_dir()) {
-            let _ = std::fs::remove_file(d.join("instance.sock"));
-            let _ = std::fs::remove_file(d.join("instance.lock"));
-            let _ = std::fs::remove_dir(&d);
-        }
-        let _ = std::fs::remove_dir(&self.0);
+        let path = unit_fixture::directory("ipc-it")
+            .expect("a fresh retained cross-process IPC fixture is required");
+        unit_fixture::require_short_socket(&path, APP)
+            .expect("IPC integration requires a shorter private fixture parent");
+        TempRuntime(path)
     }
 }
 

@@ -783,48 +783,21 @@ fn dispatch(id: u64, app_id: &str, req: &Request) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::AtomicU32;
-
-    /// A private runtime dir for one test, under the system temp dir (a
-    /// short path: Unix socket paths are limited to ~100 bytes). Drop
-    /// removes exactly the files the instance layer creates and then the
-    /// empty directories; never a whole tree.
+    /// A fresh retained private runtime. No test cleanup runs on Drop.
     struct TempRuntime(PathBuf);
 
     impl TempRuntime {
         fn new() -> TempRuntime {
-            static N: AtomicU32 = AtomicU32::new(0);
-            // A short root: socket paths must fit sun_path, and some systems
-            // have long per-user temp dirs.
-            let tmp = std::env::temp_dir();
-            let root = if cfg!(unix) && tmp.as_os_str().len() > 24 && std::path::Path::new("/tmp").is_dir() { PathBuf::from("/tmp") } else { tmp };
-            let p = root.join(format!("fo-ipc-{}-{}", std::process::id(), N.fetch_add(1, Ordering::Relaxed)));
-            std::fs::create_dir(&p).unwrap();
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o700)).unwrap();
-            }
-            TempRuntime(p)
+            let path = crate::platform::unit_fixture::directory("ipc")
+                .expect("a fresh retained IPC fixture is required");
+            crate::platform::unit_fixture::require_short_socket(&path, "dev.test.a")
+                .expect("IPC fixtures require a shorter private parent");
+            TempRuntime(path)
         }
         fn opts(&self, app: &str) -> Options {
+            crate::platform::unit_fixture::require_short_socket(&self.0, app)
+                .expect("ordinary IPC cases must stay under their supplied runtime");
             Options::new(app).runtime_dir(&self.0)
-        }
-    }
-
-    impl Drop for TempRuntime {
-        fn drop(&mut self) {
-            for app in ["dev.test.a", "dev.test.b"] {
-                let d = self.0.join(app);
-                // Only a real directory (never through a symlink).
-                if !std::fs::symlink_metadata(&d).is_ok_and(|m| m.file_type().is_dir()) {
-                    continue;
-                }
-                let _ = std::fs::remove_file(d.join("instance.sock"));
-                let _ = std::fs::remove_file(d.join("instance.lock"));
-                let _ = std::fs::remove_dir(&d);
-            }
-            let _ = std::fs::remove_dir(&self.0);
         }
     }
 
@@ -956,6 +929,8 @@ mod tests {
     #[test]
     fn long_runtime_dirs_use_a_short_socket_path() {
         use std::os::unix::fs::PermissionsExt;
+        crate::platform::unit_fixture::require_private_socket_fallback()
+            .expect("the real long-path regression requires a retained private /tmp fixture");
         let rt = TempRuntime::new();
         let mut deep = rt.0.clone();
         for k in 0..6 {
@@ -971,10 +946,8 @@ mod tests {
         let client = Options::new("dev.test.long").runtime_dir(&deep).client();
         assert!(call_pumped(&rx, client, Request::new("ping", &[])).is_ok());
         drop(server);
-        // Remove what the test made in /tmp, file by file (never recursively).
-        let dir = std::path::Path::new(&ep).parent().unwrap().to_path_buf();
-        let _ = std::fs::remove_file(dir.join("instance.lock"));
-        let _ = std::fs::remove_dir(&dir);
+        // The production listener retires its socket; retain the lock and
+        // directory in the private fallback fixture for later inspection.
     }
 
     #[cfg(unix)]
@@ -986,9 +959,11 @@ mod tests {
         let shared = rt.0.join("shared");
         std::fs::create_dir(&shared).unwrap();
         std::fs::set_permissions(&shared, std::fs::Permissions::from_mode(0o777)).unwrap();
+        let private = shared.join(format!("fltk-omarchy-{}", unsafe { libc::geteuid() }));
+        crate::platform::unit_fixture::require_short_socket(&private, "dev.test.a")
+            .expect("the shared-runtime case requires a shorter private fixture parent");
         let s = primary(Options::new("dev.test.a").runtime_dir(&shared));
         assert!(s.is_listening(), "{:?}", s.unavailable_reason());
-        let private = shared.join(format!("fltk-omarchy-{}", unsafe { libc::geteuid() }));
         assert!(s.endpoint().starts_with(&*private.to_string_lossy()));
         drop(s);
         // A symlink where the app dir should be is not followed.
@@ -998,14 +973,6 @@ mod tests {
         let s = primary(rt.opts("dev.test.b"));
         assert!(!s.is_listening() && s.unavailable_reason().is_some());
         assert!(std::fs::read_dir(&target).unwrap().next().is_none(), "nothing was created through the link");
-        // Cleanup of this test's own entries (files and empty dirs only).
-        let a = private.join("dev.test.a");
-        let _ = std::fs::remove_file(a.join("instance.lock"));
-        let _ = std::fs::remove_dir(&a);
-        let _ = std::fs::remove_dir(&private);
-        let _ = std::fs::remove_dir(&shared);
-        let _ = std::fs::remove_file(rt.0.join("dev.test.b"));
-        let _ = std::fs::remove_dir(&target);
     }
 
     #[test]

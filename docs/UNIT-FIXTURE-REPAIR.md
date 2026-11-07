@@ -47,6 +47,18 @@ All Rust changes are under `cfg(test)`:
   producer child remains selected by `--exact child_producer`; the adapter's
   own `cfg(test)` checks are also present in the integration binary's full
   test list.
+- Instance unit and integration fixtures use fresh retained cases and
+  remove their test-side cleanup, including the two `TempRuntime::drop`
+  implementations. Ordinary Unix socket paths are checked before opening
+  IPC so an oversized fixture path cannot silently select the global
+  fallback. The integration uses the shorter test-only ID `dev.test.ipc`.
+  The shared-runtime case checks its additional per-user directory too.
+- The actual long-runtime fallback regression remains intact, including
+  its real server/client call and endpoint checks. A new preflight requires
+  its retained run to be directly below a real `/tmp` directory owned by
+  the test user with mode 0700. It refuses a shared, linked or foreign
+  `/tmp` before resolving an IPC endpoint. A pure Unix path-length case
+  also covers oversized ASCII and multibyte names without filesystem I/O.
 
 These edits remove seven literal `remove_dir_all` calls and the poll test's
 single-file removal. The proposal also adds source-level regression cases
@@ -60,6 +72,10 @@ active pathname and the runtime's resource lifecycle behavior in place;
 retention of fixture evidence is not a claim that these tests execute no
 runtime unlink operations.
 
+The instance follow-up removes sixteen more direct cleanup calls across
+the unit/integration fixture sources. Listener takeover and normal listener
+destruction still exercise the production socket unlink contract.
+
 ## Parent and retention contract
 
 Before an authorized test process starts, its caller must supply a private
@@ -70,6 +86,16 @@ caller-supplied parent's ACL; that platform still needs its own review and
 execution evidence. Fake portal tests also require a short parent for Unix
 socket paths. No fallback selects a shared system temp directory.
 
+The deliberate long-IPC regression is an exception to the ordinary path
+limiter: it tests the production `/tmp` fallback. Its new preflight accepts
+only a retained private `/tmp` fixture parent. The caller must provide that
+filesystem through a reviewed, explicitly authorized confined run and retain
+its artifacts. The permission/root checks do not establish a sandbox, a
+mount boundary, or evidence retention by themselves. **Do not modify the
+host's `/tmp` permissions to satisfy this condition.** The test is not skipped
+or replaced with a mock. A normal host invocation that cannot satisfy the
+preflight fails before endpoint creation; it is not a passing regression.
+
 The process prints `UNIT_FIXTURE_RETAINED <path>` once. Evidence remains
 after success, assertion failure, or normal object destruction. No automatic
 cleanup is provided. The boundary rejects a request to preserve the run
@@ -78,12 +104,12 @@ for each accepted move. The new adapter does not change environment variables.
 
 ## Review still required
 
-The proposal covers glass/poll/fake-portal, frame/media unit fixtures and
-the frame integration fixture. Direct cleanup in instance unit/integration
-fixtures, shared legacy runner outputs, and resource lifecycle operations
-reached by tests remain outside this patch. Production socket/shared-memory
-ownership behavior is unchanged. These source changes do not establish that
-a whole-suite run is confined or free of fixture cleanup.
+The proposal covers glass/poll/fake-portal, frame/media/instance unit
+fixtures and the frame/instance integration fixtures. Shared legacy runner
+outputs and resource lifecycle operations reached by tests remain outside
+this patch. Production socket/shared-memory ownership behavior is unchanged.
+These source changes do not establish that a whole-suite run is confined or
+free of fixture cleanup.
 
 Before any execution, review the shared prerequisite, every path created or
 moved here, the added cases, parallel initialization, target platforms, and
