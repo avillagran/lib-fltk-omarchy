@@ -15,18 +15,29 @@ DRIVER="$RUN_FIXTURE"
 cat > "$DRIVER/drag.py" <<'PY'
 import ctypes, sys, time
 x11 = ctypes.CDLL("libX11.so.6"); xt = ctypes.CDLL("libXtst.so.6")
+P, I, U = ctypes.c_void_p, ctypes.c_int, ctypes.c_ulong
+x11.XOpenDisplay.argtypes = [ctypes.c_char_p]
 x11.XOpenDisplay.restype = ctypes.c_void_p
+x11.XFlush.argtypes = [P]
+x11.XCloseDisplay.argtypes = [P]
+xt.XTestFakeMotionEvent.argtypes = [P, I, I, I, U]
+xt.XTestFakeButtonEvent.argtypes = [P, ctypes.c_uint, I, U]
 d = ctypes.c_void_p(x11.XOpenDisplay(None))
+if not d.value:
+    raise SystemExit('private X11 display connection failed; no gestures sent')
 def move(x, y): xt.XTestFakeMotionEvent(d, -1, x, y, 0); x11.XFlush(d); time.sleep(0.03)
 def button(down): xt.XTestFakeButtonEvent(d, 1, down, 0); x11.XFlush(d); time.sleep(0.08)
 def drag(x0, y0, dx, dy, steps=12):
     move(x0, y0); button(1)
     for i in range(1, steps + 1): move(x0 + dx * i // steps, y0 + dy * i // steps)
     button(0)
-time.sleep(1.5)                      # window mapped at (100, 100), 420x300
-drag(100 + 210, 100 + 20, 150, 80)   # header: move to (250, 180)
-time.sleep(0.5)
-drag(250 + 420 - 4, 180 + 300 - 4, 60, 40)  # bottom-right grip: 480x340
+try:
+    time.sleep(1.5)                      # window mapped at (100, 100), 420x300
+    drag(100 + 210, 100 + 20, 150, 80)   # header: move to (250, 180)
+    time.sleep(0.5)
+    drag(250 + 420 - 4, 180 + 300 - 4, 60, 40)  # bottom-right grip: 480x340
+finally:
+    x11.XCloseDisplay(d)
 PY
 python3 -I "$ROOT/script/validation-fixture" x11 "$RUN_FIXTURE" "$BIN" 5 "$DRIVER/drag.py"
 cat "$REPORT"; echo

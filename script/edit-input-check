@@ -18,15 +18,19 @@ cat > "$DRIVER/keys.py" <<'PY'
 import ctypes, time
 x11 = ctypes.CDLL("libX11.so.6"); xt = ctypes.CDLL("libXtst.so.6")
 P, I, U = ctypes.c_void_p, ctypes.c_int, ctypes.c_ulong
+x11.XOpenDisplay.argtypes = [ctypes.c_char_p]
 x11.XOpenDisplay.restype = P
 x11.XStringToKeysym.restype = U
 x11.XKeysymToKeycode.argtypes = [P, U]
 x11.XChangeKeyboardMapping.argtypes = [P, I, I, ctypes.POINTER(U), I]
 x11.XSync.argtypes = [P, I]
 x11.XFlush.argtypes = [P]
+x11.XCloseDisplay.argtypes = [P]
 xt.XTestFakeKeyEvent.argtypes = [P, ctypes.c_uint, I, U]  # display, keycode, press, delay
 xt.XTestFakeMotionEvent.argtypes = [P, I, I, I, U]  # display, screen, x, y, delay
 d = x11.XOpenDisplay(None)
+if not d:
+    raise SystemExit('private X11 display connection failed; no gestures sent')
 spare = [200, 201, 202, 203, 204]          # unused keycodes in Xvfb's map
 def bind(code, keysym):
     syms = (ctypes.c_ulong * 1)(keysym)
@@ -38,17 +42,20 @@ def tap(code, shift=False):
     if shift: xt.XTestFakeKeyEvent(d, sh, 0, 0)
     x11.XFlush(d); time.sleep(0.12)
 def kc(name): return x11.XKeysymToKeycode(d, x11.XStringToKeysym(name))
-time.sleep(1.5)
-xt.XTestFakeMotionEvent(d, -1, 300, 200, 0); x11.XFlush(d); time.sleep(0.2)   # focus follows the pointer (no WM)
-bind(spare[0], x11.XStringToKeysym(b"dead_acute"))
-bind(spare[1], 0x10065E5)                  # U+65E5 日
-bind(spare[2], 0x1006587)                  # U+6587 文
-bind(spare[3], 0x101F44D)                  # U+1F44D 👍
-tap(kc(b"c")); tap(kc(b"a")); tap(kc(b"f")); tap(spare[0]); tap(kc(b"e"))   # café
-tap(kc(b"Return"), shift=True)
-tap(spare[1]); tap(spare[2]); tap(spare[3])                                  # 日文👍
-tap(kc(b"BackSpace"))                                                        # removes 👍
-tap(kc(b"space")); tap(kc(b"x"))
+try:
+    time.sleep(1.5)
+    xt.XTestFakeMotionEvent(d, -1, 300, 200, 0); x11.XFlush(d); time.sleep(0.2)   # focus follows the pointer (no WM)
+    bind(spare[0], x11.XStringToKeysym(b"dead_acute"))
+    bind(spare[1], 0x10065E5)                  # U+65E5 日
+    bind(spare[2], 0x1006587)                  # U+6587 文
+    bind(spare[3], 0x101F44D)                  # U+1F44D 👍
+    tap(kc(b"c")); tap(kc(b"a")); tap(kc(b"f")); tap(spare[0]); tap(kc(b"e"))   # café
+    tap(kc(b"Return"), shift=True)
+    tap(spare[1]); tap(spare[2]); tap(spare[3])                                  # 日文👍
+    tap(kc(b"BackSpace"))                                                        # removes 👍
+    tap(kc(b"space")); tap(kc(b"x"))
+finally:
+    x11.XCloseDisplay(d)
 PY
 env LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 XMODIFIERS=@im=none \
   python3 -I "$ROOT/script/validation-fixture" x11 "$RUN_FIXTURE" "$BIN" 6 "$DRIVER/keys.py" "$@"

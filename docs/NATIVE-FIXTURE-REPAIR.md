@@ -10,6 +10,10 @@ The main checkout and the Files author's worktree are unchanged. This
 proposal shares the still-unvalidated UI prerequisite documented in
 [UNIT-FIXTURE-REPAIR.md](UNIT-FIXTURE-REPAIR.md).
 
+The follow-up [integration review](FIXTURE-INTEGRATION-REVIEW.md) records
+the pinned author checkpoint, unresolved shared-allocation and execution
+profile requirements, and the dedicated accessibility evidence still needed.
+
 ## X11 wrappers
 
 `script/x11-check` and `script/edit-input-check` no longer remove a shared
