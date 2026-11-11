@@ -23,6 +23,7 @@
 #include <ctime>
 #include <functional>
 #include <string>
+#include <vector>
 
 namespace fo {
 namespace i18n {
@@ -30,6 +31,10 @@ namespace i18n {
 /// Registers (merges) an embedded catalog for `lang` ("es", "pt-BR").
 /// The JSON text must outlive nothing: it is parsed at the next reload.
 void add_catalog(const std::string &lang, const char *json_text);
+
+/// Languages the toolkit's own strings are translated into: every
+/// language of Omarchy's locale registry.
+std::vector<std::string> toolkit_languages();
 
 /// Follows the Omarchy language file (default ~/.config/omarchy/language).
 void watch(const std::string &language_file = "");

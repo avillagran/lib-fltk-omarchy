@@ -160,8 +160,12 @@ std::string s = fo::trn("%n items", n);
   ColumnView. See [components/rtl.png](components/rtl.png). Dialog button
   order, the help overlay and toolbar layouts are left to the app.
 - Catalogs: embedded JSON, layered en → base → regional (pt → pt-BR);
-  values are strings or CLDR plural forms. The toolkit ships its own few
-  strings in es, pt, fr, de and it.
+  values are strings or CLDR plural forms. The toolkit's own strings
+  (Cancel, OK, Close, Open, Delete, Rename, Yes, No, Show more, Keyboard
+  shortcuts, AM/PM, size units, "%n items") are translated into all 50
+  languages of Omarchy's locale registry (`toolkit_languages()`), reusing
+  Omarchy's own wording for Cancel, Delete, Open, Yes and No; plain `es`
+  gets Omarchy's `es-MX` strings and `pt` is European Portuguese.
 - `tr`, `trn` (plural + localized number), `arg` (Qt-style `%1`),
   `plural_category(lang, n)` (Omarchy's languages, as Folio).
 - Formatting with Omarchy's locale registry (`$OMARCHY_PATH`/
@@ -272,7 +276,9 @@ toast, tooltip, sidebar-focus), with Folio's fallback palette.
 
 - Unit tests (ctest): JSON, colors.toml, theme fallbacks and derivation,
   easing and tweens, scroller, Hyprland reply parsing, eliding and
-  wrapping, key specs, plural rules, catalogs and size formatting,
+  wrapping, key specs, plural rules, catalogs (every Omarchy language has
+  every toolkit string and a form for each plural category it uses) and
+  size and date formatting,
   language file reading, icons, processes (exit codes, exec failure,
   timeout killing the group, output cap, cwd/env, CPU and address-space
   limits, async delivery, cancel), the thread pool, and headless widget

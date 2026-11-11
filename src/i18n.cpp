@@ -32,40 +32,7 @@ namespace i18n {
 
 namespace {
 
-// The toolkit's own strings. English carries the plural forms.
-const char kEn[] = R"({ "%n items": { "one": "%n item", "other": "%n items" } })";
-const char kEs[] = R"({
-  "Cancel": "Cancelar", "OK": "Aceptar", "Close": "Cerrar", "Open": "Abrir",
-  "Keyboard shortcuts": "Atajos de teclado", "Rename": "Renombrar", "Delete": "Eliminar",
-  "Yes": "Sí", "No": "No", "Show more": "Mostrar más",
-  "B": "B", "KB": "KB", "MB": "MB", "GB": "GB", "TB": "TB",
-  "%n items": { "one": "%n elemento", "many": "%n elementos", "other": "%n elementos" }
-})";
-const char kPt[] = R"({
-  "Cancel": "Cancelar", "OK": "OK", "Close": "Fechar", "Open": "Abrir",
-  "Keyboard shortcuts": "Atalhos de teclado", "Rename": "Renomear", "Delete": "Excluir",
-  "Yes": "Sim", "No": "Não", "Show more": "Mostrar mais",
-  "%n items": { "one": "%n item", "many": "%n itens", "other": "%n itens" }
-})";
-const char kFr[] = R"({
-  "Cancel": "Annuler", "OK": "OK", "Close": "Fermer", "Open": "Ouvrir",
-  "Keyboard shortcuts": "Raccourcis clavier", "Rename": "Renommer", "Delete": "Supprimer",
-  "Yes": "Oui", "No": "Non", "Show more": "Afficher plus",
-  "B": "o", "KB": "Ko", "MB": "Mo", "GB": "Go", "TB": "To",
-  "%n items": { "one": "%n élément", "many": "%n d’éléments", "other": "%n éléments" }
-})";
-const char kDe[] = R"({
-  "Cancel": "Abbrechen", "OK": "OK", "Close": "Schließen", "Open": "Öffnen",
-  "Keyboard shortcuts": "Tastenkürzel", "Rename": "Umbenennen", "Delete": "Löschen",
-  "Yes": "Ja", "No": "Nein", "Show more": "Mehr anzeigen",
-  "%n items": { "one": "%n Element", "other": "%n Elemente" }
-})";
-const char kIt[] = R"({
-  "Cancel": "Annulla", "OK": "OK", "Close": "Chiudi", "Open": "Apri",
-  "Keyboard shortcuts": "Scorciatoie da tastiera", "Rename": "Rinomina", "Delete": "Elimina",
-  "Yes": "Sì", "No": "No", "Show more": "Mostra altro",
-  "%n items": { "one": "%n elemento", "many": "%n di elementi", "other": "%n elementi" }
-})";
+#include "i18n_catalogs.inc"
 
 struct Catalogs {
   std::map<std::string, std::vector<const char *>> sources;
@@ -92,12 +59,12 @@ Catalogs &cat() {
   static bool init = false;
   if (!init) {
     init = true;
-    c.sources["en"].push_back(kEn);
-    c.sources["es"].push_back(kEs);
-    c.sources["pt"].push_back(kPt);
-    c.sources["fr"].push_back(kFr);
-    c.sources["de"].push_back(kDe);
-    c.sources["it"].push_back(kIt);
+    for (const auto &tc : kToolkitCatalogs) {
+      c.sources[tc.lang].push_back(tc.json);
+      // Omarchy's Spanish is es-MX; plain "es" gets the same strings.
+      if (std::string(tc.lang) == "es-MX")
+        c.sources["es"].push_back(tc.json);
+    }
   }
   return c;
 }
@@ -318,6 +285,13 @@ std::string apply_date_pattern(const char *pat, const std::tm &tm) {
 }
 
 } // namespace
+
+std::vector<std::string> toolkit_languages() {
+  std::vector<std::string> v;
+  for (const auto &tc : kToolkitCatalogs)
+    v.push_back(tc.lang);
+  return v;
+}
 
 void add_catalog(const std::string &lang, const char *json_text) {
   Catalogs &c = cat();

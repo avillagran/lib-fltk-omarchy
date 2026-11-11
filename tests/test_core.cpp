@@ -448,3 +448,71 @@ TEST(i18n_date_and_time_fallback_patterns) {
   i18n::set_language("");
   i18n::use_system_locales(true);
 }
+
+namespace {
+#include "i18n_catalogs.inc"
+} // namespace
+
+TEST(toolkit_catalogs_cover_omarchy_languages) {
+  // Omarchy's locale registry (default/i18n/locales.json), 50 languages.
+  const char *omarchy[] = {"en", "da", "ar", "fi", "fr", "el", "hu", "hi", "is", "ja", "ko", "es-MX", "fil",
+                           "pt", "sv", "tr", "vi", "ur", "bn", "ca", "si", "ta", "th", "uz", "it", "zh-CN",
+                           "pl", "lt", "ga", "nl", "no", "ru", "id", "de", "sw", "fa", "ms", "uk", "ro", "cs",
+                           "sr", "he", "bg", "sk", "hr", "sl", "zh-TW", "et", "lv", "pt-BR"};
+  std::vector<std::string> have = i18n::toolkit_languages();
+  CHECK_EQ(have.size(), sizeof omarchy / sizeof *omarchy);
+  json::Value en;
+  CHECK(json::parse(kToolkitCatalogs[0].json, en));
+  CHECK_STR(kToolkitCatalogs[0].lang, "en");
+  for (const char *code : omarchy) {
+    const ToolkitCatalog *tc = nullptr;
+    for (const auto &c : kToolkitCatalogs)
+      if (std::string(c.lang) == code)
+        tc = &c;
+    if (!tc) {
+      fo_test::fail(__FILE__, __LINE__, std::string("no catalog for ") + code);
+      continue;
+    }
+    json::Value v;
+    if (!json::parse(tc->json, v) || !v.is_object()) {
+      fo_test::fail(__FILE__, __LINE__, std::string("catalog does not parse: ") + code);
+      continue;
+    }
+    // Every string English has, translated and not empty.
+    for (size_t i = 0; i < en.keys.size(); ++i) {
+      const json::Value *t = v.get(en.keys[i]);
+      bool ok = t && ((t->is_string() && !t->string.empty()) || t->is_object());
+      if (!ok)
+        fo_test::fail(__FILE__, __LINE__, std::string(code) + " lacks \"" + en.keys[i] + "\"");
+    }
+    // Every plural category the language uses has its own form.
+    const json::Value *items = v.get("%n items");
+    std::vector<long long> ns;
+    for (long long n = 0; n <= 230; ++n)
+      ns.push_back(n);
+    ns.push_back(1000000);
+    for (long long n : ns) {
+      std::string cat = i18n::plural_category(code, n);
+      const json::Value *form = items ? items->get(cat) : nullptr;
+      if (!form || !form->is_string() || form->string.empty()) {
+        fo_test::fail(__FILE__, __LINE__, std::string(code) + " lacks the \"" + cat + "\" form");
+        break;
+      }
+    }
+    // And through the real lookup.
+    i18n::set_language(code);
+    CHECK(std::string(tr("Cancel")).size() > 0);
+    std::string five = trn("%n items", 5);
+    CHECK(five.find("%n") == std::string::npos);
+    CHECK(five.find('5') != std::string::npos);
+  }
+  i18n::set_language("pt");
+  CHECK_STR(tr("Delete"), "Eliminar"); // European Portuguese
+  i18n::set_language("pt-BR");
+  CHECK_STR(tr("Delete"), "Excluir");
+  i18n::set_language("es");
+  CHECK_STR(tr("Cancel"), "Cancelar"); // Omarchy's es-MX strings
+  i18n::set_language("ru");
+  CHECK_STR(trn("%n items", 3), "3 элемента");
+  i18n::set_language("");
+}
