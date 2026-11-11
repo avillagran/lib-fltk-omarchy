@@ -1,0 +1,22 @@
+// lib-fltk-omarchy: everything in one include.
+#pragma once
+
+#include "fltk-omarchy/anim.h"
+#include "fltk-omarchy/app.h"
+#include "fltk-omarchy/collection.h"
+#include "fltk-omarchy/dialog.h"
+#include "fltk-omarchy/hyprland.h"
+#include "fltk-omarchy/i18n.h"
+#include "fltk-omarchy/icons.h"
+#include "fltk-omarchy/json.h"
+#include "fltk-omarchy/keys.h"
+#include "fltk-omarchy/menu.h"
+#include "fltk-omarchy/paint.h"
+#include "fltk-omarchy/platform.h"
+#include "fltk-omarchy/process.h"
+#include "fltk-omarchy/scroll.h"
+#include "fltk-omarchy/sidebar.h"
+#include "fltk-omarchy/text.h"
+#include "fltk-omarchy/theme.h"
+#include "fltk-omarchy/widgets.h"
+#include "fltk-omarchy/window.h"

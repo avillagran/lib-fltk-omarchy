@@ -7,8 +7,14 @@
 #include <cmath>
 
 #if defined(FO_HAVE_CAIRO) && FLTK_USE_CAIRO
+#include <FL/platform.H>
 #include <cairo.h>
 #define FO_CAIRO 1
+#if FLTK_USE_WAYLAND
+struct wl_display;
+FL_EXPORT struct wl_display *fl_wl_display();
+FL_EXPORT cairo_t *fl_wl_gc();
+#endif
 #endif
 
 namespace fo {
@@ -21,9 +27,18 @@ int g_groups = 0; // opacity groups pushed without cairo (no-ops)
 
 #ifdef FO_CAIRO
 cairo_t *cr() {
-  // With FLTK_USE_CAIRO every display driver (Wayland, X11-cairo) and the
-  // image surface draw into a cairo context, returned by gc().
-  return static_cast<cairo_t *>(fl_graphics_driver->gc());
+  // FLTK draws with cairo on Wayland, and on X11 only when built with
+  // FLTK_GRAPHICS_CAIRO; a hybrid build's X11 backend uses Xlib, where
+  // gc() is an X11 GC. Ask the backend that is actually in use.
+#if FLTK_USE_WAYLAND
+  if (fl_wl_display())
+    return fl_wl_gc();
+#endif
+#if FLTK_USE_X11
+  if (fl_x11_display())
+    return fl_cairo_gc();
+#endif
+  return nullptr;
 }
 void source(cairo_t *c, Rgb col, double a) {
   cairo_set_source_rgba(c, col.r / 255.0, col.g / 255.0, col.b / 255.0, a);
@@ -70,7 +85,7 @@ Rgb backdrop() { return g_has_backdrop ? g_backdrop : theme().background(); }
 
 bool has_alpha() {
 #ifdef FO_CAIRO
-  return fl_graphics_driver && fl_graphics_driver->gc() != nullptr;
+  return cr() != nullptr;
 #else
   return false;
 #endif

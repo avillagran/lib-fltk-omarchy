@@ -8,7 +8,7 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
 endif()
 
-option(FO_BUILD_EXAMPLES "Build the gallery example" OFF)
+option(FO_BUILD_EXAMPLES "Build the gallery example" ON)
 option(FO_BUILD_TESTS "Build the unit tests" ON)
 option(FLTK_OMARCHY_SHARED_FLTK "Link FLTK's shared libraries instead of the static ones" OFF)
 
@@ -34,22 +34,22 @@ endif()
 
 add_library(fltk-omarchy STATIC
   src/anim.cpp
-  #src/collection.cpp
-  #src/dialog.cpp
+  src/collection.cpp
+  src/dialog.cpp
   src/hyprland.cpp
   src/i18n.cpp
   src/icons.cpp
   src/json.cpp
   src/keys.cpp
-  #src/menu.cpp
+  src/menu.cpp
   src/paint.cpp
   src/platform.cpp
   src/process.cpp
   src/scroll.cpp
-  #src/sidebar.cpp
+  src/sidebar.cpp
   src/text.cpp
   src/theme.cpp
-  #src/widgets.cpp
+  src/widgets.cpp
   src/window.cpp
 )
 add_library(fltk-omarchy::fltk-omarchy ALIAS fltk-omarchy)
@@ -79,6 +79,7 @@ if(FO_BUILD_TESTS)
     tests/main.cpp
     tests/test_core.cpp
     tests/test_process.cpp
+    tests/test_widgets.cpp
   )
   target_link_libraries(fo_tests PRIVATE fltk-omarchy::fltk-omarchy)
   target_include_directories(fo_tests PRIVATE src)
