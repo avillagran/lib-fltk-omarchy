@@ -71,7 +71,9 @@ int main(int argc, char **argv) {
 
 Tests run through ctest only: the runner creates a fresh private 0700
 directory under `build/test-runs/` and points `HOME`, `TMPDIR` and every
-XDG directory into it. Nothing there is ever deleted.
+XDG directory into it. Nothing there is ever deleted. The display tests
+start their own private Xvfb (and are skipped when it is not installed);
+libXtst, when present, lets them press real keys.
 
 ## Platforms
 

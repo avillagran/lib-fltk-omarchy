@@ -241,6 +241,15 @@ toast, tooltip, sidebar-focus), with Folio's fallback palette.
   limits, async delivery, cancel), the thread pool, and headless widget
   logic (Collection geometry, selection, keyboard and type-ahead; Sidebar
   keyboard).
+- Display tests (ctest `fo_display_tests`, inside a private Xvfb that
+  `tests/run-xvfb.sh` starts for the run and stops by its PID; reported
+  as skipped when Xvfb is missing): TextField erasing deleted text on a
+  minimal update (with a check that the old no-box field really left
+  glyphs behind), Collection's focus ring with and without
+  `focus_ring_on_selected`, and fo::Window giving the keyboard back to the
+  last widget after the window lost the X input focus (real XTest key
+  presses when libXtst is available) and when a key or the focus comes
+  back while nothing has the keyboard.
 - Visually (Xvfb screenshots, at scale 1 and 1.25): every widget state in
   the table above.
 - Not exercised automatically: live pointer and wheel input, drag and

@@ -105,4 +105,39 @@ if(FO_BUILD_TESTS)
     --unset=OMARCHY_FLTK_ANIM --unset=OMARCHY_FLTK_FONT --unset=DISPLAY
     --unset=WAYLAND_DISPLAY
     $<TARGET_FILE:fo_tests>)
+
+  # Display-dependent tests run inside a private Xvfb started by
+  # tests/run-xvfb.sh for this run; without Xvfb ctest reports them as
+  # skipped. XTest (real key and pointer input) is optional.
+  add_executable(fo_display_tests
+    tests/main.cpp
+    tests/display.cpp
+    tests/test_display.cpp
+  )
+  target_link_libraries(fo_display_tests PRIVATE fltk-omarchy::fltk-omarchy)
+  target_include_directories(fo_display_tests PRIVATE src)
+  find_package(X11 QUIET)
+  if(X11_FOUND AND TARGET X11::Xtst)
+    target_link_libraries(fo_display_tests PRIVATE X11::X11 X11::Xtst)
+    target_compile_definitions(fo_display_tests PRIVATE FO_HAVE_XTEST=1)
+  elseif(X11_FOUND)
+    target_link_libraries(fo_display_tests PRIVATE X11::X11)
+  endif()
+  if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(fo_display_tests PRIVATE -Wall -Wextra)
+  endif()
+  add_test(NAME fo_display_tests COMMAND ${CMAKE_COMMAND} -E env
+    "FO_TEST_RUNS=${_fo_runs}"
+    "HOME=${_fo_runs}/unset-home"
+    "TMPDIR=${_fo_runs}/unset-tmp"
+    "XDG_CONFIG_HOME=${_fo_runs}/unset-config"
+    "XDG_DATA_HOME=${_fo_runs}/unset-data"
+    "XDG_CACHE_HOME=${_fo_runs}/unset-cache"
+    "XDG_STATE_HOME=${_fo_runs}/unset-state"
+    "XDG_RUNTIME_DIR=${_fo_runs}/unset-runtime"
+    --unset=HYPRLAND_INSTANCE_SIGNATURE --unset=OMARCHY_PATH
+    --unset=OMARCHY_FLTK_ANIM --unset=OMARCHY_FLTK_FONT --unset=DISPLAY
+    --unset=WAYLAND_DISPLAY --unset=XAUTHORITY
+    sh ${CMAKE_CURRENT_SOURCE_DIR}/tests/run-xvfb.sh $<TARGET_FILE:fo_display_tests>)
+  set_tests_properties(fo_display_tests PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 120)
 endif()
