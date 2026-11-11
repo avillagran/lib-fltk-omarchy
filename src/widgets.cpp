@@ -36,7 +36,7 @@ void Button::cb(Fl_Widget *, void *data) {
 }
 
 int Button::preferred_width() const {
-  return std::max(88, int(text::width(label() ? label() : "", primary_ ? text::SEMIBOLD : text::REGULAR,
+  return std::max(88, int(text::width(label() ? label() : "", text::REGULAR,
                                       text::size::BODY)) + 32);
 }
 
