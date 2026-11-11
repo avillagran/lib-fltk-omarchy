@@ -378,3 +378,42 @@ TEST(platform_paths) {
   CHECK(platform::home_dir().find("/home") != std::string::npos);
   CHECK(platform::config_dir().find("/config") != std::string::npos);
 }
+
+namespace {
+void watch_case(platform::FileWatch::Backend backend) {
+  std::string dir = fo_test::private_dir("watch");
+  std::string file = dir + "/colors.toml";
+  fo_test::write_file(file, "accent = \"#111111\"\n");
+  int fired = 0;
+  bool done = false;
+  platform::FileWatch w([&] { ++fired, done = true; }, 0.02, backend);
+  CHECK(w.active());
+  w.poll_interval(0.05);
+  w.set_paths({dir, file});
+  // A new entry in the directory.
+  fo_test::write_file(dir + "/new.txt", "x");
+  CHECK(fo_test::pump_until(done, 3));
+  // A file rewritten in place (same name, new size).
+  done = false;
+  fo_test::write_file(file, "accent = \"#222222\" # changed\n");
+  CHECK(fo_test::pump_until(done, 3));
+  // Nothing changes: nothing fires.
+  done = false;
+  int before = fired;
+  fo_test::pump_until(done, 0.3);
+  CHECK_EQ(fired, before);
+}
+} // namespace
+
+TEST(file_watch_notifies) {
+  platform::FileWatch probe(nullptr);
+  std::printf("  backend: %s\n", probe.backend());
+  CHECK(probe.active());
+  watch_case(platform::FileWatch::Backend::Auto);
+}
+
+TEST(file_watch_polling) {
+  platform::FileWatch probe(nullptr, 0.08, platform::FileWatch::Backend::Polling);
+  CHECK_STR(probe.backend(), "polling");
+  watch_case(platform::FileWatch::Backend::Polling);
+}
