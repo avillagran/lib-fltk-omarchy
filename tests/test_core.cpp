@@ -1,5 +1,7 @@
 #include "harness.h"
 
+#include <ctime>
+
 #include "fltk-omarchy/anim.h"
 #include "fltk-omarchy/hyprland.h"
 #include "fltk-omarchy/i18n.h"
@@ -416,4 +418,33 @@ TEST(file_watch_polling) {
   platform::FileWatch probe(nullptr, 0.08, platform::FileWatch::Backend::Polling);
   CHECK_STR(probe.backend(), "polling");
   watch_case(platform::FileWatch::Backend::Polling);
+}
+
+TEST(i18n_date_and_time_fallback_patterns) {
+  // The built-in patterns used without a system locale (and on Windows).
+  i18n::use_system_locales(false);
+  std::tm tm{};
+  tm.tm_year = 2026 - 1900;
+  tm.tm_mon = 10; // November
+  tm.tm_mday = 3;
+  tm.tm_hour = 18;
+  tm.tm_min = 5;
+  tm.tm_isdst = -1;
+  std::time_t t = std::mktime(&tm);
+  i18n::set_language("en");
+  CHECK_STR(i18n::format_date(t), "11/3/26");
+  CHECK_STR(i18n::format_time(t), "6:05 PM");
+  i18n::set_language("de");
+  CHECK_STR(i18n::format_date(t), "03.11.26");
+  CHECK_STR(i18n::format_time(t), "18:05");
+  i18n::set_language("ja");
+  CHECK_STR(i18n::format_date(t), "2026/11/03");
+  i18n::set_language("pt-BR");
+  CHECK_STR(i18n::format_date(t), "03/11/2026");
+  i18n::set_language("es-MX"); // the base language's pattern
+  CHECK_STR(i18n::format_date(t), "03/11/26");
+  i18n::set_language("xx");
+  CHECK_STR(i18n::format_date(t), "2026-11-03");
+  i18n::set_language("");
+  i18n::use_system_locales(true);
 }

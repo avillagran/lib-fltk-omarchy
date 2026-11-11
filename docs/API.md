@@ -94,7 +94,8 @@ fo::tasks::run([=] { heavy(); }, [=] { update_ui(); });
 ```
 
 - `run_sync(opts)` (blocking), `run(opts, done)` (done on the FLTK thread
-  via `Fl::add_fd`), `cancel(id)`, `running_processes()`.
+  via `Fl::add_fd`; on Windows through a waiting thread and `Fl::awake`),
+  `cancel(id)`, `running_processes()`.
 - `ProcessOptions`: argv, cwd, extra env, timeout (kills the whole process
   group), stdout cap (kills on overflow by default), stderr capture,
   `RLIMIT_AS`, `RLIMIT_CPU`.
@@ -166,21 +167,25 @@ std::string s = fo::trn("%n items", n);
 - Formatting with Omarchy's locale registry (`$OMARCHY_PATH`/
   `/usr/share/omarchy/default/i18n/locales.json`): `format_number`,
   `format_size` ("31.6 KB", decimal units as Folio), `format_date`,
-  `format_time`, `format_when` (time today, date before).
+  `format_time`, `format_when` (time today, date before); the system
+  locale when installed, built-in short patterns otherwise
+  (`use_system_locales(false)` forces them).
 - `on_change(fn)` / `remove_listener(id)`.
 
 ## Platform — `platform.h`, `hyprland.h`, `json.h`
 
 - `platform::env`, `home_dir`, `config_dir`, `state_dir`, `read_file`,
-  `exists`, `parent`; `platform::FileWatch` (inotify through
-  `Fl::add_fd`, debounced; no-op off Linux).
+  `exists`, `parent`; `platform::FileWatch` (debounced; inotify on Linux,
+  kqueue on macOS and the BSDs, polling elsewhere or with
+  `Backend::Polling`; `backend()`, `poll_interval()`).
 - `hypr::available`, `request(cmd, done)` (async on the FLTK loop),
   `request_sync`, `subscribe(fn)` (event socket), reply parsers.
 - `json::parse` — tiny reader for Hyprland replies and catalogs.
 
-POSIX pieces (processes, inotify, sockets, `locale_t`) are behind
-`#ifdef`s with fallbacks so the library can be brought to macOS and
-Windows later.
+OS pieces sit behind `#ifdef`s: processes run on POSIX and Windows, file
+watching has inotify, kqueue and polling backends, and formatting falls
+back to built-in patterns without `locale_t`. See
+[PORTABILITY.md](PORTABILITY.md) for what is tested where.
 
 ## Widgets
 

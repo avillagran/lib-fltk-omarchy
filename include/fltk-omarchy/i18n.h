@@ -66,9 +66,15 @@ void remove_listener(int id);
 std::string format_number(double value, int decimals);
 /// File sizes with decimal units, as Folio: "980 B", "31.6 KB", "4.2 GB".
 std::string format_size(uint64_t bytes);
-/// Short date ("11/10/26") and short time ("6:10 PM" / "18:10").
+/// Short date ("11/10/26") and short time ("6:10 PM" / "18:10"), from the
+/// system's locale for the language when it is installed (POSIX), and
+/// otherwise (and on Windows) from a built-in table of CLDR-like short
+/// patterns for Omarchy's languages.
 std::string format_date(std::time_t t);
 std::string format_time(std::time_t t);
+/// Formats with the built-in patterns only, never the system's locales
+/// (the same output on every machine). Numbers keep their separators.
+void use_system_locales(bool on);
 /// Folio's "when": the time for today, the date before that.
 std::string format_when(std::time_t t, std::time_t now = 0);
 

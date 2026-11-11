@@ -77,8 +77,11 @@ libXtst, when present, lets them press real keys.
 
 ## Platforms
 
-Linux (Wayland and X11) first. FLTK also runs on macOS and Windows, and the
-toolkit keeps OS specifics behind one platform layer so it can follow.
+Linux (Wayland and X11) first, and tested there. macOS and Windows have
+real implementations of the OS pieces (processes, file watching, locale
+formatting) that compile for both, checked with `tools/cross-check.sh`,
+but have not been run there yet: see
+[docs/PORTABILITY.md](docs/PORTABILITY.md).
 
 ## License
 

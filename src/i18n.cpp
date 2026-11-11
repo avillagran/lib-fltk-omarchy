@@ -10,13 +10,20 @@
 #include <clocale>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <map>
 #include <memory>
 #include <vector>
 
-#if defined(__unix__) || defined(__APPLE__)
+// POSIX locales (newlocale, nl_langinfo_l, strftime_l) give the system's
+// formats when the locale is installed; otherwise, and on Windows, a
+// built-in table of short date and time patterns per language is used.
+#if (defined(__unix__) || defined(__APPLE__)) && !defined(FO_NO_LOCALE_T)
 #include <langinfo.h>
 #include <locale.h>
+#if defined(__APPLE__)
+#include <xlocale.h>
+#endif
 #define FO_HAVE_LOCALE_T 1
 #endif
 
@@ -74,6 +81,7 @@ struct Catalogs {
   // Formatting
   std::string decimal = ".", group = ",";
   bool rtl = false;
+  bool system_locales = true;
 #ifdef FO_HAVE_LOCALE_T
   locale_t loc = (locale_t)0;
 #endif
@@ -147,7 +155,7 @@ void load_format(Catalogs &c) {
   }
   if (locale_name.empty() && lang == "en")
     locale_name = "en_US.UTF-8";
-  if (!locale_name.empty())
+  if (!locale_name.empty() && c.system_locales)
     c.loc = newlocale(LC_ALL_MASK, locale_name.c_str(), (locale_t)0);
   if (c.loc) {
     const char *dp = nl_langinfo_l(RADIXCHAR, c.loc);
@@ -247,6 +255,68 @@ std::string format_fixed(double v, int decimals, bool grouping) {
   return (negative ? "-" : "") + ip + (fp.empty() ? "" : c.decimal + fp);
 }
 
+void local_tm(std::time_t t, std::tm &out) {
+#if defined(_WIN32)
+  localtime_s(&out, &t);
+#else
+  localtime_r(&t, &out);
+#endif
+}
+
+// Short date patterns (CLDR's, simplified) for when no system locale
+// answers: D/DD day, M/MM month, YY/YYYY year. `h12`: a 12-hour clock.
+struct DatePattern {
+  const char *code, *date;
+  bool h12;
+};
+const DatePattern kDatePatterns[] = {
+    {"en", "M/D/YY", true},        {"ar", "D/M/YYYY", true},     {"bg", "D.MM.YY", false},
+    {"bn", "D/M/YY", true},        {"ca", "D/M/YY", false},      {"cs", "DD.MM.YY", false},
+    {"da", "DD.MM.YYYY", false},   {"de", "DD.MM.YY", false},    {"el", "D/M/YY", true},
+    {"es", "DD/MM/YY", false},     {"et", "DD.MM.YY", false},    {"fa", "YYYY/M/D", false},
+    {"fi", "D.M.YYYY", false},     {"fil", "M/D/YY", true},      {"fr", "DD/MM/YYYY", false},
+    {"ga", "DD/MM/YYYY", false},   {"he", "D.M.YYYY", false},    {"hi", "D/M/YY", true},
+    {"hr", "DD. MM. YYYY.", false}, {"hu", "YYYY. MM. DD.", false}, {"id", "DD/MM/YY", false},
+    {"is", "D.M.YYYY", false},     {"it", "DD/MM/YY", false},    {"ja", "YYYY/MM/DD", false},
+    {"ko", "YY. M. D.", true},     {"lt", "YYYY-MM-DD", false},  {"lv", "DD.MM.YY", false},
+    {"ms", "D/MM/YY", true},       {"nl", "DD-MM-YYYY", false},  {"no", "DD.MM.YYYY", false},
+    {"pl", "DD.MM.YYYY", false},   {"pt", "DD/MM/YY", false},    {"pt-BR", "DD/MM/YYYY", false},
+    {"ro", "DD.MM.YYYY", false},   {"ru", "DD.MM.YYYY", false},  {"si", "YYYY-MM-DD", false},
+    {"sk", "D. M. YYYY", false},   {"sl", "D. M. YY", false},    {"sr", "D.M.YY.", false},
+    {"sv", "YYYY-MM-DD", false},   {"sw", "DD/MM/YYYY", false},  {"ta", "D/M/YY", true},
+    {"th", "D/M/YY", false},       {"tr", "DD.MM.YYYY", false},  {"uk", "DD.MM.YY", false},
+    {"ur", "D/M/YY", true},        {"uz", "DD/MM/YY", false},    {"vi", "DD/MM/YYYY", false},
+    {"zh-CN", "YYYY/M/D", false},  {"zh-TW", "YYYY/M/D", true},
+};
+
+const DatePattern &date_pattern(const std::string &lang) {
+  static const DatePattern iso{"", "YYYY-MM-DD", false};
+  for (const auto &p : kDatePatterns)
+    if (lang == p.code)
+      return p;
+  std::string base = base_of(lang);
+  for (const auto &p : kDatePatterns)
+    if (base == p.code)
+      return p;
+  return iso;
+}
+
+std::string two(int v) { return (v < 10 ? "0" : "") + std::to_string(v); }
+
+std::string apply_date_pattern(const char *pat, const std::tm &tm) {
+  std::string out;
+  for (const char *p = pat; *p;) {
+    if (!std::strncmp(p, "YYYY", 4)) { out += std::to_string(tm.tm_year + 1900); p += 4; }
+    else if (!std::strncmp(p, "YY", 2)) { out += two((tm.tm_year + 1900) % 100); p += 2; }
+    else if (!std::strncmp(p, "MM", 2)) { out += two(tm.tm_mon + 1); p += 2; }
+    else if (*p == 'M') { out += std::to_string(tm.tm_mon + 1); ++p; }
+    else if (!std::strncmp(p, "DD", 2)) { out += two(tm.tm_mday); p += 2; }
+    else if (*p == 'D') { out += std::to_string(tm.tm_mday); ++p; }
+    else out += *p++;
+  }
+  return out;
+}
+
 } // namespace
 
 void add_catalog(const std::string &lang, const char *json_text) {
@@ -256,6 +326,15 @@ void add_catalog(const std::string &lang, const char *json_text) {
     c.loaded = false;
     reload();
   }
+}
+
+void use_system_locales(bool on) {
+  Catalogs &c = cat();
+  if (c.system_locales == on)
+    return;
+  c.system_locales = on;
+  if (c.loaded)
+    load_format(c);
 }
 
 void watch(const std::string &language_file) {
@@ -410,6 +489,7 @@ std::string format_size(uint64_t bytes) {
   return format_fixed(v, i == 0 ? 0 : 1, false) + " " + tr(units[i]);
 }
 
+#ifdef FO_HAVE_LOCALE_T
 static std::string strftime_loc(const char *fmt, const std::tm &tm) {
   char buf[128];
   size_t n = 0;
@@ -422,44 +502,49 @@ static std::string strftime_loc(const char *fmt, const std::tm &tm) {
     n = std::strftime(buf, sizeof buf, fmt, &tm);
   return std::string(buf, n);
 }
+#endif
 
 std::string format_date(std::time_t t) {
   ensure_loaded();
   std::tm tm{};
-  localtime_r(&t, &tm);
-  std::string fmt = "%Y-%m-%d";
+  local_tm(t, tm);
 #ifdef FO_HAVE_LOCALE_T
   if (cat().loc) {
-    fmt = nl_langinfo_l(D_FMT, cat().loc);
+    std::string fmt = nl_langinfo_l(D_FMT, cat().loc);
     for (size_t p; (p = fmt.find("%Y")) != std::string::npos;)
       fmt.replace(p, 2, "%y");
+    return strftime_loc(fmt.c_str(), tm);
   }
 #endif
-  return strftime_loc(fmt.c_str(), tm);
+  return apply_date_pattern(date_pattern(cat().language).date, tm);
 }
 
 std::string format_time(std::time_t t) {
   ensure_loaded();
   std::tm tm{};
-  localtime_r(&t, &tm);
-  const char *fmt = "%H:%M";
+  local_tm(t, tm);
+  bool h12 = date_pattern(cat().language).h12;
 #ifdef FO_HAVE_LOCALE_T
   if (cat().loc) {
     std::string native = nl_langinfo_l(T_FMT, cat().loc);
-    if (native.find("%r") != std::string::npos || native.find("%p") != std::string::npos ||
-        native.find("%I") != std::string::npos || native.find("%l") != std::string::npos)
-      fmt = "%-I:%M %p";
+    h12 = native.find("%r") != std::string::npos || native.find("%p") != std::string::npos ||
+          native.find("%I") != std::string::npos || native.find("%l") != std::string::npos;
+    if (h12)
+      return strftime_loc("%-I:%M %p", tm);
   }
 #endif
-  return strftime_loc(fmt, tm);
+  if (!h12)
+    return two(tm.tm_hour) + ":" + two(tm.tm_min);
+  int h = tm.tm_hour % 12;
+  return std::to_string(h ? h : 12) + ":" + two(tm.tm_min) + " " + tr(tm.tm_hour < 12 ? "AM" : "PM");
 }
 
 std::string format_when(std::time_t t, std::time_t now) {
   if (!now)
     now = std::time(nullptr);
   std::tm a{}, b{};
-  localtime_r(&t, &a);
-  localtime_r(&now, &b);
+  local_tm(t, a);
+  local_tm(now, b);
   bool today = a.tm_year == b.tm_year && a.tm_yday == b.tm_yday;
   return today ? format_time(t) : format_date(t);
 }

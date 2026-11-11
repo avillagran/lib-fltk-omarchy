@@ -144,6 +144,7 @@ void round_frame(int x, int y, int w, int h, int radius, int t, Rgb c, double al
     return;
   }
 #endif
+  (void)radius; // square corners without cairo
   Rgb f = flat(c, alpha);
   fl_color(f.fl());
   for (int i = 0; i < t; ++i)
