@@ -19,16 +19,22 @@ decisions; new work happens here.
 
 ## Status
 
-Usable: theme, motion, processes, icons, text, translations and every
-widget a Folio-like file manager needs (sidebar, breadcrumbs, a virtual
-list/grid for big folders, menus, dialogs, toasts, tooltips, help
-overlay, split panes). See [docs/API.md](docs/API.md) for a tour of every
-module and [docs/components/](docs/components/) for screenshots.
+Usable: theme, motion, processes, icons, text, translations (the
+toolkit's strings in all 50 Omarchy languages) and every widget a
+Folio-like file manager needs (sidebar, breadcrumbs, a virtual list/grid
+for big folders, Miller columns, menus with submenu aim, dialogs and
+toasts that fade in and out, tooltips, help overlay, split panes,
+scrolling on both axes), mirrored for right-to-left languages. See
+[docs/API.md](docs/API.md) for a tour of every module and
+[docs/components/](docs/components/) for screenshots.
 
 ![Gallery](docs/components/grid.png)
 
 The gallery (`examples/gallery.cpp`) idles at about **10 MiB PSS** in
-Xvfb, against about 9 MiB for a bare FLTK window listing a folder.
+Xvfb (9.1–10.7 MiB across runs, measured 2026-11-11; the same as before
+the column view, horizontal scrolling, RTL and the 50 catalogs were
+added, and about 0.2 MiB more with the column view open), against about
+9 MiB for a bare FLTK window listing a folder.
 
 ## Building
 
@@ -46,8 +52,9 @@ run without the `fltk` package installed: it is a build-time dependency
 only. Pass `-DFLTK_OMARCHY_SHARED_FLTK=ON` to link FLTK's shared libraries
 instead. Other options: `FO_BUILD_EXAMPLES` and `FO_BUILD_TESTS` (both on).
 
-A clean build of the library, the gallery and the tests takes about 5 s
-with `-j24` (21 s on one core); the build folder is about 7 MB.
+A clean build of the library, the gallery and both test programs takes
+about 5 s with `-j24` (28 s on one core); the build folder is about
+11 MB.
 
 Use it from another CMake project:
 
