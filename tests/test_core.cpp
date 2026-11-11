@@ -54,10 +54,13 @@ TEST(colors_toml_subset) {
   CHECK(p.colors["background"] == Rgb(0x1a, 0x1b, 0x26));
 }
 
-TEST(theme_fallbacks_follow_folio) {
+TEST(theme_fallbacks_follow_files) {
   Theme empty;
   CHECK(!empty.from_omarchy());
-  CHECK(empty.accent() == Rgb(0xFF, 0xD6, 0x0A));
+  // Files' fallback outside Omarchy is Tokyo Night.
+  CHECK(empty.accent() == Rgb(0x7a, 0xa2, 0xf7));
+  CHECK(empty.background() == Rgb(0x1a, 0x1b, 0x26));
+  CHECK(empty.selection() == Rgb(0x29, 0x2e, 0x42));
   CHECK(empty.color("no_such_key") == Rgb(0x88, 0x88, 0x88));
 
   Palette p;
@@ -72,6 +75,23 @@ TEST(theme_fallbacks_follow_folio) {
   CHECK(t.secondary_foreground() == mix(Rgb(10, 20, 30), Rgb(200, 200, 200), 0.68));
   // Missing palette colors come from the fallback set.
   CHECK(t.red() == Theme::fallback_colors().at("red"));
+  // Files' roles: cards at 8 % foreground, selection at 18 % when the
+  // theme has none, dim text the foreground over 1.4.
+  CHECK(t.card() == mix(Rgb(10, 20, 30), Rgb(200, 200, 200), 0.08));
+  CHECK(t.selection() == mix(Rgb(10, 20, 30), Rgb(200, 200, 200), 0.18));
+  CHECK(t.dim() == Rgb(143, 143, 143));
+  CHECK(t.muted() == Rgb(0x70, 0x78, 0x80));
+}
+
+TEST(theme_files_roles_match_tokyo_night_screenshots) {
+  // Sampled from Files' own screenshots on Tokyo Night: cards (37,39,52).
+  Palette p;
+  p.colors["background"] = Rgb(0x1a, 0x1b, 0x26);
+  p.colors["foreground"] = Rgb(0xa9, 0xb1, 0xd6);
+  p.colors["selection"] = Rgb(0x29, 0x2e, 0x42);
+  Theme t(p);
+  CHECK(t.card() == Rgb(37, 39, 52));
+  CHECK(t.selection() == Rgb(0x29, 0x2e, 0x42));
 }
 
 TEST(theme_accent_foreground_and_radius) {

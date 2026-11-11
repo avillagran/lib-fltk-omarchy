@@ -2,12 +2,14 @@
 #include "fltk-omarchy/theme.h"
 
 #include "fltk-omarchy/hyprland.h"
+#include "fltk-omarchy/icons.h"
 #include "fltk-omarchy/platform.h"
 #include "fltk-omarchy/text.h"
 
 #include <FL/Fl.H>
 #include <FL/Fl_Window.H>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <memory>
@@ -94,21 +96,25 @@ Palette parse_colors_toml(const std::string &text) {
 }
 
 const std::map<std::string, Rgb> &Theme::fallback_colors() {
-  // Folio's fallback: a neutral dark surface with Omarchy's yellow accent.
+  // Files' fallback outside Omarchy: Tokyo Night.
   static const std::map<std::string, Rgb> colors = {
-      {"accent", Rgb(0xFF, 0xD6, 0x0A)},
-      {"background", Rgb(0x16, 0x16, 0x1a)},
-      {"dark_background", Rgb(0x11, 0x11, 0x14)},
-      {"lighter_background", Rgb(0x23, 0x23, 0x29)},
-      {"foreground", Rgb(0xc8, 0xc8, 0xd0)},
-      {"bright_foreground", Rgb(0xec, 0xec, 0xf1)},
+      {"accent", Rgb(0x7a, 0xa2, 0xf7)},
+      {"selection", Rgb(0x29, 0x2e, 0x42)},
+      {"muted", Rgb(0x41, 0x48, 0x68)},
+      {"background", Rgb(0x1a, 0x1b, 0x26)},
+      {"dark_background", Rgb(0x13, 0x14, 0x1c)},
+      {"darker_background", Rgb(0x0e, 0x0e, 0x14)},
+      {"lighter_background", Rgb(0x24, 0x28, 0x3b)},
+      {"foreground", Rgb(0xa9, 0xb1, 0xd6)},
+      {"dark_foreground", Rgb(0x56, 0x5f, 0x89)},
+      {"bright_foreground", Rgb(0xc0, 0xca, 0xf5)},
       {"red", Rgb(0xf7, 0x76, 0x8e)},
       {"yellow", Rgb(0xe0, 0xaf, 0x68)},
+      {"orange", Rgb(0xeb, 0x92, 0x7b)},
       {"green", Rgb(0x9e, 0xce, 0x6a)},
+      {"cyan", Rgb(0x44, 0x9d, 0xab)},
       {"blue", Rgb(0x7a, 0xa2, 0xf7)},
-      {"magenta", Rgb(0xbb, 0x9a, 0xf7)},
-      {"cyan", Rgb(0x7d, 0xcf, 0xff)},
-      {"orange", Rgb(0xff, 0x9e, 0x64)},
+      {"magenta", Rgb(0xad, 0x8e, 0xe6)},
   };
   return colors;
 }
@@ -142,6 +148,30 @@ Rgb Theme::lighter_background() const {
   if (std::fabs(luminance(lighter) - luminance(bg)) > 0.004)
     return lighter;
   return mix(bg, foreground(), 0.08);
+}
+
+Rgb Theme::dim() const {
+  // Files' dark_foreground: the foreground with its brightest channel
+  // divided by 1.4 (the Rust toolkit's Rgb::darker(1.4)).
+  Rgb f = foreground();
+  auto ch = [](uint8_t v) { return uint8_t(std::lround(std::min(255.0, v / 1.4))); };
+  return Rgb(ch(f.r), ch(f.g), ch(f.b));
+}
+
+Rgb Theme::muted() const {
+  const auto &c = palette_.colors;
+  if (auto it = c.find("muted"); it != c.end())
+    return it->second;
+  if (auto it = c.find("color8"); it != c.end())
+    return it->second;
+  return from_omarchy() ? Rgb(0x70, 0x78, 0x80) : fallback_colors().at("muted");
+}
+
+Rgb Theme::selection() const {
+  const auto &c = palette_.colors;
+  if (auto it = c.find("selection"); it != c.end())
+    return it->second;
+  return from_omarchy() ? mix(background(), foreground(), 0.18) : fallback_colors().at("selection");
 }
 
 Rgb Theme::secondary_foreground() const { return mix(background(), foreground(), 0.68); }
@@ -255,7 +285,15 @@ void watch_theme(const std::string &current_dir) {
   s.dir = current_dir.empty() ? platform::home_dir() + "/.local/state/omarchy/current" : current_dir;
   s.follow_hypr = current_dir.empty();
   Theme t = s.current;
-  t.set_font_family(platform::env("OMARCHY_FLTK_FONT", "monospace"));
+  std::string forced = platform::env("OMARCHY_FLTK_FONT", "");
+  bool nerd = false;
+  std::string family = text::ui_family(nerd);
+  if (!forced.empty()) {
+    family = forced;
+    nerd = forced.find("Nerd") != std::string::npos;
+  }
+  t.set_font_family(family);
+  glyph::set_available(nerd);
   s.current = t;
   if (!s.watch)
     s.watch.reset(new platform::FileWatch(rearm_and_reload));

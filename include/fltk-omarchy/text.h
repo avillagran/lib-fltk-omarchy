@@ -36,6 +36,12 @@ constexpr int HEADING = 16; ///< dialog titles
 /// Points FLTK's faces at `family` (a Pango/fontconfig family name).
 void apply_fonts(const std::string &family);
 
+/// Files' font rule: the family fontconfig gives for "monospace" when it
+/// is a Nerd Font; otherwise an installed JetBrainsMono or FiraCode Nerd
+/// Font; otherwise "monospace". `nerd` tells whether the result has the
+/// Nerd Font glyphs. Without fontconfig: "monospace", no glyphs.
+std::string ui_family(bool &nerd);
+
 /// Width of `n` bytes of UTF-8 text. Used to make the eliding testable.
 using Measure = std::function<double(const char *text, int n)>;
 /// Measure with FLTK's current font after fl_font(font, size).

@@ -1,6 +1,10 @@
 #include "fltk-omarchy/icons.h"
 
+#include "fltk-omarchy/text.h"
+
 #include <FL/Fl_SVG_Image.H>
+#include <FL/fl_draw.H>
+#include <FL/fl_utf8.h>
 
 #include <algorithm>
 #include <cstdio>
@@ -98,6 +102,13 @@ std::string svg(const std::string &name, Rgb color, double stroke, bool sharp) {
 void draw(const std::string &name, int x, int y, int size, Rgb color, double stroke) {
   if (size <= 0)
     return;
+  if (glyph::available()) {
+    const char *g = glyph::for_icon(name);
+    if (*g) {
+      glyph::draw(g, x, y, size, size, std::max(8, size * 7 / 8), color);
+      return;
+    }
+  }
   if (stroke <= 0)
     stroke = size >= 20 ? 2.0 : 1.75;
   bool sharp = theme().radius() == 0;
@@ -151,4 +162,100 @@ const char *license() {
 }
 
 } // namespace icon
+
+namespace glyph {
+
+namespace {
+
+bool g_available = false;
+
+struct Glyph {
+  const char *name;
+  unsigned cp;
+};
+
+// Files' glyphs (crates/ui: toolbar.rs, view.rs, toolkit_menu.rs) and
+// the closest Font Awesome / Material Design glyph for the other names.
+const Glyph kGlyphs[] = {
+    {"search", 0xf002},        {"x", 0xf00d},           {"close", 0xf00d},
+    {"pencil", 0xf040},        {"edit", 0xf044},        {"square-pen", 0xf044},
+    {"groups", 0xf00a},        {"list", 0xf0c9},        {"grid", 0xf009},
+    {"layout-grid", 0xf009},   {"space", 0xf200},       {"pie-chart", 0xf200},
+    {"columns", 0xf0db},       {"columns-3", 0xf0db},   {"columns-2", 0xf0db},
+    {"split", 0xf0db},         {"info", 0xf05a},        {"inspector", 0xf05a},
+    {"panel", 0xf05a},         {"panel-right", 0xf05a}, {"actions", 0xf0e7},
+    {"zap", 0xf0e7},           {"settings", 0xf013},    {"arrow-left", 0xf060},
+    {"arrow-right", 0xf061},   {"arrow-up", 0xf062},    {"arrow-down", 0xf063},
+    {"check", 0xf00c},         {"star", 0xf005},        {"star-outline", 0xf006},
+    {"recent", 0xf017},        {"clock", 0xf017},       {"history", 0xf1da},
+    {"trash", 0xf1f8},         {"trash-2", 0xf1f8},     {"home", 0xf015},
+    {"house", 0xf015},         {"downloads", 0xf019},   {"download", 0xf019},
+    {"documents", 0xf15c},     {"file-text", 0xf15c},   {"text", 0xf15c},
+    {"pictures", 0xf03e},      {"image", 0xf03e},       {"music", 0xf001},
+    {"audio", 0xf001},         {"videos", 0xf008},      {"video", 0xf008},
+    {"film", 0xf008},          {"drive", 0xf1c0},       {"hard-drive", 0xf0a0},
+    {"database", 0xf1c0},      {"usb", 0xf287},         {"folder", 0xf07b},
+    {"folder-open", 0xf07c},   {"folder-plus", 0xf0257}, {"eye", 0xf06e},
+    {"hidden", 0xf06e},        {"eye-off", 0xf070},     {"terminal", 0xf120},
+    {"globe", 0xf0ac},         {"network", 0xf0ac},     {"copy", 0xf0c5},
+    {"scissors", 0xf0c4},      {"cut", 0xf0c4},         {"clipboard", 0xf0ea},
+    {"paste", 0xf0ea},         {"undo", 0xf0e2},        {"redo", 0xf01e},
+    {"refresh", 0xf021},       {"refresh-cw", 0xf021},  {"file", 0xf016},
+    {"file-plus", 0xf016},     {"link", 0xf0c1},        {"plus", 0xf067},
+    {"pin", 0xf08d},           {"chevron-right", 0xf054}, {"chevron-left", 0xf053},
+    {"chevron-down", 0xf078},  {"chevron-up", 0xf077},  {"filter", 0xf0b0},
+    {"calculator", 0xf1ec},    {"sort", 0xf15d},        {"arrow-down-a-z", 0xf15d},
+    {"cloud", 0xf0c2},         {"eject", 0xf052},       {"share", 0xf1e0},
+    {"share-2", 0xf1e0},       {"send", 0xf1d8},        {"keyboard", 0xf11c},
+    {"help", 0xf059},          {"circle-help", 0xf059}, {"save", 0xf0c7},
+    {"play", 0xf04b},          {"pause", 0xf04c},       {"external-link", 0xf08e},
+    {"lock", 0xf023},          {"server", 0xf233},      {"laptop", 0xf109},
+    {"peer", 0xf109},          {"monitor", 0xf108},     {"desktop", 0xf108},
+    {"archive", 0xf187},       {"code", 0xf121},        {"file-code", 0xf1c9},
+    {"pdf", 0xf1c1},           {"file-image", 0xf1c5},  {"file-music", 0xf1c7},
+    {"file-video", 0xf1c8},    {"file-archive", 0xf1c6}, {"archive-file", 0xf1c6},
+    {"warning", 0xf071},       {"triangle-alert", 0xf071}, {"more", 0xf141},
+    {"ellipsis", 0xf141},      {"sidebar", 0xf0c9},     {"panel-left", 0xf0c9},
+    {"tag", 0xf02b},           {"select", 0xf012c},     {"square-check", 0xf14a},
+    {"layers", 0xf0c5},        {"open", 0xf07c},        {"preview", 0xf06e},
+    {"templates", 0xf0c5},     {"public", 0xf0ac},      {"removable", 0xf287},
+    {"sort-desc", 0xf063},     {"sort-asc", 0xf062},    {"filter-x", 0xf00d},
+    {"compress", 0xf01a7},     {"extract", 0xf01da},    {"properties", 0xf05a},
+};
+
+} // namespace
+
+bool available() { return g_available; }
+void set_available(bool on) { g_available = on; }
+
+const char *for_icon(const std::string &name) {
+  // The UTF-8 for each glyph, built once.
+  static std::unordered_map<std::string, std::string> table = [] {
+    std::unordered_map<std::string, std::string> t;
+    for (const auto &g : kGlyphs) {
+      char buf[8];
+      int n = fl_utf8encode(g.cp, buf);
+      t.emplace(g.name, std::string(buf, size_t(n)));
+    }
+    return t;
+  }();
+  auto it = table.find(name);
+  return it == table.end() ? "" : it->second.c_str();
+}
+
+void draw(const char *utf8, int x, int y, int w, int h, int size, Rgb color) {
+  if (!utf8 || !*utf8 || w <= 0 || h <= 0)
+    return;
+  fl_font(text::REGULAR, size);
+  int n = int(std::strlen(utf8));
+  int dx = 0, dy = 0, gw = 0, gh = 0;
+  fl_text_extents(utf8, n, dx, dy, gw, gh);
+  fl_color(color.fl());
+  // Center the ink, not the advance: Nerd glyphs sit unevenly in their cell.
+  int tx = x + (w - gw) / 2 - dx;
+  int ty = y + (h - gh) / 2 - dy;
+  fl_draw(utf8, n, tx, ty);
+}
+
+} // namespace glyph
 } // namespace fo

@@ -1,14 +1,18 @@
 // The Omarchy palette, followed live.
 //
 // Colors come from `colors.toml` in Omarchy's current theme
-// (~/.local/state/omarchy/current/theme/colors.toml), with the same keys
-// and fallbacks as Folio: missing derived backgrounds fall back to
-// `background`, missing foregrounds to `foreground`, anything else to a
-// neutral dark palette with Omarchy's yellow accent (also used when
-// Omarchy is not installed). Corners follow Hyprland's
-// `decoration:rounding` (0, square, without Hyprland). The UI font is the
-// Omarchy monospace font: fontconfig's "monospace" alias, which
-// `omarchy-font-set` changes; OMARCHY_FLTK_FONT overrides it.
+// (~/.local/state/omarchy/current/theme/colors.toml), read with the same
+// keys as Omarchy's shell: missing derived backgrounds fall back to
+// `background`, missing foregrounds to `foreground`, anything else to
+// Tokyo Night (also used when Omarchy is not installed), as in Files.
+// Surfaces follow Files' roles: the window background everywhere, cards
+// and hover at 8 % foreground (card()), the dimmed text of metadata
+// (dim()), the theme's selection for marked items. Corners follow
+// Hyprland's `decoration:rounding` (0, square, without Hyprland). The UI
+// font is the Omarchy monospace font: fontconfig's "monospace" alias,
+// which `omarchy-font-set` changes, or a Nerd Font when that alias is not
+// one (Files' rule: the header and rail draw Nerd Font glyphs);
+// OMARCHY_FLTK_FONT overrides it.
 //
 //   fo::watch_theme();                         // load + follow live
 //   const fo::Theme &t = fo::theme();
@@ -73,6 +77,17 @@ public:
   Rgb magenta() const { return color("magenta"); }
   Rgb cyan() const { return color("cyan"); }
   Rgb orange() const { return color("orange"); }
+
+  /// Files' card fill: the foreground at 8 % over the background (cards,
+  /// breadcrumb chips, hovered and toggled controls, the active tab).
+  Rgb card() const { return mix(background(), foreground(), 0.08); }
+  /// Files' dimmed text (its `dark_foreground` role): the foreground
+  /// darkened 1.4 times, for metadata, idle icons and section labels.
+  Rgb dim() const;
+  /// The theme's `muted` color (disabled controls, scrollbar thumbs).
+  Rgb muted() const;
+  /// The theme's `selection`: the fill of marked items.
+  Rgb selection() const;
 
   /// Cards, tiles, panels: the theme's lighter background, or the
   /// background nudged toward the foreground when the two are the same.

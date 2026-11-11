@@ -31,6 +31,9 @@ endif()
 find_package(PkgConfig QUIET)
 if(PkgConfig_FOUND)
   pkg_check_modules(FO_CAIRO QUIET IMPORTED_TARGET cairo)
+  # fontconfig (loaded by FLTK's pango text anyway) finds the Nerd Font
+  # whose glyphs draw Files' icons.
+  pkg_check_modules(FO_FONTCONFIG QUIET IMPORTED_TARGET fontconfig)
 endif()
 
 add_library(fltk-omarchy STATIC
@@ -62,6 +65,10 @@ target_link_libraries(fltk-omarchy PUBLIC ${FO_FLTK_LIBS} Threads::Threads)
 if(FO_CAIRO_FOUND)
   target_link_libraries(fltk-omarchy PRIVATE PkgConfig::FO_CAIRO)
   target_compile_definitions(fltk-omarchy PRIVATE FO_HAVE_CAIRO=1)
+endif()
+if(FO_FONTCONFIG_FOUND)
+  target_link_libraries(fltk-omarchy PRIVATE PkgConfig::FO_FONTCONFIG)
+  target_compile_definitions(fltk-omarchy PRIVATE FO_HAVE_FONTCONFIG=1)
 endif()
 if(FO_PORTABLE_POSIX)
   target_compile_definitions(fltk-omarchy PRIVATE FO_PORTABLE_POSIX=1)

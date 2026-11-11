@@ -8,8 +8,53 @@
 
 #include <string>
 
+#if defined(FO_HAVE_FONTCONFIG)
+#include <fontconfig/fontconfig.h>
+#endif
+
 namespace fo {
 namespace text {
+
+#if defined(FO_HAVE_FONTCONFIG)
+static std::string fc_family(const char *pattern) {
+  std::string out;
+  FcPattern *p = FcNameParse(reinterpret_cast<const FcChar8 *>(pattern));
+  if (!p)
+    return out;
+  FcConfigSubstitute(nullptr, p, FcMatchPattern);
+  FcDefaultSubstitute(p);
+  FcResult r = FcResultNoMatch;
+  if (FcPattern *m = FcFontMatch(nullptr, p, &r)) {
+    FcChar8 *fam = nullptr;
+    if (FcPatternGetString(m, FC_FAMILY, 0, &fam) == FcResultMatch && fam)
+      out = reinterpret_cast<const char *>(fam);
+    FcPatternDestroy(m);
+  }
+  FcPatternDestroy(p);
+  return out;
+}
+#endif
+
+std::string ui_family(bool &nerd) {
+  nerd = false;
+#if defined(FO_HAVE_FONTCONFIG)
+  if (!FcInit())
+    return "monospace";
+  std::string mono = fc_family("monospace");
+  if (mono.find("Nerd") != std::string::npos) {
+    nerd = true;
+    return mono;
+  }
+  for (const char *candidate : {"JetBrainsMono Nerd Font", "FiraCode Nerd Font"}) {
+    std::string f = fc_family(candidate);
+    if (f.find("Nerd") != std::string::npos) {
+      nerd = true;
+      return f;
+    }
+  }
+#endif
+  return "monospace";
+}
 
 void apply_fonts(const std::string &family) {
   // Fl::set_font keeps the pointer: keep the strings alive for good.

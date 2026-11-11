@@ -11,6 +11,12 @@
 // On Omarchy's square theme (radius 0) strokes use square caps and miter
 // joins, as Folio's glyphs do; rounded themes keep Lucide's round ends.
 //
+// When the UI font is a Nerd Font (Omarchy's default, JetBrainsMono Nerd
+// Font), the names Files uses draw as that font's glyphs instead, as
+// Files' header, rail and menus do: fo::glyph maps them to code points of
+// the Font Awesome and Material Design ranges. Without a Nerd Font every
+// name falls back to the Lucide drawing.
+//
 //   fo::icon::draw("folder", x, y, 18, fo::theme().accent());
 #pragma once
 
@@ -45,4 +51,18 @@ size_t cache_entries();
 const char *license();
 
 } // namespace icon
+
+namespace glyph {
+
+/// True when the UI font has the Nerd Font glyphs (set by the theme when
+/// it resolves the font; tests may force it).
+bool available();
+void set_available(bool on);
+/// The UTF-8 Nerd Font glyph for an icon name or alias ("" for none).
+const char *for_icon(const std::string &name);
+/// Draws UTF-8 text (a glyph, or a glyph and a label) centered in the box
+/// with the UI font at `size`.
+void draw(const char *utf8, int x, int y, int w, int h, int size, Rgb color);
+
+} // namespace glyph
 } // namespace fo
