@@ -5,8 +5,11 @@
 
 #include <FL/Fl.H>
 
+#include <cerrno>
 #include <chrono>
 #include <csignal>
+#include <cstdlib>
+#include <cstring>
 #include <thread>
 
 using namespace fo;
@@ -37,6 +40,27 @@ TEST(process_exec_failure_is_reported) {
   CHECK(r.error.find("fo-no-such-program-xyz") != std::string::npos);
   o.argv = {};
   CHECK(!run_sync(o).started);
+}
+
+TEST(process_exec_searches_path_and_reports_permission) {
+  // A non-executable file found on PATH: "Permission denied", as execvp
+  // reports it (also on the portable POSIX path, which searches itself).
+  std::string dir = fo_test::private_dir("path");
+  fo_test::write_file(dir + "/fo-not-executable", "#!/bin/sh\necho hi\n");
+  std::string old = platform::env("PATH");
+  setenv("PATH", (dir + ":" + old).c_str(), 1);
+  ProcessOptions o;
+  o.argv = {"fo-not-executable"};
+  ProcessResult r = run_sync(o);
+  CHECK(!r.started);
+  CHECK(r.error.find(std::strerror(EACCES)) != std::string::npos);
+  // With extra environment entries (execve with a new environment).
+  o.argv = {"sh", "-c", "printf %s \"$FO_X\""};
+  o.env = {"FO_X=found on PATH"};
+  r = run_sync(o);
+  CHECK(r.ok());
+  CHECK_STR(r.out, "found on PATH");
+  setenv("PATH", old.c_str(), 1);
 }
 
 TEST(process_timeout_kills_the_group) {
