@@ -35,6 +35,7 @@ endif()
 add_library(fltk-omarchy STATIC
   src/anim.cpp
   src/collection.cpp
+  src/columns.cpp
   src/dialog.cpp
   src/hyprland.cpp
   src/i18n.cpp
@@ -80,6 +81,7 @@ if(FO_BUILD_TESTS)
     tests/test_core.cpp
     tests/test_process.cpp
     tests/test_scroll.cpp
+    tests/test_columns.cpp
     tests/test_widgets.cpp
   )
   target_link_libraries(fo_tests PRIVATE fltk-omarchy::fltk-omarchy)

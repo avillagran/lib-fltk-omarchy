@@ -119,6 +119,8 @@ protected:
   Fl_Widget *content() const { return children() ? child(0) : nullptr; }
   /// Moves the content to the current offsets.
   void place_content();
+  /// Drawn over the content, under the scrollbars (clipped to the area).
+  virtual void draw_over_content() {}
 
 private:
   void place_bars();

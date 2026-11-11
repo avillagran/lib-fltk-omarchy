@@ -135,4 +135,16 @@ void move_pointer(Fl_Window *w, int x, int y) {
   settle(0.05);
 }
 
+void click(Fl_Window *w, int x, int y) {
+  move_pointer(w, x, y);
+#if FLTK_USE_X11 && defined(FO_HAVE_XTEST)
+  if (Display *d = fl_x11_display()) {
+    XTestFakeButtonEvent(d, 1, True, CurrentTime);
+    XTestFakeButtonEvent(d, 1, False, CurrentTime);
+    XSync(d, False);
+  }
+#endif
+  settle(0.1);
+}
+
 } // namespace fo_test

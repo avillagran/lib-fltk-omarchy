@@ -43,6 +43,7 @@ everywhere.
 | Widget | Keys |
 |---|---|
 | Collection | ← ↑ → ↓ (grid-aware; in a list ← and → are left to `on_key`, e.g. to go into a folder and back), Home/End, PageUp/PageDown, Shift extends the selection, Ctrl+A selects all, Enter activates, typing jumps by name (type-ahead, 1 s buffer). `on_key` sees every key first (Backspace, Delete, F2, Menu...) |
+| ColumnView | ← → that the focused column did not use move to the previous / next column (mirrored right to left); `on_step` decides first (e.g. → opens the selected folder in a new column) |
 | Sidebar | ↑ ↓ Home End move the cursor (skipping hidden sections), Enter / → / Space open the row and call `on_finished`, Esc calls `on_finished` (hand the keyboard back to the files) |
 | Breadcrumbs | ← → move between segments (and the "…" fold), Enter / Space go there |
 | TextField | Enter → `on_enter`, Esc → `on_escape`, Tab → `on_complete` when set (otherwise Tab moves focus), `on_key` first look; FLTK's editing keys |

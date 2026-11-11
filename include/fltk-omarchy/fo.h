@@ -4,6 +4,7 @@
 #include "fltk-omarchy/anim.h"
 #include "fltk-omarchy/app.h"
 #include "fltk-omarchy/collection.h"
+#include "fltk-omarchy/columns.h"
 #include "fltk-omarchy/dialog.h"
 #include "fltk-omarchy/hyprland.h"
 #include "fltk-omarchy/i18n.h"

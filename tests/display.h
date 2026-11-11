@@ -30,5 +30,7 @@ void focus_window(Fl_Window *w);
 void press_key(int fl_key);
 /// Moves the pointer to window coordinates of `w`.
 void move_pointer(Fl_Window *w, int x, int y);
+/// Clicks the left button at window coordinates of `w`.
+void click(Fl_Window *w, int x, int y);
 
 } // namespace fo_test

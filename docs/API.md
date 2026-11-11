@@ -188,6 +188,7 @@ Windows later.
 | `Toast` | `dialog.h` | [toast](components/toast.png) |
 | `HelpOverlay` | `dialog.h` | [help](components/help.png) |
 | `ScrollArea`, `ScrollBar` (both axes) | `scroll.h` | (any scrolled view) |
+| `ColumnView` (Miller columns) | `columns.h` | [columns](components/columns.png) |
 
 - **Button** — `primary(bool)`, `on_click(fn)`, `preferred_width()`.
 - **IconButton** — `icon(name)`, `tooltip_text(t)` (shown after 600 ms),
@@ -230,6 +231,18 @@ Windows later.
   and `scrim_cancels`; the answer carries the button index (-1 for
   cancelled), the values and the check. `on_validate`, `set_error`,
   `accept()`, `choose(i)`, `cancel()`.
+- **ColumnView** — Miller columns in a horizontal `ScrollArea`:
+  `column_width(px)` (260), `add_column(widget)` (owned, placed, kept in
+  view with `follow_last`), `truncate(n)` / `clear()`, `columns()`,
+  `column(i)`, `index_of(widget)`, `set_active(i, focus, animate)` (gives
+  the column the keyboard and scrolls it into view), `active()`,
+  `on_active_change`, `reveal(i)`. Left/Right that the focused column did
+  not use (a list `Collection` leaves them) move between columns;
+  `on_step(from, dir)` sees them first, e.g. to open the selected folder
+  in a new column on Right; `keyboard_navigation(false)` turns them off.
+  Mirrored when `fo::rtl()`. Flo's `ColumnsView` follows the same
+  pattern (a trail of `FileView`s plus the selected folder's contents)
+  and can move onto it without changing what the user sees.
 - **Toast** — `Toast::show(win, text, seconds, Info|Error)`.
 - **Tooltip** — `Tooltip::open_for(widget, text)`, `Tooltip::close_all()`.
 - **HelpOverlay** — `HelpOverlay::show(win, {{keys, description}...},

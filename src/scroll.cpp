@@ -218,10 +218,8 @@ void ScrollArea::scroll_to(double offset, bool animate) {
     scroller_.scroll_to(offset, max_offset());
   else
     scroller_.jump(std::min(std::max(offset, 0.0), max_offset()));
-  if (!animate) {
-    pos_ = scroller_.position(max_offset());
-    place_content();
-  }
+  pos_ = scroller_.position(max_offset());
+  place_content();
   bar_.poke(this);
   redraw();
 }
@@ -231,10 +229,8 @@ void ScrollArea::scroll_to_x(double offset, bool animate) {
     scroller_x_.scroll_to(offset, max_offset_x());
   else
     scroller_x_.jump(std::min(std::max(offset, 0.0), max_offset_x()));
-  if (!animate) {
-    pos_x_ = scroller_x_.position(max_offset_x());
-    place_content();
-  }
+  pos_x_ = scroller_x_.position(max_offset_x());
+  place_content();
   bar_x_.poke(this);
   redraw();
 }
@@ -319,7 +315,9 @@ int ScrollArea::handle(int event) {
   if (event == FL_MOUSEWHEEL) {
     double dx = Fl::event_dx() * 48.0, dy = Fl::event_dy() * 48.0;
     // Shift+wheel and a Horizontal-only area turn vertical steps sideways.
+    bool shifted = false;
     if (dx == 0 && (Fl::event_state(FL_SHIFT) || axes_ == Horizontal)) {
+      shifted = Fl::event_state(FL_SHIFT) && (axes_ & Horizontal);
       dx = dy;
       dy = 0;
     }
@@ -328,8 +326,9 @@ int ScrollArea::handle(int event) {
     if (!(axes_ & Horizontal))
       dx = 0;
     bool can = (dy != 0 && !scroller_.passes(dy, max)) || (dx != 0 && !scroller_x_.passes(dx, maxx));
-    // Let a nested scroller under the pointer use it first.
-    if (wheel_under_pointer(content()))
+    // Let a nested scroller under the pointer use it first (not a
+    // Shift+wheel meant for this area: nested lists would scroll down).
+    if (!shifted && wheel_under_pointer(content()))
       return 1;
     return can && wheel(dx, dy) ? 1 : 0;
   }
@@ -363,6 +362,7 @@ void ScrollArea::draw() {
   fl_push_clip(x(), y(), w(), h());
   paint::fill(x(), y(), w(), h(), theme().background());
   draw_children();
+  draw_over_content();
   if (axes_ & Vertical)
     bar_.draw(this, pos_, max, h());
   if (axes_ & Horizontal)

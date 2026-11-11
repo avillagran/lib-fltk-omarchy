@@ -3,14 +3,15 @@
 //
 //   gallery                 # interactive
 //   gallery --demo=menu     # opens one component's state (for screenshots):
-//                           # grid, list, menu, dialog, prompt, help, toast,
-//                           # tooltip, sidebar-focus
+//                           # grid, list, columns, menu, dialog, prompt, help,
+//                           # toast, tooltip, sidebar-focus
 #include "fltk-omarchy/fo.h"
 
 #include <FL/Fl.H>
 
 #include <cstring>
 #include <ctime>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -72,6 +73,32 @@ public:
   }
 };
 
+// One folder of the columns view: a fake tree, the same at every depth.
+class Folder : public fo::Collection {
+public:
+  Folder(std::string name, int depth) : Collection(0, 0, 10, 10), name(std::move(name)), depth(depth) {
+    const char *dirs[] = {"Alfama", "Belém", "Sintra day trip", "Porto"};
+    int nd = depth < 3 ? 4 - depth : 0;
+    for (int i = 0; i < nd; ++i)
+      entries.push_back({dirs[i], "folder", "", true});
+    for (int i = 0; i < 6 + depth * 3; ++i) {
+      char n[48];
+      std::snprintf(n, sizeof n, "photo-%d-%02d.jpg", depth + 1, i + 1);
+      entries.push_back({n, "file-image", "", false});
+    }
+  }
+  std::string name;
+  int depth;
+  std::vector<Entry> entries;
+  int count() const override { return int(entries.size()); }
+  std::string item_text(int i) const override { return entries[size_t(i)].name; }
+  void draw_item(int i, int x, int y, int w, int h, const ItemState &s) override {
+    const Entry &e = entries[size_t(i)];
+    draw_row(x, y, w, h, s, e.icon, e.name, "", e.dir ? fo::theme().accent() : Files::kind_color(e), e.dir);
+  }
+  bool dir_selected() const { return current() >= 0 && entries[size_t(current())].dir; }
+};
+
 // The right-hand details pane: plain FLTK group with toolkit widgets.
 class Details : public Fl_Group {
 public:
@@ -120,7 +147,7 @@ std::vector<fo::HelpOverlay::Row> help_rows() {
           {"Ctrl+A", "Select everything"},
           {"Tab", "Move between the sidebar and the files"},
           {"\xE2\x8F\x8E", "Open"},
-          {"Ctrl+1 / 2", "Grid or list"},
+          {"Ctrl+1 / 2 / 3", "Grid, list or columns"},
           {"Ctrl+L", "Focus the path"},
           {"Ctrl+I", "Show or hide the details pane"},
           {"F2", "Rename"},
@@ -160,7 +187,12 @@ int main(int argc, char **argv) {
   auto *split = new fo::SplitPane(0, TOP, W, H - TOP);
   auto *sidebar = new fo::Sidebar(0, TOP, SIDE, H - TOP);
   auto *inner = new fo::SplitPane(SIDE + 1, TOP, W - SIDE - 1, H - TOP);
+  auto *body = new Fl_Group(SIDE + 1, TOP, W - SIDE - 1 - 300, H - TOP);
   auto *files = new Files(SIDE + 1, TOP, W - SIDE - 1 - 300, H - TOP);
+  auto *columns = new fo::ColumnView(SIDE + 1, TOP, W - SIDE - 1 - 300, H - TOP);
+  columns->end();
+  columns->hide();
+  body->end();
   auto *details = new Details(W - 299, TOP, 299, H - TOP);
   inner->end();
   inner->min_sizes(300, 220);
@@ -195,12 +227,62 @@ int main(int argc, char **argv) {
   files->select(6, true);
   files->set_current(6, true);
 
-  // Behavior.
-  auto set_view = [=](bool grid) {
-    files->layout(grid ? fo::Collection::Layout::Grid : fo::Collection::Layout::List);
-    b_view->icon(grid ? "grid" : "list");
+  // The columns view: picking a folder shows what is inside in the next
+  // column; Right on a folder goes into it, Left back (ColumnView).
+  auto wire_column = std::make_shared<std::function<void(Folder *)>>();
+  auto open_inside = [=](Folder *f) {
+    int at = columns->index_of(f);
+    columns->truncate(at + 1);
+    if (f->dir_selected()) {
+      auto *next = new Folder(f->entries[size_t(f->current())].name, f->depth + 1);
+      next->reload(true);
+      next->set_current(-1);
+      (*wire_column)(next);
+      columns->add_column(next);
+    }
   };
-  b_view->on_click([=] { set_view(files->layout() != fo::Collection::Layout::Grid); });
+  *wire_column = [=](Folder *f) {
+    f->on_selection_change([=] { open_inside(f); });
+    f->on_activate([=](int i) { fo::Toast::show(win, "Open " + f->entries[size_t(i)].name); });
+  };
+  {
+    auto *root = new Folder("Lisbon 2026", 0);
+    root->reload(true);
+    (*wire_column)(root);
+    columns->add_column(root);
+    root->set_current(0);
+  }
+  columns->on_step([=](int from, int dir) {
+    // Right on a folder enters the column showing it.
+    auto *f = static_cast<Folder *>(columns->column(from));
+    if (dir > 0 && f->dir_selected() && from + 1 < columns->columns()) {
+      auto *next = static_cast<Folder *>(columns->column(from + 1));
+      columns->set_active(from + 1);
+      if (next->current() < 0 && next->count() > 0)
+        next->set_current(0);
+      return true;
+    }
+    return dir > 0; // nothing to enter
+  });
+
+  // Behavior.
+  auto set_view = [=](int view) { // 0 grid, 1 list, 2 columns
+    if (view == 2) {
+      files->hide();
+      columns->show();
+      columns->set_active(columns->columns() - 1);
+      b_view->icon("columns-3");
+    } else {
+      columns->hide();
+      files->show();
+      files->layout(view == 0 ? fo::Collection::Layout::Grid : fo::Collection::Layout::List);
+      files->take_focus();
+      b_view->icon(view == 0 ? "grid" : "list");
+    }
+  };
+  b_view->on_click([=] {
+    set_view(columns->visible() ? 0 : files->layout() == fo::Collection::Layout::Grid ? 1 : 2);
+  });
   b_hidden->on_click([=] { b_hidden->active_state(!b_hidden->active_state()); });
   b_details->on_click([=] {
     b_details->active_state(!b_details->active_state());
@@ -299,8 +381,9 @@ int main(int argc, char **argv) {
     return false;
   });
 
-  win->shortcut("Ctrl+1", [=] { set_view(true); });
-  win->shortcut("Ctrl+2", [=] { set_view(false); });
+  win->shortcut("Ctrl+1", [=] { set_view(0); });
+  win->shortcut("Ctrl+2", [=] { set_view(1); });
+  win->shortcut("Ctrl+3", [=] { set_view(2); });
   win->shortcut("Ctrl+L", [=] { crumbs->take_focus(); });
   win->shortcut("Ctrl+I", [=] { b_details->do_callback(); });
   win->shortcut("Ctrl+T", [=] { fo::Toast::show(win, "Copied 3 items"); });
@@ -321,13 +404,28 @@ int main(int argc, char **argv) {
     fo::IconButton *sort;
     std::function<void(int, int, int)> context;
     std::function<void()> rename, del, sort_menu;
+    std::function<void(int)> view;
+    fo::ColumnView *columns;
   };
-  static Demo d{demo, win, files, sidebar, b_sort, context, rename, confirm_delete, sort_menu};
+  static Demo d{demo, win, files, sidebar, b_sort, context, rename, confirm_delete, sort_menu, set_view, columns};
   if (!demo.empty())
     Fl::add_timeout(0.4, [](void *) {
       const std::string &n = d.name;
       if (n == "list")
         d.files->layout(fo::Collection::Layout::List);
+      else if (n == "columns") {
+        d.view(2);
+        // Two levels down, the keyboard in the deepest folder.
+        auto *c1 = static_cast<fo::Collection *>(d.columns->column(1));
+        if (c1)
+          c1->set_current(1);
+        auto *c2 = static_cast<fo::Collection *>(d.columns->column(2));
+        if (c2) {
+          c2->set_current(4);
+          d.columns->set_active(2);
+        }
+        fo::set_focus_visible(true);
+      }
       else if (n == "menu")
         d.context(6, 760, 360);
       else if (n == "submenu") {

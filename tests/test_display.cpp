@@ -9,6 +9,7 @@
 #include "fltk-omarchy/app.h"
 #include "fltk-omarchy/collection.h"
 #include "fltk-omarchy/dialog.h"
+#include "fltk-omarchy/columns.h"
 #include "fltk-omarchy/menu.h"
 #include "fltk-omarchy/theme.h"
 #include "fltk-omarchy/widgets.h"
@@ -376,4 +377,48 @@ TEST(display_layers_fade_out_on_close) {
   anim::resume();
   anim::set_enabled(-1);
   win.hide();
+}
+
+TEST(display_columns_keyboard_and_clicks) {
+  if (!fo_test::have_display())
+    return;
+  if (!fo_test::have_xtest()) {
+    std::printf("  skip: XTest is not available\n");
+    return;
+  }
+  anim::set_enabled(0);
+  Window win(10, 10, 600, 300, "columns");
+  auto *view = new ColumnView(0, 0, 600, 300);
+  view->end();
+  win.end();
+  view->column_width(250);
+  std::vector<Rows *> cols;
+  for (int i = 0; i < 4; ++i) {
+    cols.push_back(new Rows(0, 0, 10, 10));
+    cols.back()->reload(true);
+    view->add_column(cols.back());
+  }
+  fo_test::show(&win);
+  fo_test::focus_window(&win);
+  view->set_active(3);
+  fo_test::settle();
+  CHECK(Fl::focus() == cols[3]);
+  CHECK_NEAR(view->offset_x(), 4 * 251 - 600, 0.5);
+  // Real key presses: the list leaves Left to its parents, the view moves.
+  fo_test::press_key(FL_Left);
+  fo_test::press_key(FL_Left);
+  CHECK(Fl::focus() == cols[1]);
+  CHECK_EQ(view->active(), 1);
+  // Column 1 starts at 251 in the strip: scrolled into view.
+  CHECK(view->offset_x() <= 251 + 0.5);
+  CHECK_EQ(cols[1]->x(), 251 - int(view->offset_x()));
+  // Up and Down still move inside the column.
+  fo_test::press_key(FL_Down);
+  CHECK_EQ(cols[1]->current(), 1);
+  // A click in another column makes it the active one.
+  fo_test::click(&win, cols[2]->x() + 60, 30);
+  CHECK(Fl::focus() == cols[2]);
+  CHECK_EQ(view->active(), 2);
+  win.hide();
+  anim::set_enabled(-1);
 }
