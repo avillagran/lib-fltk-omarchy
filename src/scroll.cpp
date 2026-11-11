@@ -87,6 +87,11 @@ bool ScrollBar::thumb(double pos, double max, double view, int &ty, int &th) con
 
 static void hide_later(void *w) { static_cast<Fl_Widget *>(w)->redraw(); }
 
+ScrollBar::~ScrollBar() {
+  if (timer_owner_)
+    Fl::remove_timeout(hide_later, timer_owner_);
+}
+
 void ScrollBar::draw(Fl_Widget *owner, double pos, double max, double view) {
   double now = anim::now_ms();
   bool recent = now - last_ < anim::ms::SCROLLBAR_HIDE;
@@ -96,6 +101,7 @@ void ScrollBar::draw(Fl_Widget *owner, double pos, double max, double view) {
   if (recent && !hovered_ && !dragging_) {
     Fl::remove_timeout(hide_later, owner);
     Fl::add_timeout((anim::ms::SCROLLBAR_HIDE - (now - last_)) / 1000.0 + 0.01, hide_later, owner);
+    timer_owner_ = owner;
   }
   int ty, th;
   if (a <= 0.01 || !thumb(pos, max, view, ty, th))

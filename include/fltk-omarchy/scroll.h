@@ -43,6 +43,9 @@ public:
   enum Orientation { Vertical, Horizontal };
   ScrollBar() = default;
   explicit ScrollBar(Orientation o) : o_(o) {}
+  /// Cancels the pending fade-out redraw of its owner (the owner holds the
+  /// bar, so it is going away too).
+  ~ScrollBar();
   void orientation(Orientation o) { o_ = o; }
   Orientation orientation() const { return o_; }
   /// Track: the strip on the right edge (vertical) or the bottom edge
@@ -67,6 +70,7 @@ private:
   bool hovered_ = false, dragging_ = false;
   int grab_dy_ = 0;
   Anim<double> alpha_;
+  Fl_Widget *timer_owner_ = nullptr; ///< owner of the pending fade-out redraw
 };
 
 /// A scrolling container for one child. Vertical by default: the child
