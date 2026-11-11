@@ -513,7 +513,7 @@ void Sidebar::draw() {
       right -= sw + 6;
     }
     text::draw(row.label, mx(lx, right - lx), sy, right - lx, kRowH, label_color(fg),
-               active ? text::BOLD : text::REGULAR, 12, mirror ? FL_ALIGN_RIGHT : FL_ALIGN_LEFT);
+               text::REGULAR, 12, mirror ? FL_ALIGN_RIGHT : FL_ALIGN_LEFT);
   };
 
   fl_push_clip(x(), y(), w(), list_h);

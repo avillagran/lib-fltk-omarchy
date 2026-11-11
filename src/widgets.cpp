@@ -76,7 +76,7 @@ void Button::draw() {
   if (has_focus(this) && focus_visible())
     paint::round_frame(x(), y(), w(), h(), r, 1, t.accent());
   Rgb fg = !active_r() ? t.muted() : primary_ ? t.accent() : hovered_ ? t.foreground() : t.dim();
-  text::draw(label() ? label() : "", x() + 8, y(), w() - 16, h(), fg, primary_ ? text::BOLD : text::REGULAR, 12,
+  text::draw(label() ? label() : "", x() + 8, y(), w() - 16, h(), fg, text::REGULAR, 12,
              FL_ALIGN_CENTER);
 }
 

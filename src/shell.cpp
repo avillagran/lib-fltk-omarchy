@@ -252,7 +252,7 @@ void TabStrip::layout() {
   int total = 0;
   for (int i = 0; i < n; ++i) {
     // label, padding 12 on each side, room for the close button
-    int tw = int(text::width(labels_[size_t(i)], text::BOLD, 12)) + 24 + 22;
+    int tw = int(text::width(labels_[size_t(i)], text::REGULAR, 12)) + 24 + 22;
     want[size_t(i)] = std::min(220, std::max(80, tw));
     total += want[size_t(i)] + 2;
   }
@@ -347,7 +347,7 @@ void TabStrip::draw() {
     if (cur)
       paint::round_fill(s.x, y() + 2, s.w, h() - 4, round7() ? 5 : 0, t.card());
     Rgb fg = cur ? t.bright_foreground() : int(i) == hover_ ? t.foreground() : t.dim();
-    text::draw(labels_[i], s.x + 12, y(), s.w - 12 - 24, h(), fg, cur ? text::BOLD : text::REGULAR, 12);
+    text::draw(labels_[i], s.x + 12, y(), s.w - 12 - 24, h(), fg, text::REGULAR, 12);
     if (cur || int(i) == hover_) {
       Rgb xc = int(i) == hover_close_ ? t.red() : t.dim();
       text::draw("\xC3\x97", s.x + s.w - 24, y(), 18, h(), xc, text::REGULAR, 12, FL_ALIGN_CENTER,
