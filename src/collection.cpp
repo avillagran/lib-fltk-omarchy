@@ -29,7 +29,7 @@ static void place_bar(ScrollBar &bar, int x, int y, int w, int h) { bar.place(rt
 
 // --- Geometry -------------------------------------------------------------------
 
-static int pad_for(int pad, Collection::Layout l) { return pad >= 0 ? pad : l == Collection::Layout::List ? 12 : 24; }
+static int pad_for(int pad, Collection::Layout l) { return pad >= 0 ? pad : l == Collection::Layout::Grid ? 24 : 12; }
 
 void Collection::layout(Layout l) {
   if (l == layout_)
@@ -43,11 +43,106 @@ void Collection::layout(Layout l) {
 }
 
 void Collection::row_height(int h) { row_h_ = std::max(8, h); redraw(); }
+
+void Collection::bands(std::vector<Band> b) {
+  bands_ = std::move(b);
+  geom_w_ = -1;
+  redraw();
+}
+
+void Collection::band_geometry() const {
+  int pad = pad_for(pad_, layout_);
+  int W = std::max(1, w() - 2 * pad);
+  if (geom_w_ == W && geom_.size() == bands_.size())
+    return;
+  geom_.clear();
+  int y = 0, first = 0;
+  for (const Band &b : bands_) {
+    BandGeom g;
+    g.first = first;
+    g.top = y;
+    y += b.header_h;
+    g.items_top = y;
+    g.cols = b.min_width > 0 ? std::max(1, (W + b.gap) / (b.min_width + b.gap)) : 1;
+    g.cw = (W - b.gap * (g.cols - 1)) / g.cols;
+    g.rows = (b.count + g.cols - 1) / g.cols;
+    if (g.rows > 0)
+      y += g.rows * (b.item_h + b.gap) - b.gap;
+    y += b.after;
+    first += b.count;
+    geom_.push_back(g);
+  }
+  geom_h_ = y;
+  geom_w_ = W;
+}
+
+int Collection::band_of(int index) const {
+  if (layout_ != Layout::Bands || index < 0)
+    return -1;
+  band_geometry();
+  for (size_t b = bands_.size(); b-- > 0;)
+    if (index >= geom_[b].first)
+      return index < geom_[b].first + bands_[b].count ? int(b) : -1;
+  return -1;
+}
+
+void Collection::visible_range(int off, int &first, int &last) const {
+  int n = count(), pad = pad_for(pad_, layout_);
+  if (layout_ != Layout::Bands) {
+    int unit = layout_ == Layout::List ? row_h_ : tile_h_;
+    int cols = columns();
+    first = std::max(0, (off - pad) / unit * cols);
+    last = std::min(n - 1, ((off + h() - pad) / unit + 1) * cols - 1);
+    return;
+  }
+  band_geometry();
+  first = n, last = -1;
+  int y0 = off - pad, y1 = off + h() - pad;
+  for (size_t b = 0; b < bands_.size(); ++b) {
+    const Band &bd = bands_[b];
+    const BandGeom &g = geom_[b];
+    int step = bd.item_h + bd.gap;
+    int bottom = g.items_top + g.rows * step;
+    if (bottom < y0 || g.items_top > y1 || bd.count == 0)
+      continue;
+    int r0 = std::max(0, (y0 - g.items_top) / step);
+    int r1 = std::min(g.rows - 1, (y1 - g.items_top) / step);
+    first = std::min(first, g.first + r0 * g.cols);
+    last = std::max(last, std::min(g.first + bd.count - 1, g.first + (r1 + 1) * g.cols - 1));
+  }
+  last = std::min(last, n - 1);
+}
+
+int Collection::band_step(int cur, int dir) const {
+  int b = band_of(cur);
+  if (b < 0)
+    return cur;
+  const BandGeom &g = geom_[size_t(b)];
+  int k = cur - g.first, cols = g.cols, col = k % cols;
+  int to = cur + dir * cols;
+  if (to >= g.first && to < g.first + bands_[size_t(b)].count)
+    return to;
+  if (dir > 0 && k / cols < g.rows - 1)
+    return g.first + bands_[size_t(b)].count - 1; // the short last row
+  // Into the neighbouring band, keeping the column where it can.
+  int nb = b + dir;
+  while (nb >= 0 && nb < int(bands_.size()) && bands_[size_t(nb)].count == 0)
+    nb += dir;
+  if (nb < 0 || nb >= int(bands_.size()))
+    return cur;
+  const BandGeom &h2 = geom_[size_t(nb)];
+  int cnt = bands_[size_t(nb)].count;
+  int c = std::min(col, h2.cols - 1);
+  if (dir > 0)
+    return h2.first + std::min(c, cnt - 1);
+  int last_row = (h2.rows - 1) * h2.cols;
+  return h2.first + std::min(last_row + c, cnt - 1);
+}
 void Collection::tile_size(int w, int h) { tile_w_ = std::max(16, w); tile_h_ = std::max(16, h); redraw(); }
 void Collection::padding(int px) { pad_ = px; redraw(); }
 
 int Collection::columns() const {
-  if (layout_ == Layout::List)
+  if (layout_ != Layout::Grid)
     return 1;
   int pad = pad_for(pad_, layout_);
   return std::max(1, (w() - 2 * pad) / tile_w_);
@@ -55,6 +150,23 @@ int Collection::columns() const {
 
 void Collection::cell(int i, int &cx, int &cy, int &cw, int &ch) const {
   int pad = pad_for(pad_, layout_);
+  if (layout_ == Layout::Bands) {
+    int b = band_of(i);
+    if (b < 0) {
+      cx = cy = cw = ch = 0;
+      return;
+    }
+    const Band &bd = bands_[size_t(b)];
+    const BandGeom &g = geom_[size_t(b)];
+    int k = i - g.first, col = k % g.cols;
+    if (rtl())
+      col = g.cols - 1 - col;
+    cx = pad + col * (g.cw + bd.gap);
+    cy = pad + g.items_top + (k / g.cols) * (bd.item_h + bd.gap);
+    cw = g.cw;
+    ch = bd.item_h;
+    return;
+  }
   if (layout_ == Layout::List) {
     cx = pad;
     cy = pad + i * row_h_;
@@ -74,6 +186,10 @@ void Collection::cell(int i, int &cx, int &cy, int &cw, int &ch) const {
 
 int Collection::content_height() const {
   int n = count(), pad = pad_for(pad_, layout_);
+  if (layout_ == Layout::Bands) {
+    band_geometry();
+    return 2 * pad + geom_h_;
+  }
   if (layout_ == Layout::List)
     return 2 * pad + n * row_h_;
   int cols = columns();
@@ -97,6 +213,28 @@ int Collection::item_at(int ex, int ey) const {
   if (cx < pad || cx >= w() - pad || cy < pad)
     return -1;
   int i;
+  if (layout_ == Layout::Bands) {
+    band_geometry();
+    int py = cy - pad, px = cx - pad;
+    for (size_t b = 0; b < bands_.size(); ++b) {
+      const Band &bd = bands_[b];
+      const BandGeom &g = geom_[b];
+      int step = bd.item_h + bd.gap;
+      if (py < g.items_top || py >= g.items_top + g.rows * step)
+        continue;
+      int r = (py - g.items_top) / step;
+      if ((py - g.items_top) % step >= bd.item_h)
+        return -1;
+      int c = px / (g.cw + bd.gap);
+      if (c >= g.cols || px % (g.cw + bd.gap) >= g.cw)
+        return -1;
+      if (rtl())
+        c = g.cols - 1 - c;
+      int k = r * g.cols + c;
+      return k < bd.count ? g.first + k : -1;
+    }
+    return -1;
+  }
   if (layout_ == Layout::List) {
     i = (cy - pad) / row_h_;
   } else {
@@ -113,6 +251,7 @@ int Collection::item_at(int ex, int ey) const {
 
 void Collection::resize(int X, int Y, int W, int H) {
   Fl_Widget::resize(X, Y, W, H);
+  geom_w_ = -1;
   place_bar(bar_, X, Y, W, H);
   ring_ = Anim<RectF>(); // the grid reflows: no sliding from old places
 }
@@ -258,10 +397,12 @@ void Collection::apply_band() {
   // Only items whose cells can meet the band.
   int first = 0, last = n - 1;
   int pad = pad_for(pad_, layout_);
-  int unit = layout_ == Layout::List ? row_h_ : tile_h_;
-  int cols = columns();
-  first = std::max(0, (by0 - pad) / unit * cols);
-  last = std::min(n - 1, ((by1 - pad) / unit + 1) * cols);
+  if (layout_ != Layout::Bands) {
+    int unit = layout_ == Layout::List ? row_h_ : tile_h_;
+    int cols = columns();
+    first = std::max(0, (by0 - pad) / unit * cols);
+    last = std::min(n - 1, ((by1 - pad) / unit + 1) * cols);
+  }
   int last_hit = -1;
   for (int i = first; i <= last; ++i) {
     int cx, cy, cw, ch;
@@ -320,7 +461,12 @@ bool Collection::key(int k) {
   int cur = current_ < 0 ? -1 : current_;
   // Right to left, Left goes forward in a grid.
   int left = rtl() ? 1 : -1;
-  int page = std::max(1, h() / (layout_ == Layout::List ? row_h_ : tile_h_)) * cols;
+  int page = std::max(1, h() / (layout_ == Layout::Grid ? tile_h_ : layout_ == Layout::Bands ? 40 : row_h_)) * cols;
+  bool multi = layout_ == Layout::Grid;
+  if (layout_ == Layout::Bands && cur >= 0) {
+    int b = band_of(cur);
+    multi = b >= 0 && geom_[size_t(b)].cols > 1;
+  }
   if (ctrl && (k == 'a' || k == 'A')) {
     select_all();
     return true;
@@ -333,7 +479,7 @@ bool Collection::key(int k) {
     switch (k) {
     case FL_Left:
     case FL_Right:
-      return layout_ != Layout::List;
+      return layout_ == Layout::Grid;
     case FL_Up:
     case FL_Down:
     case FL_Home:
@@ -343,16 +489,17 @@ bool Collection::key(int k) {
     }
     return false;
   }
+  bool bands = layout_ == Layout::Bands;
   switch (k) {
-  case FL_Up: move_cursor(cur < 0 ? 0 : cur - cols, shift); return true;
-  case FL_Down: move_cursor(cur < 0 ? 0 : cur + cols, shift); return true;
+  case FL_Up: move_cursor(cur < 0 ? n - 1 : bands ? band_step(cur, -1) : cur - cols, shift); return true;
+  case FL_Down: move_cursor(cur < 0 ? 0 : bands ? band_step(cur, 1) : cur + cols, shift); return true;
   case FL_Left:
-    if (layout_ == Layout::List)
+    if (!multi)
       return false;
     move_cursor(cur < 0 ? 0 : cur + left, shift);
     return true;
   case FL_Right:
-    if (layout_ == Layout::List)
+    if (!multi)
       return false;
     move_cursor(cur < 0 ? 0 : cur - left, shift);
     return true;
@@ -433,6 +580,17 @@ int Collection::handle(int event) {
     }
     if (Fl::event_button() != FL_LEFT_MOUSE)
       return 1;
+    if (i < 0 && layout_ == Layout::Bands) {
+      // A band header (Files: the new-folder button beside "FOLDERS").
+      band_geometry();
+      int pad = pad_for(pad_, layout_);
+      int cy = ey - y() + int(std::lround(pos_)) - pad;
+      for (size_t b = 0; b < bands_.size(); ++b)
+        if (bands_[b].header_h > 0 && cy >= geom_[b].top && cy < geom_[b].top + bands_[b].header_h) {
+          band_header_clicked(int(b), ex, ey);
+          return 1;
+        }
+    }
     if (i >= 0) {
       if (Fl::event_clicks() > 0 && !toggle && !(state & FL_SHIFT)) {
         Fl::event_clicks(0);
@@ -507,7 +665,7 @@ int Collection::handle(int event) {
   case FL_MOUSEWHEEL: {
     if (Fl::event_dy() == 0)
       return 0;
-    double d = Fl::event_dy() * (layout_ == Layout::List ? 3.0 * row_h_ : tile_h_ * 0.5);
+    double d = Fl::event_dy() * (layout_ == Layout::List ? 3.0 * row_h_ : layout_ == Layout::Bands ? 114.0 : tile_h_ * 0.5);
     if (scroller_.passes(d, max))
       return 1;
     scroller_.wheel(d, max);
@@ -563,10 +721,17 @@ void Collection::draw() {
   if (int(sel_.size()) != n)
     sel_.resize(size_t(n), 0);
   int pad = pad_for(pad_, layout_);
-  int unit = layout_ == Layout::List ? row_h_ : tile_h_;
-  int cols = columns();
-  int first = std::max(0, (off - pad) / unit * cols);
-  int last = std::min(n - 1, ((off + h() - pad) / unit + 1) * cols - 1);
+  int first, last;
+  visible_range(off, first, last);
+  if (layout_ == Layout::Bands) {
+    band_geometry();
+    for (size_t b = 0; b < bands_.size(); ++b) {
+      const Band &bd = bands_[b];
+      int hy = y() + pad + geom_[b].top - off;
+      if (bd.header_h > 0 && bd.count > 0 && hy + bd.header_h > y() && hy < y() + h())
+        draw_band_header(int(b), x() + pad, hy, w() - 2 * pad, bd.header_h);
+    }
+  }
   bool focused = Fl::focus() == this;
   double hin = hover_in_.get(this), hout = hover_out_.get(this);
   for (int i = first; i <= last; ++i) {
@@ -582,7 +747,8 @@ void Collection::draw() {
     draw_item(i, x() + cx, y() + cy - off, cw, ch, s);
   }
   // The focus ring slides from item to item.
-  if (focused && focus_visible() && current_ >= 0 && current_ < n && (ring_on_selected_ || !sel_[size_t(current_)])) {
+  if ((always_ring_ || (focused && focus_visible())) && current_ >= 0 && current_ < n &&
+      (ring_on_selected_ || !sel_[size_t(current_)])) {
     int cx, cy, cw, ch;
     cell(current_, cx, cy, cw, ch);
     RectF target{double(cx), double(cy), double(cw), double(ch)};
@@ -591,8 +757,9 @@ void Collection::draw() {
     else
       ring_.set(target, anim::ms::FOCUS);
     RectF r = ring_.get(this);
+    int rr = t.radius() > 0 ? (ring_radius_ > 0 ? ring_radius_ : t.radius_small()) : 0;
     paint::round_frame(x() + int(std::lround(r.x)), y() + int(std::lround(r.y)) - off, int(std::lround(r.w)),
-                       int(std::lround(r.h)), t.radius_small(), 1, t.accent());
+                       int(std::lround(r.h)), rr, 1, focused || !always_ring_ ? t.accent() : t.dim());
   }
   if (banding_) {
     int bx = std::min(band_x0_, band_x1_), by = std::min(band_y0_, band_y1_);
@@ -609,33 +776,35 @@ void Collection::draw() {
 void Collection::draw_row(int X, int Y, int W, int H, const ItemState &s, const std::string &icn,
                           const std::string &name, const std::string &detail, Rgb icon_color, bool chevron) {
   const Theme &t = theme();
-  int r = t.radius_small();
+  int r = t.radius() > 0 ? 9 : 0;
   if (s.selected || s.drop_target)
-    paint::round_fill(X, Y, W, H, r, t.accent(), s.drop_target ? 0.24 : 0.16);
+    paint::round_fill(X, Y, W, H, r, s.drop_target ? t.tint(t.accent(), 0.24) : t.selection());
   else if (s.hover > 0)
-    paint::round_fill(X, Y, W, H, r, t.foreground(), 0.06 * s.hover);
-  Rgb fg = s.selected ? t.accent() : t.foreground();
+    paint::round_fill(X, Y, W, H, r, mix(t.background(), t.card(), s.hover));
+  if (s.current && s.focused)
+    paint::fill(rtl() ? X + W - 3 : X + 1, Y + 4, 2, std::max(0, H - 8), t.accent());
+  Rgb fg = t.bright_foreground();
   // Laid out left to right, then mirrored when the language reads right
   // to left: the icon at the right edge, the detail and chevron at the left.
   bool mirror = rtl();
   auto mx = [&](int x0, int w0) { return mirror ? X + W - (x0 - X) - w0 : x0; };
-  int ix = X + 12;
+  int ix = X + 10;
   int is = std::min(16, H - 8);
-  icon::draw(icn, mx(ix, is), Y + (H - is) / 2, is, icon_color == Rgb() ? fg : icon_color);
+  icon::draw(icn, mx(ix, is), Y + (H - is) / 2, is, icon_color == Rgb() ? t.blue() : icon_color);
   int lx = ix + is + 12;
-  int right = X + W - 12;
+  int right = X + W - 10;
   if (chevron) {
-    icon::draw(mirror ? "chevron-left" : "chevron-right", mx(right - 14, 14), Y + (H - 14) / 2, 14,
-               s.selected ? t.accent() : t.secondary_foreground());
-    right -= 22;
+    text::draw("\xE2\x80\xBA", mx(right - 10, 10), Y, 10, H, s.selected ? t.accent() : t.dim(), text::REGULAR, 13,
+               FL_ALIGN_CENTER, text::Elide::None);
+    right -= 16;
   }
   if (!detail.empty()) {
-    int dw = std::min(int(text::width(detail, text::REGULAR, text::size::LABEL)) + 1, (right - lx) / 2);
-    text::draw(detail, mx(right - dw, dw), Y, dw, H, t.secondary_foreground(), text::REGULAR, text::size::LABEL,
+    int dw = std::min(int(text::width(detail, text::REGULAR, 11)) + 1, (right - lx) / 2);
+    text::draw(detail, mx(right - dw, dw), Y, dw, H, t.dim(), text::REGULAR, 11,
                mirror ? FL_ALIGN_LEFT : FL_ALIGN_RIGHT);
-    right -= dw + 16;
+    right -= dw + 12;
   }
-  text::draw(name, mx(lx, right - lx), Y, right - lx, H, fg, text::REGULAR, text::size::BODY,
+  text::draw(name, mx(lx, right - lx), Y, right - lx, H, fg, text::REGULAR, 12,
              mirror ? FL_ALIGN_RIGHT : FL_ALIGN_LEFT, text::Elide::Middle);
 }
 
@@ -643,39 +812,34 @@ void Collection::draw_tile(int X, int Y, int W, int H, const ItemState &s, const
                            const std::string &name, const std::string &subtitle, Rgb icon_color, bool folder_card,
                            int *art_x, int *art_y, int *art_w, int *art_h) {
   const Theme &t = theme();
-  int r = t.radius_small();
-  int aw = std::min(128, W - 28), ah = std::min(92, aw * 92 / 128);
-  int ax = X + (W - aw) / 2, ay = Y + 18;
-  if (s.hover > 0 && !s.selected)
-    paint::round_fill(X + 6, Y + 6, W - 12, H - 12, r, t.foreground(), 0.04 * s.hover);
-  if (s.drop_target)
-    paint::round_fill(X + 6, Y + 6, W - 12, H - 12, r, t.accent(), 0.16);
+  // Files' grid card: inset 4 x 3 in its cell, the art 55 px above the
+  // bottom, an 11 px name and a 10 px detail under it.
+  int r = t.radius() > 0 ? 8 : 0;
+  int cx = X + 4, cy = Y + 3, cw = std::max(0, W - 8), ch = std::max(0, H - 6);
+  if (s.selected || s.drop_target)
+    paint::round_fill(cx, cy, cw, ch, r, s.drop_target ? t.tint(t.accent(), 0.24) : t.selection());
+  else if (s.hover > 0)
+    paint::round_fill(cx, cy, cw, ch, r, mix(t.background(), t.card(), s.hover));
+  if (s.current && s.focused)
+    paint::fill(rtl() ? cx + cw - 5 : cx + 3, cy + 6, 2, std::max(0, ch - 12), t.accent());
+  int icon_h = std::max(1, H - 55);
+  int ax = cx + 4, ay = cy + 3, aw = cw - 8, ah = icon_h - 4;
   if (folder_card) {
-    Rgb card = s.selected ? t.tint(t.accent(), 0.22) : t.lighter_background();
-    int tab_w = aw * 2 / 5, tab_h = std::max(6, ah / 14);
-    paint::round_fill(ax + aw / 16, ay, tab_w, tab_h + r + 2, std::min(r, 2), card);
-    paint::round_fill(ax, ay + tab_h, aw, ah - tab_h, std::min(r * 2, 6), card);
+    int is = std::min(48, ah - 4);
+    icon::draw("folder", ax + (aw - is) / 2, ay + (ah - is) / 2, is, t.blue());
   } else if (!icn.empty()) {
-    int is = std::min(48, ah - 8);
-    icon::draw(icn, ax + (aw - is) / 2, ay + (ah - is) / 2, is, icon_color == Rgb() ? t.secondary_foreground() : icon_color);
+    int is = std::min(36, ah - 4);
+    icon::draw(icn, ax + (aw - is) / 2, ay + (ah - is) / 2, is, icon_color == Rgb() ? t.dim() : icon_color);
   }
-  if (s.selected)
-    paint::round_frame(ax - 3, ay - 3, aw + 6, ah + 6, r, 2, t.accent());
   if (art_x) *art_x = ax;
   if (art_y) *art_y = ay;
   if (art_w) *art_w = aw;
   if (art_h) *art_h = ah;
-  // Name: up to two centered lines, then the subtitle.
-  auto lines = text::wrap(name, W - 28, text::fltk_measure(text::REGULAR, text::size::LABEL), 2);
-  int ly = ay + ah + 12;
-  for (const auto &l : lines) {
-    text::draw(l, X + 14, ly, W - 28, 16, s.selected ? t.accent() : t.foreground(), text::REGULAR, text::size::LABEL,
-               FL_ALIGN_CENTER, text::Elide::None);
-    ly += 16;
-  }
+  Fl_Align al = rtl() ? FL_ALIGN_RIGHT : FL_ALIGN_LEFT;
+  text::draw(name, cx + 7, cy + icon_h, cw - 14, 24, t.bright_foreground(), text::REGULAR, 11, al,
+             text::Elide::Middle);
   if (!subtitle.empty())
-    text::draw(subtitle, X + 14, ly + 4, W - 28, 14, t.secondary_foreground(), text::REGULAR, text::size::SMALL,
-               FL_ALIGN_CENTER);
+    text::draw(subtitle, cx + 7, cy + icon_h + 23, cw - 14, 20, t.dim(), text::REGULAR, 10, al);
 }
 
 } // namespace fo

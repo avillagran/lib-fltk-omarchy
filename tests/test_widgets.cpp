@@ -87,6 +87,47 @@ TEST(collection_grid_navigation) {
   CHECK_EQ(c.item_at(24 + 172 + 5, 24 + 196 + 5), 4);
 }
 
+TEST(collection_bands_cards_then_rows) {
+  // Files' Groups: 3 folder cards (240 px minimum, 8 apart, 74 high under a
+  // 28 px header), then 7 rows of 38 px under a 26 px header.
+  Names c(2 * 12 + 3 * 240 + 2 * 8, 600);
+  c.layout(Collection::Layout::Bands);
+  Collection::Band cards;
+  cards.count = 3, cards.min_width = 240, cards.item_h = 74, cards.gap = 8, cards.header_h = 28, cards.after = 6;
+  Collection::Band rows;
+  rows.count = 7, rows.item_h = 38, rows.header_h = 26, rows.after = 10;
+  c.bands({cards, rows});
+  c.reload(true);
+  CHECK_EQ(c.band_of(2), 0);
+  CHECK_EQ(c.band_of(3), 1);
+  int x, y, w, h;
+  CHECK(c.item_rect(1, x, y, w, h));
+  CHECK_EQ(x, 12 + 248);
+  CHECK_EQ(y, 12 + 28);
+  CHECK_EQ(w, 240);
+  CHECK(c.item_rect(3, x, y, w, h));
+  CHECK_EQ(y, 12 + 28 + 74 + 6 + 26);
+  CHECK_EQ(h, 38);
+  CHECK_EQ(c.item_at(12 + 248 + 5, 12 + 28 + 5), 1);
+  CHECK_EQ(c.item_at(12 + 244, 12 + 28 + 5), -1); // the gap
+  CHECK_EQ(c.item_at(20, 12 + 28 + 74 + 6 + 26 + 38 + 3), 4);
+  // Right moves among the cards; Down leaves them for the first row.
+  key(&c, FL_Right);
+  CHECK_EQ(c.current(), 1);
+  key(&c, FL_Down);
+  CHECK_EQ(c.current(), 3);
+  key(&c, FL_Down);
+  CHECK_EQ(c.current(), 4);
+  key(&c, FL_Up);
+  key(&c, FL_Up);
+  CHECK_EQ(c.current(), 0); // back into the cards, at the first column
+  // Rows take no Left/Right (the app may use them for folders).
+  key(&c, FL_End);
+  CHECK_EQ(c.current(), 9);
+  key(&c, FL_Left);
+  CHECK_EQ(c.current(), 9);
+}
+
 TEST(collection_type_ahead) {
   Names c(400, 200);
   c.reload(true);
@@ -139,6 +180,28 @@ TEST(sidebar_keyboard_and_active) {
   key(&s, FL_Home);
   CHECK_EQ(s.cursor(), 0);
   CHECK_EQ(s.rows()[2].section, pinned);
+}
+
+TEST(sidebar_rail_expands_when_pinned_and_keeps_footers_last) {
+  Sidebar s(0, 0, 52, 400);
+  s.rail(true);
+  CHECK(!s.expanded());
+  CHECK_EQ(s.desired_width(), 52);
+  s.add_row({"Home", "home", "/home/me"});
+  SidebarRow trash("Trash", "trash", "trash://");
+  trash.footer = true;
+  s.add_row(trash);
+  s.add_row({"Music", "music", "/home/me/Music"});
+  s.set_cursor(0);
+  key(&s, FL_Down); // Music comes before the footer
+  CHECK_EQ(s.cursor(), 2);
+  key(&s, FL_Down);
+  CHECK_EQ(s.cursor(), 1);
+  anim::set_enabled(0);
+  s.pinned(true);
+  CHECK(s.expanded());
+  CHECK_EQ(s.desired_width(), 170);
+  anim::set_enabled(-1);
 }
 
 TEST(sidebar_click_hands_the_keyboard_back) {

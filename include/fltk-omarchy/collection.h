@@ -35,7 +35,18 @@ namespace fo {
 
 class Collection : public Fl_Widget {
 public:
-  enum class Layout { List, Grid };
+  /// Bands: Files' Groups view. Consecutive runs of items, each with an
+  /// optional header above it, laid out in as many columns as fit (cards)
+  /// or in one (rows). See bands().
+  enum class Layout { List, Grid, Bands };
+  struct Band {
+    int count = 0;     ///< items in this band (they follow the previous band's)
+    int min_width = 0; ///< columns = width / min_width (0: one column)
+    int item_h = 32;   ///< item height
+    int gap = 0;       ///< space between items, both ways
+    int header_h = 0;  ///< room for draw_band_header() above the items
+    int after = 0;     ///< space after the band
+  };
   struct ItemState {
     bool selected = false;
     bool current = false;  ///< the keyboard cursor
@@ -65,6 +76,21 @@ public:
   void row_height(int h);
   /// Grid tile size; the tiles stretch to fill each row (default 172x196).
   void tile_size(int w, int h);
+  /// The bands of Layout::Bands (their counts should add up to count()).
+  void bands(std::vector<Band> b);
+  const std::vector<Band> &bands() const { return bands_; }
+  /// The band holding an item (-1 outside every band).
+  int band_of(int index) const;
+  /// Draws band `band`'s header in its slot (Files: "FOLDERS · 3").
+  virtual void draw_band_header(int band, int x, int y, int w, int h) { (void)band, (void)x, (void)y, (void)w, (void)h; }
+  /// A click on a band header (x, y in window coordinates).
+  virtual void band_header_clicked(int band, int x, int y) { (void)band, (void)x, (void)y; }
+  /// Files keeps the focus ring on the focused item even without keyboard
+  /// use (default: only while the keyboard is in use).
+  void always_ring(bool on) { always_ring_ = on; redraw(); }
+  /// Corner radius of the focus ring when the theme rounds (Files: 9 for
+  /// rows, 8 for tiles, 11 for cards).
+  void ring_radius(int px) { ring_radius_ = px; }
   /// Inner padding around the items (default 12 for lists, 24 for grids).
   void padding(int px);
   /// Whether the keyboard focus ring is drawn on a selected cursor item
@@ -111,14 +137,16 @@ public:
   void accepts_drop(std::function<bool(int index)> fn) { accepts_ = std::move(fn); }
   void on_drop(std::function<void(int index, const std::string &text)> fn) { drop_ = std::move(fn); }
 
-  // --- Drawing helpers in Folio's look, for draw_item() ---
+  // --- Drawing helpers in Files' look, for draw_item() ---
   /// A list row: icon, middle-elided name, optional detail on the right.
+  /// Marked rows take the theme's selection, hovered ones a fading card;
+  /// the cursor row an accent bar on its start edge.
   void draw_row(int x, int y, int w, int h, const ItemState &s, const std::string &icon,
                 const std::string &name, const std::string &detail = "", Rgb icon_color = Rgb(),
                 bool chevron = false);
-  /// A grid tile: a large icon (or card) on top, the name in up to two
-  /// lines below, and a small subtitle. Returns the art box (to draw a
-  /// thumbnail instead) through art_*.
+  /// A grid tile (Files' Grid): a card holding a large icon (or the art
+  /// box for a thumbnail) on top, the name and a small subtitle under it,
+  /// left-aligned. Returns the art box through art_*.
   void draw_tile(int x, int y, int w, int h, const ItemState &s, const std::string &icon,
                  const std::string &name, const std::string &subtitle = "", Rgb icon_color = Rgb(),
                  bool folder_card = false, int *art_x = nullptr, int *art_y = nullptr, int *art_w = nullptr,
@@ -134,6 +162,12 @@ protected:
 
 private:
   void cell(int index, int &cx, int &cy, int &cw, int &ch) const; // content coordinates
+  struct BandGeom {
+    int first, top, items_top, cols, cw, rows;
+  };
+  void band_geometry() const;
+  void visible_range(int off, int &first, int &last) const;
+  int band_step(int cur, int dir) const; // Up/Down in Bands
   void move_cursor(int to, bool extend);
   void apply_band();
   void changed();
@@ -141,7 +175,11 @@ private:
   bool key(int k);
   Layout layout_ = Layout::List;
   int row_h_ = 32, tile_w_ = 172, tile_h_ = 196, pad_ = -1;
-  bool ring_on_selected_ = true;
+  bool ring_on_selected_ = true, always_ring_ = false;
+  int ring_radius_ = 0;
+  std::vector<Band> bands_;
+  mutable std::vector<BandGeom> geom_;
+  mutable int geom_w_ = -1, geom_h_ = 0;
   std::vector<char> sel_;
   int current_ = -1, anchor_ = -1, hover_ = -1, prev_hover_ = -1, drop_index_ = -2;
   Scroller scroller_;
