@@ -19,7 +19,16 @@ decisions; new work happens here.
 
 ## Status
 
-Early. See [docs/](docs/) as it grows.
+Usable: theme, motion, processes, icons, text, translations and every
+widget a Folio-like file manager needs (sidebar, breadcrumbs, a virtual
+list/grid for big folders, menus, dialogs, toasts, tooltips, help
+overlay, split panes). See [docs/API.md](docs/API.md) for a tour of every
+module and [docs/components/](docs/components/) for screenshots.
+
+![Gallery](docs/components/grid.png)
+
+The gallery (`examples/gallery.cpp`) idles at about **10 MiB PSS** in
+Xvfb, against about 9 MiB for a bare FLTK window listing a folder.
 
 ## Building
 
@@ -32,6 +41,38 @@ cmake --build build
 ctest --test-dir build
 ```
 
+FLTK is linked **statically** by default, so apps built with the toolkit
+run without the `fltk` package installed: it is a build-time dependency
+only. Pass `-DFLTK_OMARCHY_SHARED_FLTK=ON` to link FLTK's shared libraries
+instead. Other options: `FO_BUILD_EXAMPLES` and `FO_BUILD_TESTS` (both on).
+
+A clean build of the library, the gallery and the tests takes about 5 s
+with `-j24` (21 s on one core); the build folder is about 7 MB.
+
+Use it from another CMake project:
+
+```cmake
+add_subdirectory(lib-fltk-omarchy)
+target_link_libraries(myapp PRIVATE fltk-omarchy::fltk-omarchy)
+```
+
+```cpp
+#include "fltk-omarchy/fo.h"
+
+int main(int argc, char **argv) {
+  fo::init();                                   // theme, fonts, language, motion
+  auto *win = new fo::Window(1100, 700, "Flo");
+  // ... fo::Sidebar, fo::Breadcrumbs, a fo::Collection subclass ...
+  win->end();
+  win->show(argc, argv);
+  return Fl::run();
+}
+```
+
+Tests run through ctest only: the runner creates a fresh private 0700
+directory under `build/test-runs/` and points `HOME`, `TMPDIR` and every
+XDG directory into it. Nothing there is ever deleted.
+
 ## Platforms
 
 Linux (Wayland and X11) first. FLTK also runs on macOS and Windows, and the
@@ -39,4 +80,6 @@ toolkit keeps OS specifics behind one platform layer so it can follow.
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE). The embedded icons are from
+[Lucide](https://lucide.dev) (ISC, see
+[third_party/lucide/LICENSE](third_party/lucide/LICENSE)).
