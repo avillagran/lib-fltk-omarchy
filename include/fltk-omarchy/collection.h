@@ -77,6 +77,7 @@ public:
   // --- Selection and cursor ---
   int current() const { return current_; }
   /// Moves the cursor, scrolls it into view; `select` replaces the selection.
+  /// -1 leaves no cursor (and, with `select`, nothing selected).
   void set_current(int index, bool select = true);
   bool selected(int index) const;
   void select(int index, bool on);

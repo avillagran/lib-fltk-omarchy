@@ -219,3 +219,15 @@ TEST(checkbox_toggles_from_the_keyboard) {
   CHECK(c.checked());
   CHECK(seen);
 }
+
+TEST(collection_no_cursor) {
+  Names c(400, 200);
+  c.reload(true);
+  c.set_current(3);
+  c.set_current(-1, true);
+  CHECK_EQ(c.current(), -1);
+  CHECK_EQ(c.selection_count(), 0);
+  key(&c, FL_Down); // the first arrow lands on the first item
+  CHECK_EQ(c.current(), 0);
+  CHECK(c.selected(0));
+}

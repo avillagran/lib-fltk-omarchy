@@ -173,6 +173,16 @@ void Collection::set_current(int index, bool sel) {
     current_ = -1;
     return;
   }
+  if (index < 0) {
+    // No cursor: arrows start from the first item again.
+    current_ = -1;
+    anchor_ = -1;
+    if (sel)
+      sel_.assign(size_t(n), 0);
+    ring_ = Anim<RectF>();
+    changed();
+    return;
+  }
   index = std::max(0, std::min(index, n - 1));
   current_ = index;
   anchor_ = index;
