@@ -20,20 +20,25 @@ decisions; new work happens here.
 ## Status
 
 Usable: theme, motion, processes, icons, text, translations (the
-toolkit's strings in all 50 Omarchy languages) and every widget a
-Folio-like file manager needs (sidebar, breadcrumbs, a virtual list/grid
-for big folders, Miller columns, menus with submenu aim, dialogs and
-toasts that fade in and out, tooltips, help overlay, split panes,
-scrolling on both axes), mirrored for right-to-left languages. See
+toolkit's strings in all 50 Omarchy languages) and every widget of the
+window shell of **Files**, the file manager whose look this toolkit
+carries (and of Flo, its C++ successor): the header's compact icon
+buttons that reveal their labels on hover, path chips, the tab strip, the
+52 px rail that expands, a virtual list/grid/bands collection for big
+folders (Files' Groups, List and Grid), Miller columns, the List column
+header, the status bar, menus with submenu aim, dialogs and toasts that
+fade in and out, tooltips, the help overlay, split panes and scrolling on
+both axes, mirrored for right-to-left languages. Metrics, colors (Files'
+card, dim and selection roles over the Omarchy palette), the Omarchy Nerd
+Font and its glyph icons come from Files and its Rust toolkit. See
 [docs/API.md](docs/API.md) for a tour of every module and
 [docs/components/](docs/components/) for screenshots.
 
-![Gallery](docs/components/grid.png)
+![Gallery: Files' Groups view built from the toolkit](docs/components/groups.png)
 
-The gallery (`examples/gallery.cpp`) idles at about **10 MiB PSS** in
-Xvfb (9.1–10.7 MiB across runs, measured 2026-11-11; the same as before
-the column view, horizontal scrolling, RTL and the 50 catalogs were
-added, and about 0.2 MiB more with the column view open), against about
+The gallery (`examples/gallery.cpp`, a Files-shaped window with 2,000
+fake entries) idles at about **9.5 MiB PSS** in Xvfb (9,724 KiB measured
+2026-11-11 after the Files look; about 10 MiB before), against about
 9 MiB for a bare FLTK window listing a folder.
 
 ## Building
@@ -92,6 +97,12 @@ but have not been run there yet: see
 
 ## License
 
-MIT. See [LICENSE](LICENSE). The embedded icons are from
+MIT. See [LICENSE](LICENSE). With a Nerd Font installed, icons are that
+font's glyphs; the embedded fallback icons are from
 [Lucide](https://lucide.dev) (ISC, see
 [third_party/lucide/LICENSE](third_party/lucide/LICENSE)).
+
+Desktop standards that apps built on the toolkit follow (Omarchy's
+theme files, language file and plural rules) were checked against
+Omarchy's [Folio](https://github.com/omacom/folio), which is a technical
+reference only; the look is Files'.

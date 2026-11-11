@@ -24,7 +24,7 @@ constexpr Fl_Font BOLD = FL_HELVETICA_BOLD;
 constexpr Fl_Font MEDIUM = FL_TIMES;
 constexpr Fl_Font SEMIBOLD = FL_TIMES_BOLD;
 
-/// Folio's type scale, in FLTK units.
+/// The type scale, in FLTK units (Files uses 10-13 for most text).
 namespace size {
 constexpr int SMALL = 11;   ///< metadata, section labels, shortcut hints
 constexpr int LABEL = 12;   ///< tile names, secondary text

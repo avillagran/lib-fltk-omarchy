@@ -307,7 +307,7 @@ void TextField::draw() {
 // folded into a leading "…" chip that opens a menu of them.
 static const char *kFold = "\xE2\x80\xA6";
 static const char *kSep = "\xE2\x80\xBA";
-static const int kChipH = 24, kSepW = 18, kChipPad = 8, kChipMax = 180, kCurrentMax = 260;
+static const int kChipH = 24, kSepW = 14, kChipPad = 10, kChipMax = 180, kCurrentMax = 180;
 
 static int chip_round() { return theme().radius() > 0 ? 7 : 0; }
 
@@ -333,7 +333,7 @@ void Breadcrumbs::layout_hits() {
     int max = i == n - 1 ? kCurrentMax : kChipMax;
     return std::min(max, int(text::width(segs_[size_t(i)].label, text::REGULAR, 12) + 0.5) + 2 * kChipPad);
   };
-  int fold = int(text::width(kFold, text::REGULAR, 12) + 0.5) + 2 * 10;
+  int fold = 28; // Files: OVERFLOW_WIDTH
   // Keep as many trailing chips as fit; the rest fold into "…".
   first_ = n - 1;
   int used = chip_w(n - 1);

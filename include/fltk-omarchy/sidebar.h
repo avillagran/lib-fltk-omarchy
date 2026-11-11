@@ -74,7 +74,7 @@ public:
 
   void clear();
   /// Starts a section; rows added next belong to it. `id` makes the header
-  /// clickable (on_header), like Folio's "Home" label.
+  /// clickable (on_header), like a "Places" header that opens Home.
   int add_section(const std::string &title, const std::string &id = "");
   /// Hides a section's header and rows (e.g. an empty "Pinned").
   void section_visible(int section, bool on);

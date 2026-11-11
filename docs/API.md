@@ -40,12 +40,14 @@ win->shortcut("Ctrl+L", [] { /* ... */ });   // window-wide keys
 - `fo::Rgb` — opaque 8-bit color; `.fl()` for `fl_color`.
 - `parse_hex`, `to_hex`, `mix(a, b, t)`, `luminance`.
 - `parse_colors_toml(text)` → `Palette` (`key = "#rrggbb"`, `mode = "light"`).
-- `fo::Theme` — `color(key)` with Folio's fallbacks; `accent()`,
+- `fo::Theme` — `color(key)` with the fallbacks below; `accent()`,
   `background()`, `dark_background()`, `lighter_background()` (derived when
   equal to the background), `foreground()`, `bright_foreground()`,
   `secondary_foreground()` (derived, ~4.5:1), `accent_foreground()` (black
   or white), `red() yellow() green() blue() magenta() cyan() orange()`,
-  `hairline()`, `tint(color, alpha)`, `light()`, `radius()` (Hyprland
+  Files' roles `card()` (foreground at 8 %: cards, chips, hover, the
+  current tab), `dim()` (metadata, idle icons), `muted()`, `selection()`
+  (marked items), `hairline()`, `tint(color, alpha)`, `light()`, `radius()` (Hyprland
   rounding), `radius_small()` (≤ 4), `font_family()`. `Theme::load(dir)`,
   `Theme::fallback_colors()`.
 - `fo::theme()`, `set_theme(t)`, `watch_theme(dir)`,
@@ -55,7 +57,10 @@ The live theme is `~/.local/state/omarchy/current/theme/colors.toml`,
 watched with inotify (debounced 80 ms, parents re-armed after every
 switch). Rounding comes from Hyprland's `decoration:rounding` over its
 request socket and is read again on `configreloaded`. Off Omarchy the
-built-in dark palette with Omarchy's yellow accent is used.
+built-in Tokyo Night palette is used, as in Files. The UI font follows
+Files' rule: fontconfig's `monospace` when it is a Nerd Font, otherwise an
+installed JetBrainsMono or FiraCode Nerd Font; with a Nerd Font, icon
+names draw as its glyphs (`fo::glyph`), Lucide otherwise.
 
 ## Motion — `anim.h`, `scroll.h`
 
@@ -170,7 +175,7 @@ std::string s = fo::trn("%n items", n);
   `plural_category(lang, n)` (Omarchy's languages, as Folio).
 - Formatting with Omarchy's locale registry (`$OMARCHY_PATH`/
   `/usr/share/omarchy/default/i18n/locales.json`): `format_number`,
-  `format_size` ("31.6 KB", decimal units as Folio), `format_date`,
+  `format_size` ("31.6 KB", decimal units), `format_date`,
   `format_time`, `format_when` (time today, date before); the system
   locale when installed, built-in short patterns otherwise
   (`use_system_locales(false)` forces them).
@@ -197,19 +202,36 @@ back to built-in patterns without `locale_t`. See
 |---|---|---|
 | `Button` (primary / plain) | `widgets.h` | [dialog](components/dialog.png) |
 | `CheckBox` | `widgets.h` | (in `Dialog::ask`) |
-| `IconButton` + tooltip | `widgets.h`, `dialog.h` | [tooltip](components/tooltip.png) |
+| `ToolBar` (Files' header buttons) + tooltip | `shell.h`, `dialog.h` | [tooltip](components/tooltip.png) |
+| `TabStrip`, `StatusBar`, `SortHeader` | `shell.h` | [groups](components/groups.png), [list](components/list.png) |
+| `IconButton` | `widgets.h` | (any icon button) |
 | `TextField` | `widgets.h` | [prompt](components/prompt.png) |
-| `Breadcrumbs` | `widgets.h` | [grid](components/grid.png) |
-| `Rule`, `SplitPane` | `widgets.h` | [grid](components/grid.png) |
-| `Sidebar` | `sidebar.h` | [sidebar-focus](components/sidebar-focus.png) |
-| `Collection` (grid / list) | `collection.h` | [grid](components/grid.png), [list](components/list.png) |
-| `PopupMenu` | `menu.h` | [menu](components/menu.png), [sort](components/sort.png) |
+| `Breadcrumbs` (path chips) | `widgets.h` | [groups](components/groups.png) |
+| `Rule`, `SplitPane` | `widgets.h` | (between panes) |
+| `Sidebar` (Files' rail) | `sidebar.h` | [rail](components/rail.png), [sidebar-focus](components/sidebar-focus.png) |
+| `Collection` (bands / grid / list) | `collection.h` | [groups](components/groups.png), [grid](components/grid.png), [list](components/list.png) |
+| `PopupMenu` | `menu.h` | [menu](components/menu.png), [actions](components/actions.png) |
 | `Dialog` (confirm / prompt) | `dialog.h` | [dialog](components/dialog.png), [prompt](components/prompt.png) |
 | `Toast` | `dialog.h` | [toast](components/toast.png) |
 | `HelpOverlay` | `dialog.h` | [help](components/help.png) |
 | `ScrollArea`, `ScrollBar` (both axes) | `scroll.h` | (any scrolled view) |
 | `ColumnView` (Miller columns) | `columns.h` | [columns](components/columns.png) |
 
+- **ToolBar** — Files' header: `items({{icon, label, shortcut, on, enabled,
+  action}...})`, `set_on`, `set_enabled`; hovering reveals a button's label
+  (160 ms) and resting two seconds shows its shortcut under it;
+  `preferred_width()` grows while a label shows and `on_relayout(fn)` asks
+  the owner to place it again; `item_rect(i, ...)` to open a menu under a
+  button; `plain(true)` + `metrics(30, 6)` for back/forward/up.
+- **TabStrip** — `tabs(labels, current)`, `on_select`, `on_close` (the ×
+  or a middle click), `on_new` ("+" or a click on empty space),
+  `on_context`; the current tab sits on a card over a sliding accent line.
+- **StatusBar** — `left(text, error)`, `hint(text)`, `right(text)`,
+  `badge(text, color)` (Files: marked/listed, a tip, the filesystem, PSS).
+- **SortHeader** — `columns({{label, icon, x, w, right}...})`,
+  `sorted(column, descending)`, `on_sort(column)`.
+- `draw_action_button(...)`, `draw_section_label(...)` — Files' panel
+  buttons and "FOLDERS · 3" labels, for custom panels (an inspector).
 - **Button** — `primary(bool)`, `on_click(fn)`, `preferred_width()`.
 - **IconButton** — `icon(name)`, `tooltip_text(t)` (shown after 600 ms),
   `active_state(bool)` (toggled tint), `focusable(bool)`, `on_click(fn)`.
@@ -218,23 +240,32 @@ back to built-in patterns without `locale_t`. See
   `secret(bool)` (passwords).
 - **CheckBox** — `checked()`, `checked(bool)`, `on_change(fn)`,
   `preferred_width()`; click, Space or Enter toggles.
-- **Breadcrumbs** — `segments({{label, path}...})`, `on_navigate(index)`;
-  folds leading segments into "…" (a menu) when narrow; Left/Right/Enter.
+- **Breadcrumbs** — Files' chips: `segments({{label, path}...})`,
+  `on_navigate(index)`, `on_empty_click(fn)` (the current chip or empty
+  space: Files edits the path); folds leading chips into a "…" chip (a
+  menu, `open_fold()`) when narrow; Left/Right/Enter.
 - **SplitPane** — two children, draggable hairline divider, `set_split(px,
   animate)`, `min_sizes`, `collapse_second(on, animate)`, `on_change`.
-- **Sidebar** — `add_section(title, id)`, `add_row(SidebarRow{label, icon,
-  id, status, status_color, ejectable})`, `section_visible`,
+- **Sidebar** — Files' rail with `rail(true, 52, 170)`: icons that expand
+  to labels on hover intent (350 ms, folds 140 ms after leaving), on
+  keyboard focus or when `pinned(true)` (the pin control calls `on_pin`);
+  `desired_width()` and `on_width(fn)` let the owner push the content.
+  `add_section(title, id)`, `add_row(SidebarRow{label, icon,
+  id, status, status_color, ejectable, footer})`, `section_visible`,
   `set_active(id)`, `set_cursor`; `on_activate`, `on_eject`, `on_header`,
   `on_finished` (Esc/Enter hand the keyboard back), `on_context`,
   `accepts_drop` / `on_drop`.
 - **Collection** — subclass with `count()`, `draw_item(i, x, y, w, h,
-  state)`, `item_text(i)`; `layout(List|Grid)`, `row_height`,
+  state)`, `item_text(i)`; `layout(List|Grid|Bands)`, `row_height`,
+  `bands({{count, min_width, item_h, gap, header_h, after}...})` with
+  `draw_band_header` and `band_header_clicked` (Files' Groups: folder
+  cards, then rows by age), `always_ring`, `ring_radius`,
   `tile_size`, `padding`, `focus_ring_on_selected`, `reload(reset)`; `set_current`, `select`,
   `select_all`, `clear_selection`, `selection()`, `ensure_visible`,
   `scroll_to`, `item_rect`, `item_at`; callbacks `on_activate`,
   `on_selection_change`, `on_context`, `on_drag_start`, `on_key`,
   `on_type_ahead`, `accepts_drop` / `on_drop`; helpers `draw_row(...)` and
-  `draw_tile(...)` in Folio's look (the tile returns its art box for a
+  `draw_tile(...)` in Files' look (the tile returns its art box for a
   thumbnail).
 - **PopupMenu** — `open_at(win, x, y, items)`, `open_below(win, rect,
   items, align_right)`, `on_dismiss`; `MenuItem{label, shortcut, action,
@@ -264,13 +295,15 @@ back to built-in patterns without `locale_t`. See
   pattern (a trail of `FileView`s plus the selected folder's contents)
   and can move onto it without changing what the user sees.
 - **Toast** — `Toast::show(win, text, seconds, Info|Error)`.
-- **Tooltip** — `Tooltip::open_for(widget, text)`, `Tooltip::close_all()`.
+- **Tooltip** — `Tooltip::open_for(widget, text)`, `open_at(win, x, y, w,
+  h, text)`, `Tooltip::close_all()`.
 - **HelpOverlay** — `HelpOverlay::show(win, {{keys, description}...},
   title)`.
 
-Screenshots are taken from the gallery in a private Xvfb with
-`gallery --demo=<name>` (grid, list, menu, sort, dialog, prompt, help,
-toast, tooltip, sidebar-focus), with Folio's fallback palette.
+Screenshots are taken from the gallery, a Files-shaped window, in a
+private Xvfb by `tools/screenshots.sh BUILD_DIR` (`gallery --demo=<name>`:
+groups, list, grid, columns, rail, menu, actions, dialog, prompt, help,
+toast, tooltip, sidebar-focus), with the Tokyo Night fallback palette.
 
 ## What is verified how
 

@@ -7,7 +7,7 @@ everywhere.
 
 1. **Tab / Shift+Tab** move between focusable widgets (FLTK's normal
    navigation). Toolbar `IconButton`s are not Tab stops by default
-   (Folio's choice); `focusable(true)` makes one.
+   (as Files' header buttons); `focusable(true)` makes one.
 2. **Arrows act inside the focused widget** (collection cursor, sidebar
    rows, breadcrumb segments, menu entries). `fo::init()` turns off FLTK's
    option that lets arrows move focus between widgets.

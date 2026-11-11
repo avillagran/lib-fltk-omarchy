@@ -1,10 +1,10 @@
 // Popup and context menus, drawn inside an fo::Window as a layer (no
 // separate OS window, so they behave the same on Wayland and X11).
 //
-// Folio's look: a hairline-bordered card in the background color, 32 px
-// entries, the shortcut on the right, an arrow for submenus, a check for
-// checked entries, the highlighted entry tinted with the accent. No
-// opening animation, as in Folio.
+// Files' look: a card in the background color inside a 1 px accent edge,
+// 28 px entries with a glyph, the shortcut on the right in dim text, "›"
+// for submenus, a check for checked entries, a card under the highlighted
+// entry. No opening animation.
 //
 // Pointer: a submenu opens after 200 ms of hover. While it is open, moving
 // the pointer diagonally toward it across other entries keeps it open

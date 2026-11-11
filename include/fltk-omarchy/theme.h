@@ -62,7 +62,7 @@ public:
   Theme() = default;
   explicit Theme(Palette p) : palette_(std::move(p)) {}
 
-  /// Any key of colors.toml, with Folio's fallbacks (see the file comment).
+  /// Any key of colors.toml, with the fallbacks of the file comment.
   Rgb color(const std::string &key) const;
 
   Rgb accent() const { return color("accent"); }
@@ -98,7 +98,7 @@ public:
   Rgb accent_foreground() const;
   /// Hairlines and borders: foreground at 12 % over the background.
   Rgb hairline() const { return mix(background(), foreground(), 0.12); }
-  /// `color` at `alpha` over the background (Qt.alpha(color, a) in Folio).
+  /// `color` at `alpha` over the background.
   Rgb tint(Rgb color, double alpha) const { return mix(background(), color, alpha); }
 
   bool light() const { return palette_.light; }

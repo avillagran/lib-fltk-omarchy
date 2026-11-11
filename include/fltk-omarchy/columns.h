@@ -1,4 +1,4 @@
-// Miller columns (the macOS Finder's column view, Folio's FolderColumns):
+// Miller columns (the macOS Finder's column view, Files' Columns):
 // several columns side by side in a horizontal ScrollArea, a hairline
 // between them, the newest or the active column kept in view, and
 // Left/Right moving the keyboard between columns.

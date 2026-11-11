@@ -1,10 +1,12 @@
-// Gallery: every widget of lib-fltk-omarchy in a Folio-like file manager
-// layout, with fake data (no files are read or written).
+// Gallery: every widget of lib-fltk-omarchy in the layout of Files (the
+// file manager whose look the toolkit carries), with fake data: no files
+// are read or written.
 //
 //   gallery                 # interactive
-//   gallery --demo=menu     # opens one component's state (for screenshots):
-//                           # grid, list, columns, menu, dialog, prompt, help,
-//                           # toast, tooltip, sidebar-focus
+//   gallery --demo=NAME     # opens one component's state (for screenshots):
+//                           # groups, list, grid, columns, rail, menu,
+//                           # actions, dialog, prompt, help, toast, tooltip,
+//                           # sidebar-focus
 #include "fltk-omarchy/fo.h"
 
 #include <FL/Fl.H>
@@ -24,18 +26,18 @@ struct Entry {
 
 std::vector<Entry> sample_entries() {
   std::vector<Entry> v = {
-      {"Alfama", "folder", "2 items", true},
-      {"Belém", "folder", "2 items", true},
-      {"Sintra day trip", "folder", "3 items", true},
-      {"azulejos.jpg", "file-image", "31.6 KB", false},
-      {"fado-live.m4a", "file-music", "45.3 KB", false},
-      {"fado-night.mp4", "file-video", "65.2 KB", false},
-      {"harbour-dusk.jpg", "file-image", "27.1 KB", false},
-      {"itinerary.pdf", "file-text", "44.6 KB", false},
-      {"miradouro.jpg", "file-image", "30.0 KB", false},
-      {"pasteis.jpg", "file-image", "32.6 KB", false},
-      {"ponte.jpg", "file-image", "30.7 KB", false},
-      {"tram-28.jpg", "file-image", "28.2 KB", false},
+      {"Alfama", "folder", "\xE2\x88\x91 4.2 kB", true},
+      {"Belém", "folder", "\xE2\x88\x91 3.1 MB", true},
+      {"Sintra day trip", "folder", "\xE2\x88\x91 30.3 kB", true},
+      {"azulejos.jpg", "file-image", "31.6 kB", false},
+      {"fado-live.m4a", "file-music", "45.3 kB", false},
+      {"fado-night.mp4", "file-video", "65.2 kB", false},
+      {"harbour-dusk.jpg", "file-image", "27.1 kB", false},
+      {"itinerary.pdf", "file-text", "44.6 kB", false},
+      {"miradouro.jpg", "file-image", "30.0 kB", false},
+      {"pasteis.jpg", "file-image", "32.6 kB", false},
+      {"ponte.jpg", "file-image", "30.7 kB", false},
+      {"tram-28.jpg", "file-image", "28.2 kB", false},
       {"trip-notes.md", "file-code", "717 B", false},
       {"a-very-long-file-name-from-the-camera-roll-2026-11-10-18-11-04.jpeg", "file-image", "4.2 MB", false},
   };
@@ -48,28 +50,66 @@ std::vector<Entry> sample_entries() {
   return v;
 }
 
+// Files' Groups: folder cards under "FOLDERS · 3", then the files as rows
+// under "TODAY · n"; List and Grid draw the same entries.
 class Files : public fo::Collection {
 public:
-  Files(int x, int y, int w, int h) : Collection(x, y, w, h), entries(sample_entries()) {}
+  Files(int x, int y, int w, int h) : Collection(x, y, w, h), entries(sample_entries()) {
+    always_ring(true);
+    groups();
+  }
   std::vector<Entry> entries;
+  void groups() {
+    Band cards;
+    cards.count = 3, cards.min_width = 240, cards.item_h = 74, cards.gap = 8, cards.header_h = 28, cards.after = 6;
+    Band rows;
+    rows.count = int(entries.size()) - 3, rows.item_h = 38, rows.header_h = 26, rows.after = 10;
+    bands({cards, rows});
+    layout(Layout::Bands);
+    padding(0);
+    ring_radius(11);
+  }
   int count() const override { return int(entries.size()); }
   std::string item_text(int i) const override { return entries[size_t(i)].name; }
+  void draw_band_header(int band, int x, int y, int w, int h) override {
+    std::string label = band == 0 ? "FOLDERS \xC2\xB7 3" : "TODAY \xC2\xB7 " + std::to_string(count() - 3);
+    fo::draw_section_label(label, x, y, w, 24);
+    if (band == 0) {
+      int bx = x + int(fo::text::width(label, fo::text::REGULAR, 10)) + 14;
+      fo::paint::round_fill(bx, y, 28, 24, fo::theme().radius() > 0 ? 4 : 0, fo::theme().selection());
+      fo::icon::draw("folder-plus", bx + 7, y + 5, 14, fo::theme().accent());
+    }
+    (void)h;
+  }
   void draw_item(int i, int x, int y, int w, int h, const ItemState &s) override {
     const Entry &e = entries[size_t(i)];
     const fo::Theme &t = fo::theme();
-    if (layout() == Layout::List)
-      draw_row(x, y, w, h, s, e.icon, e.name, e.detail, e.dir ? t.accent() : fo::Rgb(), e.dir);
-    else
-      draw_tile(x, y, w, h, s, e.dir ? "" : e.icon, e.name, e.detail + " · 6:10 PM", kind_color(e), e.dir);
+    if (layout() == Layout::Grid) {
+      draw_tile(x, y, w, h, s, e.icon, e.name, e.detail, e.dir ? t.blue() : kind_color(e), e.dir);
+      return;
+    }
+    if (layout() == Layout::Bands && i < 3) {
+      // A folder card.
+      int r = t.radius() > 0 ? 11 : 0;
+      fo::paint::round_fill(x, y, w, h, r, s.selected ? t.selection() : t.card());
+      if (s.current)
+        fo::paint::fill(x + 4, y + 8, 2, h - 16, t.accent());
+      fo::icon::draw("folder", x + 12, y + 22, 25, t.blue());
+      fo::text::draw(e.name, x + 54, y + 10, w - 64, 24, t.bright_foreground(), fo::text::REGULAR, 13);
+      fo::text::draw(e.detail, x + 54, y + 34, w - 64, 18, t.dim(), fo::text::REGULAR, 11);
+      fo::text::draw("now", x + 54, y + 51, w - 64, 16, t.dim(), fo::text::REGULAR, 10);
+      return;
+    }
+    draw_row(x, y, w, h, s, e.icon, e.name, e.detail, e.dir ? t.blue() : kind_color(e), false);
   }
   static fo::Rgb kind_color(const Entry &e) {
     const fo::Theme &t = fo::theme();
-    if (e.icon == "file-image") return t.cyan();
-    if (e.icon == "file-music") return t.magenta();
+    if (e.icon == "file-image") return t.magenta();
+    if (e.icon == "file-music") return t.cyan();
     if (e.icon == "file-video") return t.orange();
     if (e.icon == "file-text") return t.red();
-    if (e.icon == "file-code") return t.blue();
-    return t.secondary_foreground();
+    if (e.icon == "file-code") return t.green();
+    return t.dim();
   }
 };
 
@@ -94,68 +134,58 @@ public:
   std::string item_text(int i) const override { return entries[size_t(i)].name; }
   void draw_item(int i, int x, int y, int w, int h, const ItemState &s) override {
     const Entry &e = entries[size_t(i)];
-    draw_row(x, y, w, h, s, e.icon, e.name, "", e.dir ? fo::theme().accent() : Files::kind_color(e), e.dir);
+    draw_row(x, y, w, h, s, e.icon, e.name, "", e.dir ? fo::theme().blue() : Files::kind_color(e), e.dir);
   }
   bool dir_selected() const { return current() >= 0 && entries[size_t(current())].dir; }
 };
 
-// The right-hand details pane: plain FLTK group with toolkit widgets.
-class Details : public Fl_Group {
+// Files' inspector: a preview tile, the name, kind and facts, and the
+// action buttons (fo::draw_action_button).
+class Inspector : public Fl_Widget {
 public:
-  Details(int x, int y, int w, int h) : Fl_Group(x, y, w, h) {
-    box(FL_NO_BOX);
-    field = new fo::TextField(x + 28, y + 330, w - 56, 38);
-    field->placeholder("Filter this folder");
-    open = new fo::Button(x + 28, y + h - 68, w - 56, 40, "Open");
-    open->primary(true);
-    plain = new fo::Button(x + 28, y + h - 118, w - 56, 36, "Show in terminal");
-    end();
-    resizable(nullptr);
-  }
-  void resize(int X, int Y, int W, int H) override {
-    Fl_Widget::resize(X, Y, W, H);
-    field->resize(X + 28, Y + 330, W - 56, 38);
-    plain->resize(X + 28, Y + H - 118, W - 56, 36);
-    open->resize(X + 28, Y + H - 68, W - 56, 40);
-  }
+  Inspector(int x, int y, int w, int h) : Fl_Widget(x, y, w, h) {}
   void draw() override {
     const fo::Theme &t = fo::theme();
     fo::paint::fill(x(), y(), w(), h(), t.background());
-    int aw = w() - 56;
-    fo::paint::round_fill(x() + 28, y() + 28, aw, aw * 3 / 4, std::min(10, t.radius()), t.lighter_background());
-    fo::icon::draw("image", x() + 28 + aw / 2 - 24, y() + 28 + aw * 3 / 8 - 24, 48, t.cyan());
-    int ty = y() + 40 + aw * 3 / 4;
-    fo::text::draw(title, x() + 28, ty, aw, 24, t.bright_foreground(), fo::text::SEMIBOLD, fo::text::size::TITLE);
-    fo::text::draw("JPEG image · 27.1 KB", x() + 28, ty + 24, aw, 18, t.secondary_foreground(), fo::text::REGULAR,
-                   fo::text::size::LABEL);
-    fo::text::draw("Modified", x() + 28, ty + 58, aw, 18, t.secondary_foreground(), fo::text::REGULAR,
-                   fo::text::size::LABEL);
-    fo::text::draw(fo::i18n::format_date(std::time(nullptr)) + " " + fo::i18n::format_time(std::time(nullptr)),
-                   x() + 28, ty + 58, aw, 18, t.foreground(), fo::text::REGULAR, fo::text::size::LABEL, FL_ALIGN_RIGHT);
-    draw_children();
+    fo::paint::vline(x(), y(), h(), t.card());
+    fo::draw_section_label("Inspector", x() + 16, y() + 12, w() - 32, 22);
+    int iw = w() - 32, r = t.radius() > 0 ? 7 : 0;
+    fo::paint::round_fill(x() + 16, y() + 50, iw, 98, r, t.card());
+    fo::icon::draw("image", x() + 16 + iw / 2 - 16, y() + 50 + 33, 32, t.magenta());
+    int ty = y() + 160;
+    fo::text::draw(title, x() + 16, ty, iw, 36, t.bright_foreground(), fo::text::REGULAR, 13);
+    fo::text::draw("image/jpeg", x() + 16, ty + 44, iw, 22, t.dim(), fo::text::REGULAR, 11);
+    fo::text::draw("Size      27.1 kB", x() + 16, ty + 72, iw, 22, t.foreground(), fo::text::REGULAR, 12);
+    fo::text::draw("now", x() + 16, ty + 98, iw, 22, t.foreground(), fo::text::REGULAR, 12);
+    int b = y() + h();
+    fo::draw_action_button(x() + 16, b - 136, iw, 30, "Rename \xC2\xB7 F2", false, false);
+    int half = (iw - 8) / 2;
+    fo::draw_action_button(x() + 16, b - 94, half, 34, "Open", true, false);
+    fo::draw_action_button(x() + 24 + half, b - 94, half, 34, "Preview", false, false);
+    fo::draw_action_button(x() + 16, b - 52, 60, 34, "Path", false, false);
+    fo::draw_action_button(x() + 80, b - 52, 68, 34, "F5", false, false);
+    fo::draw_action_button(x() + 152, b - 52, 68, 34, "F6", false, false);
   }
   std::string title = "harbour-dusk.jpg";
-  fo::TextField *field;
-  fo::Button *open, *plain;
 };
 
 std::vector<fo::HelpOverlay::Row> help_rows() {
-  return {{"\xE2\x86\x90 \xE2\x86\x91 \xE2\x86\x92 \xE2\x86\x93", "Move the selection"},
-          {"Shift+click / Shift+arrows", "Select a range"},
-          {"Ctrl+click / Alt+click", "Add or remove one from the selection"},
-          {"Drag on empty space", "Select with a rectangle"},
-          {"Ctrl+A", "Select everything"},
-          {"Tab", "Move between the sidebar and the files"},
-          {"\xE2\x8F\x8E", "Open"},
-          {"Ctrl+1 / 2 / 3", "Grid, list or columns"},
-          {"Ctrl+L", "Focus the path"},
-          {"Ctrl+I", "Show or hide the details pane"},
+  return {{"Type", "Filter this folder (Esc clears)"},
+          {"Ctrl+L", "Edit the path; >command or :place opens a catalog"},
+          {"Ctrl+Shift+P", "Commands"},
+          {"Enter", "Open"},
+          {"Backspace / Alt+Up", "Go to the parent folder"},
+          {"Ctrl+1 \xE2\x80\xA6 5", "Groups, List, Columns, Space, Grid"},
+          {"Ctrl+A / Ctrl+I", "Select all / invert the selection"},
+          {"Insert", "Mark and move on"},
           {"F2", "Rename"},
-          {"Delete", "Move to the trash (asks)"},
-          {"Right-click / Menu", "Everything else"},
+          {"F5 / F6", "Copy / move"},
+          {"F7", "New folder"},
+          {"Delete", "Move to the trash"},
+          {"F9 / Tab", "Dual pane / switch pane"},
+          {"F10 / Ctrl+,", "Actions / Preferences"},
           {"Ctrl+T", "Show a toast"},
-          {"?", "Show these shortcuts"},
-          {"Q", "Close the window"}};
+          {"F1", "Show these shortcuts"}};
 }
 
 } // namespace
@@ -170,62 +200,60 @@ int main(int argc, char **argv) {
   opts.app_class = "fo-gallery";
   fo::init(opts);
 
-  const int W = 1280, H = 800, TOP = 60, SIDE = 236;
+  // Files' metrics: header 58, tabs 32, rail 52, inspector 240, status 32.
+  const int W = 1100, H = 700, TOP = 90, RAIL = 52, INSP = 240, STATUS = 32;
   auto *win = new fo::Window(W, H, "lib-fltk-omarchy gallery");
 
-  // Top bar: breadcrumbs and view buttons.
-  auto *crumbs = new fo::Breadcrumbs(26, 0, W - 26 - 220, TOP);
-  crumbs->segments({{"~", "/home/me"}, {"Pictures", "/home/me/Pictures"}, {"Lisbon 2026", "/home/me/Pictures/Lisbon"}});
-  auto *b_view = new fo::IconButton(W - 200, 12, 36, 36, "grid", "Grid (Ctrl+1); click for list");
-  auto *b_sort = new fo::IconButton(W - 160, 12, 36, 36, "arrow-down-a-z", "Sort by name");
-  auto *b_hidden = new fo::IconButton(W - 120, 12, 36, 36, "eye", "Show hidden files (Ctrl+H)");
-  auto *b_details = new fo::IconButton(W - 80, 12, 36, 36, "panel-right", "Details (Ctrl+I)");
-  b_details->active_state(true);
-  new fo::Rule(0, TOP - 1, W, 1);
-
-  // Body: sidebar | files | details.
-  auto *split = new fo::SplitPane(0, TOP, W, H - TOP);
-  auto *sidebar = new fo::Sidebar(0, TOP, SIDE, H - TOP);
-  auto *inner = new fo::SplitPane(SIDE + 1, TOP, W - SIDE - 1, H - TOP);
-  auto *body = new Fl_Group(SIDE + 1, TOP, W - SIDE - 1 - 300, H - TOP);
-  auto *files = new Files(SIDE + 1, TOP, W - SIDE - 1 - 300, H - TOP);
-  auto *columns = new fo::ColumnView(SIDE + 1, TOP, W - SIDE - 1 - 300, H - TOP);
+  auto *nav = new fo::ToolBar(12, 13, 102, 32);
+  nav->plain(true);
+  nav->metrics(30, 6);
+  auto *crumbs = new fo::Breadcrumbs(136, 12, 400, 34);
+  crumbs->segments({{"/", "/"}, {"home", "/home"}, {"Home", "/home/me"}, {"Pictures", "/home/me/Pictures"},
+                    {"Lisbon 2026", "/home/me/Pictures/Lisbon"}});
+  auto *tools = new fo::ToolBar(W - 412, 10, 400, 36);
+  auto *tabs = new fo::TabStrip(0, 58, W, 32);
+  tabs->tabs({"Lisbon 2026", "Downloads"}, 0);
+  auto *rail = new fo::Sidebar(0, TOP, RAIL, H - TOP - STATUS);
+  rail->rail(true);
+  auto *header = new fo::SortHeader(RAIL + 16, TOP + 4, W - RAIL - INSP - 32, 30);
+  header->hide();
+  auto *files = new Files(RAIL + 16, TOP + 4, W - RAIL - INSP - 32, H - TOP - STATUS - 12);
+  auto *columns = new fo::ColumnView(RAIL + 16, TOP + 4, W - RAIL - INSP - 32, H - TOP - STATUS - 12);
   columns->end();
   columns->hide();
-  body->end();
-  auto *details = new Details(W - 299, TOP, 299, H - TOP);
-  inner->end();
-  inner->min_sizes(300, 220);
-  inner->set_split(W - SIDE - 1 - 300);
-  split->end();
-  split->min_sizes(160, 400);
-  split->set_split(SIDE);
+  auto *inspector = new Inspector(W - INSP, TOP, INSP, H - TOP - STATUS);
+  auto *status = new fo::StatusBar(0, H - STATUS, W, STATUS);
+  status->left("1 marked \xC2\xB7 2014 items");
+  status->hint("Ctrl+L: type >command or :place and press Enter to open the catalog");
+  status->right("ext4 \xC2\xB7 640 GB free");
+  status->badge("PSS 10.0 MiB", fo::theme().green());
   win->end();
-  win->resizable(split);
 
-  sidebar->add_section("Home", "/home/me");
-  for (auto r : std::vector<std::pair<const char *, const char *>>{
-           {"Documents", "file-text"}, {"Downloads", "download"}, {"Music", "music"},
-           {"Pictures", "image"}, {"Projects", "folder"}, {"Videos", "video"}, {"Work", "folder"}})
-    sidebar->add_row({r.first, r.second, std::string("/home/me/") + r.first});
-  sidebar->add_section("Views");
-  sidebar->add_row({"Recents", "clock", "recent://"});
-  sidebar->add_row({"Trash", "trash-2", "trash://"});
-  sidebar->add_section("Devices");
+  rail->add_section("");
+  rail->add_row({"Recents", "recent", "recent://"});
+  rail->add_row({"Lisbon", "star", "/home/me/Pictures/Lisbon"});
+  rail->add_section("Places");
+  for (auto r : std::vector<std::pair<const char *, const char *>>{{"Home", "home"},
+                                                                  {"Downloads", "downloads"},
+                                                                  {"Documents", "documents"},
+                                                                  {"Pictures", "pictures"},
+                                                                  {"Music", "music"},
+                                                                  {"Videos", "videos"}})
+    rail->add_row({r.first, r.second, std::string("/home/me/") + r.first});
+  rail->add_section("Drives");
   fo::SidebarRow usb{"KINGSTON", "usb", "/run/media/me/KINGSTON"};
   usb.ejectable = true;
-  sidebar->add_row(usb);
-  fo::SidebarRow cloud{"Dropbox", "cloud", "/home/me/Dropbox", "syncing", fo::theme().yellow()};
-  sidebar->add_row(cloud);
-  sidebar->add_section("Tailnet");
-  sidebar->add_row({"laptop", "laptop", "sftp://laptop"});
-  sidebar->add_row({"studio", "server", "sftp://studio"});
-  sidebar->set_active("/home/me/Pictures");
+  rail->add_row(usb);
+  rail->add_section("Network");
+  rail->add_row({"laptop", "laptop", "sftp://laptop"});
+  fo::SidebarRow trash{"Trash", "trash", "trash://"};
+  trash.footer = true;
+  rail->add_row(trash);
+  rail->set_active("/home/me/Pictures");
 
-  files->layout(fo::Collection::Layout::Grid);
   files->reload(true);
-  files->select(6, true);
-  files->set_current(6, true);
+  files->set_current(4, true);
+  header->columns({{"Name", "sort", 48, 500}, {"Size", "database", 560, 104, true}});
 
   // The columns view: picking a folder shows what is inside in the next
   // column; Right on a folder goes into it, Left back (ColumnView).
@@ -253,7 +281,6 @@ int main(int argc, char **argv) {
     root->set_current(0);
   }
   columns->on_step([=](int from, int dir) {
-    // Right on a folder enters the column showing it.
     auto *f = static_cast<Folder *>(columns->column(from));
     if (dir > 0 && f->dir_selected() && from + 1 < columns->columns()) {
       auto *next = static_cast<Folder *>(columns->column(from + 1));
@@ -262,54 +289,121 @@ int main(int argc, char **argv) {
         next->set_current(0);
       return true;
     }
-    return dir > 0; // nothing to enter
+    return dir > 0;
   });
 
-  // Behavior.
-  auto set_view = [=](int view) { // 0 grid, 1 list, 2 columns
-    if (view == 2) {
+  auto layout = std::make_shared<std::function<void()>>();
+  auto view = std::make_shared<int>(0); // 0 groups, 1 list, 2 columns, 4 grid
+  auto set_view = [=](int v) {
+    *view = v;
+    int cx = rail->desired_width() + 16, cw = W - cx - INSP - 16, top = TOP + 4;
+    if (v == 2) {
       files->hide();
+      header->hide();
       columns->show();
       columns->set_active(columns->columns() - 1);
-      b_view->icon("columns-3");
     } else {
       columns->hide();
       files->show();
-      files->layout(view == 0 ? fo::Collection::Layout::Grid : fo::Collection::Layout::List);
+      if (v == 0) {
+        files->groups();
+        header->hide();
+        files->resize(cx, top, cw, H - top - STATUS - 8);
+      } else if (v == 1) {
+        files->layout(fo::Collection::Layout::List);
+        files->row_height(38);
+        files->ring_radius(9);
+        header->show();
+        header->resize(cx, top, cw, 30);
+        files->resize(cx, top + 30, cw, H - top - 30 - STATUS - 8);
+      } else {
+        files->layout(fo::Collection::Layout::Grid);
+        files->tile_size(156, 132);
+        files->ring_radius(8);
+        header->hide();
+        files->resize(cx, top, cw, H - top - STATUS - 8);
+      }
       files->take_focus();
-      b_view->icon(view == 0 ? "grid" : "list");
     }
+    (*layout)();
   };
-  b_view->on_click([=] {
-    set_view(columns->visible() ? 0 : files->layout() == fo::Collection::Layout::Grid ? 1 : 2);
-  });
-  b_hidden->on_click([=] { b_hidden->active_state(!b_hidden->active_state()); });
-  b_details->on_click([=] {
-    b_details->active_state(!b_details->active_state());
-    inner->collapse_second(!b_details->active_state());
-  });
-  auto sort_menu = [=] {
-    fo::PopupMenu::open_below(win, b_sort->x(), b_sort->y(), b_sort->w(), b_sort->h(),
-                              {fo::MenuItem("Name", "S").check(),
-                               fo::MenuItem("Kind"),
-                               fo::MenuItem("Newest first"),
-                               fo::MenuItem("Oldest first"),
-                               fo::MenuItem("Size")},
-                              true);
+  auto actions = [=] {
+    int x, y, w, h;
+    tools->item_rect(int(tools->items().size()) - 2, x, y, w, h);
+    fo::PopupMenu::open_below(
+        win, x, y, w, h,
+        {fo::MenuItem("Create and organize", "", nullptr,
+                      {fo::MenuItem("Create file", "Ctrl+N").with_icon("file"),
+                       fo::MenuItem("Create folder", "F7").with_icon("folder"),
+                       fo::MenuItem("Rename", "F2").with_icon("edit"),
+                       fo::MenuItem("Send to Trash", "Delete").with_icon("trash")})
+             .with_icon("folder-plus"),
+         fo::MenuItem("Clipboard", "", nullptr,
+                      {fo::MenuItem("Copy", "Ctrl+C").with_icon("copy"), fo::MenuItem("Cut", "Ctrl+X").with_icon("cut"),
+                       fo::MenuItem("Paste", "Ctrl+V").with_icon("paste").disabled()})
+             .with_icon("paste"),
+         fo::MenuItem("Selection", "", nullptr,
+                      {fo::MenuItem("Select all", "Ctrl+A"), fo::MenuItem("Invert selection", "Ctrl+I")})
+             .with_icon("select"),
+         fo::MenuItem("Search and open", "", nullptr, {fo::MenuItem("Search in subfolders", "Ctrl+Shift+F")})
+             .with_icon("search"),
+         fo::MenuItem("Space and sizes", "", nullptr, {fo::MenuItem("Calculate size", "Ctrl+Space")})
+             .with_icon("database"),
+         fo::MenuItem("Tools", "", nullptr, {fo::MenuItem("Commands", "Ctrl+Shift+P")}).with_icon("terminal"),
+         fo::MenuItem("History and results", "", nullptr, {fo::MenuItem("Undo", "Ctrl+Z")}).with_icon("history")},
+        true);
   };
-  b_sort->on_click(sort_menu);
+  auto tool_items = [=] {
+    int v = *view;
+    tools->items({{"search", "Search", "Ctrl+F", false, true, [] {}},
+                  {"pencil", "Edit path", "Ctrl+L", false, true, [] {}},
+                  {"groups", "Groups", "Ctrl+1", v == 0, true, [=] { set_view(0); }},
+                  {"list", "List", "Ctrl+2", v == 1, true, [=] { set_view(1); }},
+                  {"grid", "Grid", "Ctrl+5", v == 4, true, [=] { set_view(4); }},
+                  {"space", "Space", "Ctrl+4", false, true, [] {}},
+                  {"columns", "Columns", "Ctrl+3", v == 2, true, [=] { set_view(2); }},
+                  {"info", "Inspector", "Ctrl+Alt+I", true, true, [] {}},
+                  {"actions", "Actions", "F10", false, true, actions},
+                  {"settings", "Preferences", "Ctrl+,", false, true, [] {}}});
+  };
+  *layout = [=] {
+    tool_items();
+    int rw = rail->desired_width();
+    rail->resize(0, TOP, rw, H - TOP - STATUS);
+    int pw = tools->preferred_width();
+    tools->resize(W - 12 - pw, 10, pw, 36);
+    crumbs->resize(136, 12, std::max(1, W - 12 - pw - 14 - 156), 34);
+    int cx = rw + 16, cw = W - cx - INSP - 16;
+    if (*view == 2)
+      columns->resize(cx, TOP + 4, cw, H - TOP - STATUS - 12);
+    else if (*view == 1) {
+      header->resize(cx, TOP + 4, cw, 30);
+      files->resize(cx, TOP + 34, cw, H - TOP - 30 - STATUS - 12);
+    } else
+      files->resize(cx, TOP + 4, cw, H - TOP - STATUS - 12);
+    win->redraw();
+  };
+  tools->on_relayout([=] { (*layout)(); });
+  rail->on_width([=] { (*layout)(); });
+  nav->items({{"arrow-left", "Back", "Alt+Left", false, true, [=] { fo::Toast::show(win, "Back"); }},
+              {"arrow-right", "Forward", "Alt+Right", false, false, nullptr},
+              {"arrow-up", "Up", "Backspace", false, true, [=] { fo::Toast::show(win, "Up"); }}});
+  (*layout)();
+
   crumbs->on_navigate([=](int i) { fo::Toast::show(win, "Go to " + crumbs->segments()[size_t(i)].path); });
-  sidebar->on_activate([=](const fo::SidebarRow &r) {
-    sidebar->set_active(r.id);
+  tabs->on_select([=](int i) { tabs->tabs({"Lisbon 2026", "Downloads"}, i); });
+  tabs->on_new([=] { fo::Toast::show(win, "Tab created"); });
+  rail->on_activate([=](const fo::SidebarRow &r) {
+    rail->set_active(r.id);
     fo::Toast::show(win, "Open " + r.label);
   });
-  sidebar->on_eject([=](const fo::SidebarRow &r) { fo::Toast::show(win, "Ejected " + r.label); });
-  sidebar->on_finished([=] { files->take_focus(); });
+  rail->on_eject([=](const fo::SidebarRow &r) { fo::Toast::show(win, "Ejected " + r.label); });
+  rail->on_finished([=] { files->take_focus(); });
   files->on_selection_change([=] {
     int c = files->current();
     if (c >= 0) {
-      details->title = files->entries[size_t(c)].name;
-      details->redraw();
+      inspector->title = files->entries[size_t(c)].name;
+      inspector->redraw();
     }
   });
   files->on_activate([=](int i) { fo::Toast::show(win, "Open " + files->entries[size_t(i)].name); });
@@ -348,24 +442,27 @@ int main(int argc, char **argv) {
   };
   auto context = [=](int index, int x, int y) {
     std::vector<fo::MenuItem> items = {
-        fo::MenuItem("Open", "\xE2\x8F\x8E", [=] { fo::Toast::show(win, "Open"); }).with_icon("external-link"),
-        fo::MenuItem("Open with", "", nullptr,
+        fo::MenuItem("Open focused item", "Enter", [=] { fo::Toast::show(win, "Open"); }).with_icon("open"),
+        fo::MenuItem("Open with\xE2\x80\xA6", "Ctrl+Shift+O", nullptr,
                      {fo::MenuItem("Image Viewer"), fo::MenuItem("GIMP"), fo::MenuItem::separator(),
-                      fo::MenuItem("Other application…")})
-            .with_icon("app-window"),
+                      fo::MenuItem("Other application\xE2\x80\xA6")})
+            .with_icon("external-link"),
+        fo::MenuItem("Preview", "Space").with_icon("eye"),
         fo::MenuItem::separator(),
+        fo::MenuItem("Cut", "Ctrl+X").with_icon("cut"),
         fo::MenuItem("Copy", "Ctrl+C").with_icon("copy"),
-        fo::MenuItem("Cut", "Ctrl+X").with_icon("scissors"),
-        fo::MenuItem("Paste", "Ctrl+V").with_icon("clipboard").disabled(),
-        fo::MenuItem("Copy path", "Ctrl+Shift+C").with_icon("link"),
+        fo::MenuItem("Paste", "Ctrl+V").with_icon("paste").disabled(),
         fo::MenuItem::separator(),
-        fo::MenuItem("Rename", "F2", rename).with_icon("pencil"),
-        fo::MenuItem("Move to trash", "Delete", confirm_delete).with_icon("trash-2"),
+        fo::MenuItem("Rename", "F2", rename).with_icon("edit"),
+        fo::MenuItem("Send to Trash", "Delete", confirm_delete).with_icon("trash"),
+        fo::MenuItem::separator(),
+        fo::MenuItem("Terminal here", "Ctrl+.").with_icon("terminal"),
+        fo::MenuItem("Copy path", "Ctrl+Alt+C").with_icon("link"),
     };
     if (index < 0)
-      items = {fo::MenuItem("New folder", "Ctrl+Shift+N").with_icon("folder-plus"),
-               fo::MenuItem("Open terminal here").with_icon("terminal"), fo::MenuItem::separator(),
-               fo::MenuItem("Show hidden files", "Ctrl+H").check(b_hidden->active_state())};
+      items = {fo::MenuItem("Create folder", "F7").with_icon("folder-plus"),
+               fo::MenuItem("Terminal here", "Ctrl+.").with_icon("terminal"), fo::MenuItem::separator(),
+               fo::MenuItem("Show hidden files", "Ctrl+H").check(false)};
     fo::PopupMenu::open_at(win, x, y, items);
   };
   files->on_context(context);
@@ -384,11 +481,12 @@ int main(int argc, char **argv) {
   win->shortcut("Ctrl+1", [=] { set_view(0); });
   win->shortcut("Ctrl+2", [=] { set_view(1); });
   win->shortcut("Ctrl+3", [=] { set_view(2); });
+  win->shortcut("Ctrl+5", [=] { set_view(4); });
   win->shortcut("Ctrl+L", [=] { crumbs->take_focus(); });
-  win->shortcut("Ctrl+I", [=] { b_details->do_callback(); });
   win->shortcut("Ctrl+T", [=] { fo::Toast::show(win, "Copied 3 items"); });
-  win->shortcut("?", [=] { fo::HelpOverlay::show(win, help_rows()); });
-  win->shortcut("q", [=] { win->hide(); });
+  win->shortcut("F10", actions);
+  win->shortcut("F1", [=] { fo::HelpOverlay::show(win, help_rows()); });
+  win->shortcut("Ctrl+Q", [=] { win->hide(); });
 
   if (!demo.empty())
     win->position(0, 0); // screenshots crop from the corner
@@ -400,19 +498,21 @@ int main(int argc, char **argv) {
     std::string name;
     fo::Window *win;
     Files *files;
-    fo::Sidebar *sidebar;
-    fo::IconButton *sort;
+    fo::Sidebar *rail;
+    fo::ToolBar *tools;
     std::function<void(int, int, int)> context;
-    std::function<void()> rename, del, sort_menu;
+    std::function<void()> rename, del, actions;
     std::function<void(int)> view;
     fo::ColumnView *columns;
   };
-  static Demo d{demo, win, files, sidebar, b_sort, context, rename, confirm_delete, sort_menu, set_view, columns};
+  static Demo d{demo, win, files, rail, tools, context, rename, confirm_delete, actions, set_view, columns};
   if (!demo.empty())
     Fl::add_timeout(0.4, [](void *) {
       const std::string &n = d.name;
       if (n == "list")
-        d.files->layout(fo::Collection::Layout::List);
+        d.view(1);
+      else if (n == "grid")
+        d.view(4);
       else if (n == "columns") {
         d.view(2);
         // Two levels down, the keyboard in the deepest folder.
@@ -425,13 +525,12 @@ int main(int argc, char **argv) {
           d.columns->set_active(2);
         }
         fo::set_focus_visible(true);
-      }
-      else if (n == "menu")
-        d.context(6, 760, 360);
-      else if (n == "submenu") {
-        d.context(6, 760, 360);
-      } else if (n == "sort")
-        d.sort_menu();
+      } else if (n == "rail") {
+        d.rail->pinned(true);
+      } else if (n == "menu")
+        d.context(6, 560, 360);
+      else if (n == "actions")
+        d.actions();
       else if (n == "dialog")
         d.del();
       else if (n == "prompt")
@@ -440,15 +539,14 @@ int main(int argc, char **argv) {
         fo::HelpOverlay::show(d.win, help_rows());
       else if (n == "toast")
         fo::Toast::show(d.win, "Copied 3 items", 30);
-      else if (n == "tooltip")
-        fo::Tooltip::open_for(d.sort, "Sort by name");
-      else if (n == "sidebar-focus") {
+      else if (n == "tooltip") {
+        int x, y, w, h;
+        d.tools->item_rect(int(d.tools->items().size()) - 2, x, y, w, h);
+        fo::Tooltip::open_at(d.win, x, y, w, h, "F10");
+      } else if (n == "sidebar-focus") {
         fo::set_focus_visible(true);
-        d.sidebar->take_focus();
-        d.sidebar->set_cursor(9);
-      } else if (n == "band") {
-        d.files->layout(fo::Collection::Layout::List);
-        d.files->select_all();
+        d.rail->take_focus();
+        d.rail->set_cursor(4);
       }
       d.win->redraw();
     });

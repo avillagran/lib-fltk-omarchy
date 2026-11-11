@@ -51,13 +51,16 @@ jumps; the first `set()` and any `set()` while animations are off jump.
 | Collection hover fade in/out | 120 ms OutCubic | — |
 | Collection focus ring sliding to the new item | 120 ms OutCubic (`ms::FOCUS`) | — |
 | Wheel / touchpad scrolling | 120 ms OutCubic to the exact destination, retargeted by every step, reversal drops pending travel (`ms::SCROLL`) | Rust toolkit `scroll.rs` |
-| Scrollbar | shows on scroll or hover (90 ms), fades out 0.9 s after the last scroll (200 ms) | Folio `FolioScrollBar` (appears/disappears) |
+| Scrollbar | shows on scroll or hover (90 ms), fades out 0.9 s after the last scroll (200 ms) | overlay scrollbars |
 | SplitPane `set_split(px, true)`, `collapse_second` | 190 ms OutCubic (`ms::LAYOUT`) | o3 `PinnedKeyboardPanel` |
 | Dialog and help: scrim and card fade in, card grows from 97 % | 180 ms Omarchy easeOut (`ms::POPUP_IN`) | Omarchy `Ui/PopupCard.qml` |
 | Dialog and help: fade and shrink out on close | 120 ms easeOut (`ms::POPUP_OUT`), from where the fade-in was | Omarchy `PopupCard` |
 | Toast in / out | 180 ms easeOut / 120 ms InCubic, rising 8 px | Omarchy `PopupCard` |
-| Tooltip | after 600 ms of hover, no fade (`ms::TOOLTIP_DELAY`) | Folio `IconButton` |
-| Menus and submenus | no animation (Folio); submenus open after 200 ms of hover intent (`ms::SUBMENU_OPEN`), at once from the keyboard | Folio `FolioMenu`, GTK menu delay |
+| Tooltip | after 600 ms of hover on an `IconButton`, two seconds on a `ToolBar` button (Files' delay), no fade (`ms::TOOLTIP_DELAY`) | Files `toolbar.rs` |
+| ToolBar label | revealed to the left of the hovered icon over 160 ms (OutCubic), the owner relayouts every frame | Files `toolbar.rs` |
+| Rail | expands 52 → 170 px after 350 ms of hover, folds 140 ms after leaving, over 190 ms (OutCubic), pushing the content | Files `places_sidebar.rs`, the Rust toolkit's `Sidebar` |
+| Tab line | the accent line slides to the current tab (160 ms) | Files tab strip |
+| Menus and submenus | no animation; submenus open after 200 ms of hover intent (`ms::SUBMENU_OPEN`), at once from the keyboard | GTK menu delay |
 | Submenu aim | moving diagonally toward an open submenu keeps it open; settling elsewhere takes over after 300 ms (`ms::SUBMENU_AIM`) | Qt/GTK safe triangle, Rust toolkit `popups.rs` |
 | Type-ahead buffer | resets after 1 s (`ms::TYPEAHEAD`) | — |
 

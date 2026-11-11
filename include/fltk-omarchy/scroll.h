@@ -34,7 +34,7 @@ private:
   bool running_ = false;
 };
 
-/// The thin overlay scrollbar (Folio's FolioScrollBar): 4 px, rounded with
+/// The thin overlay scrollbar: 4 px, rounded with
 /// the theme, foreground at 28 % (50 % while dragged). Shows on scroll or
 /// hover, fades out ~0.9 s after the last scroll. Vertical by default (a
 /// strip on the right edge); horizontal bars run along the bottom edge.

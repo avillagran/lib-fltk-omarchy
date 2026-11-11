@@ -1,4 +1,4 @@
-// Basic controls in Folio's look: quiet surfaces, square corners unless
+// Basic controls in Files' look: quiet surfaces, square corners unless
 // Hyprland rounds windows, the accent for the main choice and for focus.
 // Every control works from the keyboard; focus rings show only while the
 // keyboard is in use (fo::focus_visible()).
@@ -17,8 +17,8 @@
 
 namespace fo {
 
-/// A dialog/toolbar button with a text label (Folio's PlainButton): the
-/// accent when primary, a faint fill otherwise; 36 px high. Enter or Space
+/// A dialog/panel button with a text label (Files' button): the main
+/// choice on a card in the accent, the others in dim text; 36 px high. Enter or Space
 /// activates it when focused.
 class Button : public Fl_Button {
 public:
@@ -28,7 +28,7 @@ public:
   bool primary() const { return primary_; }
   /// Called on click / Enter / Space.
   void on_click(std::function<void()> fn) { click_ = std::move(fn); }
-  /// Width that fits the label (at least 88, Folio's minimum).
+  /// Width that fits the label (at least 88).
   int preferred_width() const;
   void draw() override;
   int handle(int event) override;
@@ -40,7 +40,8 @@ private:
   Anim<Rgb> fill_;
 };
 
-/// A square toolbar button holding one icon (Folio's IconButton). The
+/// A square button holding one icon (Files' header buttons; for a whole
+/// header row use fo::ToolBar). The
 /// tooltip text is also its accessible name. `active` shows a toggled
 /// state (accent tint). Not a Tab stop unless focusable(true).
 class IconButton : public Fl_Button {
@@ -67,7 +68,7 @@ private:
   Anim<Rgb> fill_;
 };
 
-/// A check box with a label (Folio's dialogs: "Apply to all"): a small
+/// A check box with a label ("Apply to all" in dialogs): a small
 /// square that fills with the accent when checked. Click, Space or Enter
 /// toggles it.
 class CheckBox : public Fl_Button {
@@ -88,8 +89,8 @@ private:
   bool hovered_ = false;
 };
 
-/// A single-line text field (Folio's PlainField): a dark box with an
-/// accent edge while typing and a placeholder that stays inside it.
+/// A single-line text field (Files' fields): a card with an accent edge
+/// while typing and a placeholder that stays inside it.
 ///
 ///   field->on_enter([&] { go(field->value()); });
 ///   field->on_escape([&] { cancel(); });

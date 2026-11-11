@@ -95,7 +95,7 @@ public:
   void padding(int px);
   /// Whether the keyboard focus ring is drawn on a selected cursor item
   /// (default on). Off when the item draws its own selection clearly, as
-  /// Folio's tiles do; the ring then shows only on an unselected cursor.
+  /// some tiles do; the ring then shows only on an unselected cursor.
   void focus_ring_on_selected(bool on) { ring_on_selected_ = on; redraw(); }
   /// Columns in the current layout (1 for lists).
   int columns() const;

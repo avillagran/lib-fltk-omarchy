@@ -1,5 +1,5 @@
 // Dialogs, toasts, tooltips and the keyboard help, as layers of an
-// fo::Window (Folio's FolioDialog, ConfirmDialog, HelpOverlay).
+// fo::Window, in Files' look (its sheets, help and notices).
 //
 // A dialog dims the window (a scrim that fades in over 180 ms) and shows a
 // card with a title, a message, an optional text field and two buttons.

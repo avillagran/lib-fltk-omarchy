@@ -9,7 +9,7 @@
 // pdf, text, audio. Unknown names draw "file".
 //
 // On Omarchy's square theme (radius 0) strokes use square caps and miter
-// joins, as Folio's glyphs do; rounded themes keep Lucide's round ends.
+// joins; rounded themes keep Lucide's round ends.
 //
 // When the UI font is a Nerd Font (Omarchy's default, JetBrainsMono Nerd
 // Font), the names Files uses draw as that font's glyphs instead, as
@@ -37,7 +37,7 @@ std::string resolve(const std::string &name);
 
 /// Draws icon `name` in the `size` x `size` box at (x, y). `stroke` is the
 /// stroke width in icon units on Lucide's 24 grid (0: 2 at >= 20 px, a
-/// lighter 1.75 below, matching Folio's 1.6 px at 18 px).
+/// lighter 1.75 below).
 void draw(const std::string &name, int x, int y, int size, Rgb color, double stroke = 0);
 
 /// The full SVG document for an icon, ready for Fl_SVG_Image.
