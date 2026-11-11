@@ -56,6 +56,7 @@ constexpr int SCROLLBAR_HIDE = 900; ///< scrollbar stays this long after scrolli
 constexpr int TOOLTIP_DELAY = 600;  ///< hover before a tooltip shows
 constexpr int TYPEAHEAD = 1000;     ///< type-ahead buffer resets after this
 constexpr int SUBMENU_OPEN = 200;   ///< hover intent before a submenu opens
+constexpr int SUBMENU_AIM = 300;    ///< grace while the pointer heads for an open submenu
 } // namespace ms
 
 /// Whether motion is on. Order: set_enabled() override, then

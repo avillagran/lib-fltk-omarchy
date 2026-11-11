@@ -57,6 +57,7 @@ jumps; the first `set()` and any `set()` while animations are off jump.
 | Toast in / out | 180 ms easeOut / 120 ms InCubic, rising 8 px | Omarchy `PopupCard` |
 | Tooltip | after 600 ms of hover, no fade (`ms::TOOLTIP_DELAY`) | Folio `IconButton` |
 | Menus and submenus | no animation (Folio); submenus open after 200 ms of hover intent (`ms::SUBMENU_OPEN`), at once from the keyboard | Folio `FolioMenu`, GTK menu delay |
+| Submenu aim | moving diagonally toward an open submenu keeps it open; settling elsewhere takes over after 300 ms (`ms::SUBMENU_AIM`) | Qt/GTK safe triangle, Rust toolkit `popups.rs` |
 | Type-ahead buffer | resets after 1 s (`ms::TYPEAHEAD`) | — |
 
 Easing curves: `anim::Ease::EaseOut` is Omarchy's `Style.easeOut`, the

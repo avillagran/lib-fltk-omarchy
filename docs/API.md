@@ -213,7 +213,10 @@ Windows later.
 - **PopupMenu** — `open_at(win, x, y, items)`, `open_below(win, rect,
   items, align_right)`, `on_dismiss`; `MenuItem{label, shortcut, action,
   submenu}` with `.with_icon()`, `.check()`, `.disabled()`,
-  `MenuItem::separator()`.
+  `MenuItem::separator()`. Moving the pointer diagonally toward an open
+  submenu keeps it open (a safe triangle with a 300 ms grace,
+  `PopupMenu::aiming`); `depth()`, `highlighted(card)`, `card_rect`,
+  `item_rect` report the open cards.
 - **Dialog** — `confirm(win, title, message, action, done(bool), danger)`,
   `prompt(win, title, message, initial, action, done(ok, text), from,
   to)`, and the general form `ask(win, DialogSpec, done(DialogAnswer))`:

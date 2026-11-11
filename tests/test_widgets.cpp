@@ -6,6 +6,7 @@
 
 #include "fltk-omarchy/collection.h"
 #include "fltk-omarchy/dialog.h"
+#include "fltk-omarchy/menu.h"
 #include "fltk-omarchy/sidebar.h"
 #include "fltk-omarchy/widgets.h"
 #include "fltk-omarchy/window.h"
@@ -290,4 +291,18 @@ TEST(collection_no_cursor) {
   key(&c, FL_Down); // the first arrow lands on the first item
   CHECK_EQ(c.current(), 0);
   CHECK(c.selected(0));
+}
+
+TEST(menu_aim_triangle) {
+  // A submenu card at (300, 100, 200, 120) opened to the right.
+  // From (250, 110): heading right and down toward the card is aiming...
+  CHECK(PopupMenu::aiming(250, 110, 270, 130, 300, 100, 200, 120, true));
+  CHECK(PopupMenu::aiming(250, 110, 280, 112, 300, 100, 200, 120, true));
+  // ... moving away (left) or straight down past the card's span is not.
+  CHECK(!PopupMenu::aiming(250, 110, 240, 130, 300, 100, 200, 120, true));
+  CHECK(!PopupMenu::aiming(250, 110, 252, 200, 300, 100, 200, 120, true));
+  // Opened to the left (RTL, or no room on the right): the near edge is
+  // the card's right edge.
+  CHECK(PopupMenu::aiming(560, 110, 540, 130, 300, 100, 200, 120, false));
+  CHECK(!PopupMenu::aiming(560, 110, 580, 130, 300, 100, 200, 120, false));
 }

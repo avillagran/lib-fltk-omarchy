@@ -8,6 +8,7 @@
 #include "fltk-omarchy/anim.h"
 #include "fltk-omarchy/app.h"
 #include "fltk-omarchy/collection.h"
+#include "fltk-omarchy/menu.h"
 #include "fltk-omarchy/theme.h"
 #include "fltk-omarchy/widgets.h"
 #include "fltk-omarchy/window.h"
@@ -191,4 +192,98 @@ TEST(display_window_restores_focus_after_losing_it) {
   b.hide();
   a.hide();
   anim::set_enabled(-1);
+}
+
+namespace {
+
+void move(PopupMenu *m, int x, int y) {
+  Fl::e_x = x;
+  Fl::e_y = y;
+  Fl::e_state = 0;
+  m->handle(FL_MOVE);
+}
+
+void center_of(PopupMenu *m, int card, int index, int &x, int &y) {
+  int ix = 0, iy = 0, iw = 0, ih = 0;
+  m->item_rect(card, index, ix, iy, iw, ih);
+  x = ix + iw / 2;
+  y = iy + ih / 2;
+}
+
+// Hovers entry 1 ("Sort by") until its submenu opens.
+void open_sort(PopupMenu *m) {
+  int x, y;
+  center_of(m, 0, 1, x, y);
+  move(m, x - 20, y);
+  move(m, x, y);
+  fo_test::settle((anim::ms::SUBMENU_OPEN + 100) / 1000.0);
+}
+
+} // namespace
+
+TEST(display_menu_submenu_aim_grace) {
+  if (!fo_test::have_display())
+    return;
+  Window win(800, 600);
+  win.end();
+  fo_test::show(&win);
+  std::vector<MenuItem> items = {
+      {"Open"},
+      {"Sort by", "", nullptr, {{"Name"}, {"Size"}, {"Modified"}}},
+      {"Rename"},
+      {"Delete"},
+      {"Properties"},
+  };
+  PopupMenu *m = PopupMenu::open_at(&win, 100, 100, items);
+  open_sort(m);
+  CHECK_EQ(m->depth(), 2);
+  CHECK_EQ(m->highlighted(0), 1);
+  int cx, cy, cw, ch, sx, sy, sw, sh;
+  m->card_rect(0, cx, cy, cw, ch);
+  m->card_rect(1, sx, sy, sw, sh);
+  CHECK(sx > cx); // opened to the right
+  int x1, y1, x2, y2;
+  center_of(m, 0, 1, x1, y1);
+  center_of(m, 0, 2, x2, y2);
+
+  // Diagonally toward the submenu across "Rename": it stays open.
+  move(m, cx + cw - 40, y1);
+  move(m, cx + cw - 8, y2 - 10);
+  CHECK_EQ(m->depth(), 2);
+  CHECK_EQ(m->highlighted(0), 1);
+  // Into the submenu: its entries take the pointer.
+  int nx, ny;
+  center_of(m, 1, 1, nx, ny);
+  move(m, nx, ny);
+  CHECK_EQ(m->depth(), 2);
+  CHECK_EQ(m->highlighted(1), 1);
+  CHECK_EQ(m->highlighted(0), 1);
+
+  // Settling on "Rename" instead: after the grace it takes over.
+  move(m, x1, y1);
+  move(m, cx + cw - 40, y1);
+  move(m, cx + cw - 8, y2 - 10);
+  CHECK_EQ(m->depth(), 2);
+  fo_test::settle((anim::ms::SUBMENU_AIM + 120) / 1000.0);
+  CHECK_EQ(m->depth(), 1);
+  CHECK_EQ(m->highlighted(0), 2);
+
+  // Moving away from the submenu closes it at once.
+  open_sort(m);
+  CHECK_EQ(m->depth(), 2);
+  move(m, cx + 30, y2);
+  CHECK_EQ(m->depth(), 1);
+  CHECK_EQ(m->highlighted(0), 2);
+
+  // A key during the grace wins over the pointer.
+  open_sort(m);
+  move(m, cx + cw - 40, y1);
+  move(m, cx + cw - 8, y2 - 10);
+  send_key(m, FL_Escape); // closes the submenu
+  fo_test::settle((anim::ms::SUBMENU_AIM + 120) / 1000.0);
+  CHECK_EQ(m->depth(), 1);
+  CHECK_EQ(m->highlighted(0), 1); // still on "Sort by", not "Rename"
+  m->close();
+  fo_test::settle();
+  win.hide();
 }

@@ -19,7 +19,40 @@ const int kItemH = 32, kSepH = 9, kPadY = 4, kMinW = 220;
 bool usable(const MenuItem &m) { return !m.is_separator && m.enabled; }
 } // namespace
 
-PopupMenu::~PopupMenu() { Fl::remove_timeout(hover_timer, this); }
+PopupMenu::~PopupMenu() {
+  Fl::remove_timeout(hover_timer, this);
+  Fl::remove_timeout(aim_timer, this);
+}
+
+bool PopupMenu::card_rect(int card, int &X, int &Y, int &W, int &H) const {
+  if (card < 0 || card >= int(cards_.size()))
+    return false;
+  const Card &c = cards_[size_t(card)];
+  X = c.x, Y = c.y, W = c.w, H = c.h;
+  return true;
+}
+
+bool PopupMenu::item_rect(int card, int index, int &X, int &Y, int &W, int &H) const {
+  if (card < 0 || card >= int(cards_.size()))
+    return false;
+  const Card &c = cards_[size_t(card)];
+  if (index < 0 || index >= int(c.items.size()))
+    return false;
+  X = c.x, Y = item_y(c, index), W = c.w;
+  H = c.items[size_t(index)].is_separator ? kSepH : kItemH;
+  return true;
+}
+
+bool PopupMenu::aiming(int fx, int fy, int tx, int ty, int sx, int sy, int sw, int sh, bool opened_right) {
+  long ex = opened_right ? sx : sx + sw;
+  long ax = fx, ay = fy, bx = ex, by = sy - 4, cx = ex, cy = sy + sh + 4;
+  auto cross = [](long px, long py, long qx, long qy, long rx, long ry) {
+    return (qx - px) * (ry - py) - (qy - py) * (rx - px);
+  };
+  long d1 = cross(ax, ay, bx, by, tx, ty), d2 = cross(bx, by, cx, cy, tx, ty), d3 = cross(cx, cy, ax, ay, tx, ty);
+  bool neg = d1 < 0 || d2 < 0 || d3 < 0, pos = d1 > 0 || d2 > 0 || d3 > 0;
+  return !(neg && pos);
+}
 
 PopupMenu *PopupMenu::open_at(Window *win, int x, int y, std::vector<MenuItem> items) {
   auto *m = new PopupMenu();
@@ -174,6 +207,70 @@ void PopupMenu::hover_timer(void *data) {
     m->open_sub(size_t(m->pending_card_), m->pending_item_, false);
 }
 
+void PopupMenu::aim_timer(void *data) {
+  auto *m = static_cast<PopupMenu *>(data);
+  m->aiming_ = false;
+  // The grace is over: what the pointer rests on now takes effect.
+  if (m->have_last_)
+    m->pointer(m->last_x_, m->last_y_, false);
+}
+
+void PopupMenu::pointer(int ex, int ey, bool aim) {
+  int fx = last_x_, fy = last_y_;
+  bool moved = have_last_ && (fx != ex || fy != ey);
+  last_x_ = ex, last_y_ = ey;
+  have_last_ = true;
+  for (size_t ci = cards_.size(); ci-- > 0;) {
+    Card &c = cards_[ci];
+    int i = item_at(c, ex, ey);
+    if (i == -2)
+      continue;
+    // Over a deeper card: the cards below stay on the entries that opened it.
+    if (ci + 1 < cards_.size() && i == cards_[ci + 1].parent_item) {
+      // Back on the open submenu's own entry: keep it.
+      Fl::remove_timeout(aim_timer, this);
+      Fl::remove_timeout(hover_timer, this);
+      aiming_ = false;
+      if (c.highlight != i) {
+        c.highlight = i;
+        redraw_all();
+      }
+      return;
+    }
+    if (ci + 1 < cards_.size() && aim && moved) {
+      const Card &sub = cards_[ci + 1];
+      bool right = sub.x + sub.w / 2 >= c.x + c.w / 2;
+      if (aiming(fx, fy, ex, ey, sub.x, sub.y, sub.w, sub.h, right)) {
+        // Heading for the open submenu: wait; if the pointer settles here
+        // instead, act on where it is then.
+        aiming_ = true;
+        Fl::remove_timeout(hover_timer, this);
+        Fl::remove_timeout(aim_timer, this);
+        Fl::add_timeout(anim::ms::SUBMENU_AIM / 1000.0, aim_timer, this);
+        return;
+      }
+    }
+    if (aiming_ && aim && !moved)
+      return; // a repeated event at the same place while waiting
+    Fl::remove_timeout(aim_timer, this);
+    aiming_ = false;
+    if (i != c.highlight && (i < 0 || usable(c.items[size_t(i)]))) {
+      c.highlight = i;
+      // Leaving a submenu's entry closes the deeper cards.
+      if (ci + 1 < cards_.size() && cards_[ci + 1].parent_item != i)
+        cards_.resize(ci + 1);
+      Fl::remove_timeout(hover_timer, this);
+      if (i >= 0 && !c.items[size_t(i)].submenu.empty()) {
+        pending_card_ = int(ci);
+        pending_item_ = i;
+        Fl::add_timeout(anim::ms::SUBMENU_OPEN / 1000.0, hover_timer, this);
+      }
+      redraw_all();
+    }
+    return;
+  }
+}
+
 int PopupMenu::handle(int event) {
   int ex = Fl::event_x(), ey = Fl::event_y();
   switch (event) {
@@ -182,29 +279,9 @@ int PopupMenu::handle(int event) {
     return 1;
   case FL_ENTER:
   case FL_MOVE:
-  case FL_DRAG: {
-    for (size_t ci = cards_.size(); ci-- > 0;) {
-      Card &c = cards_[ci];
-      int i = item_at(c, ex, ey);
-      if (i == -2)
-        continue;
-      if (i != c.highlight && (i < 0 || usable(c.items[size_t(i)]))) {
-        c.highlight = i;
-        // Leaving a submenu's entry closes the deeper cards (after intent).
-        if (ci + 1 < cards_.size() && cards_[ci + 1].parent_item != i)
-          cards_.resize(ci + 1);
-        Fl::remove_timeout(hover_timer, this);
-        if (i >= 0 && !c.items[size_t(i)].submenu.empty()) {
-          pending_card_ = int(ci);
-          pending_item_ = i;
-          Fl::add_timeout(anim::ms::SUBMENU_OPEN / 1000.0, hover_timer, this);
-        }
-        redraw_all();
-      }
-      return 1;
-    }
+  case FL_DRAG:
+    pointer(ex, ey, true);
     return 1;
-  }
   case FL_PUSH:
     for (size_t ci = cards_.size(); ci-- > 0;)
       if (item_at(cards_[ci], ex, ey) != -2)
@@ -227,6 +304,9 @@ int PopupMenu::handle(int event) {
   case FL_SHORTCUT: {
     if (cards_.empty())
       return 0;
+    // The keyboard wins over a pending pointer grace.
+    Fl::remove_timeout(aim_timer, this);
+    aiming_ = false;
     size_t ci = cards_.size() - 1;
     Card &c = cards_[ci];
     int k = Fl::event_key();
