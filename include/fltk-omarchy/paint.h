@@ -34,6 +34,9 @@ void circle(double cx, double cy, double r, Rgb c, double alpha = 1.0);
 /// with `alpha`. Used to fade cards in and out. Pairs must nest.
 void push_opacity();
 void pop_opacity(double alpha);
+/// Composites the group scaled by `scale` around (cx, cy) as well (a card
+/// growing in and shrinking out). Without cairo the scale is ignored.
+void pop_opacity(double alpha, double scale, double cx, double cy);
 
 /// The backdrop used to pre-mix translucent colors without cairo.
 void set_backdrop(Rgb c);

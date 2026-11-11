@@ -215,5 +215,25 @@ void pop_opacity(double alpha) {
     --g_groups;
 }
 
+void pop_opacity(double alpha, double scale, double cx, double cy) {
+#ifdef FO_CAIRO
+  if (has_alpha() && std::fabs(scale - 1) > 1e-3 && scale > 0) {
+    cairo_t *c2 = cr();
+    cairo_pattern_t *group = cairo_pop_group(c2);
+    cairo_save(c2);
+    cairo_translate(c2, cx, cy);
+    cairo_scale(c2, scale, scale);
+    cairo_translate(c2, -cx, -cy);
+    cairo_set_source(c2, group);
+    cairo_paint_with_alpha(c2, alpha < 0 ? 0 : alpha > 1 ? 1 : alpha);
+    cairo_restore(c2);
+    cairo_pattern_destroy(group);
+    return;
+  }
+#endif
+  (void)scale, (void)cx, (void)cy;
+  pop_opacity(alpha);
+}
+
 } // namespace paint
 } // namespace fo

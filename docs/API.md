@@ -28,7 +28,12 @@ win->shortcut("Ctrl+L", [] { /* ... */ });   // window-wide keys
   `top_layer()`, `modal_open()`, `Window::of(widget)`.
 - `fo::Layer` — base for anything drawn above the content: `open(win)`,
   `close()`, `modal()`, `passes_keys()`, `relayout()`. Modal layers take
-  the keyboard and give focus back on close.
+  the keyboard and give focus back on close. Subclasses that call
+  `fade_in()` and draw with `presence()` fade out on close as well
+  (`closing_out()` while it lasts); dialogs, toasts and the help overlay
+  do.
+- `paint::pop_opacity(alpha, scale, cx, cy)` composites a card scaled
+  around a point (cairo only).
 
 ## Theme — `theme.h`
 

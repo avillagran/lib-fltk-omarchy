@@ -117,9 +117,8 @@ void Dialog::build(Window *win) {
     buttons_.push_back(b);
   }
   end();
-  shown_.jump(0);
   open(win);
-  shown_.set(1, anim::ms::POPUP_IN, anim::Ease::EaseOut);
+  fade_in();
 }
 
 void Dialog::relayout() {
@@ -242,7 +241,7 @@ void Dialog::draw() {
   const Theme &t = theme();
   if (cw_ == 0)
     relayout();
-  double a = shown_.get(this);
+  double a = presence();
   paint::fill(x(), y(), w(), h(), Rgb(0, 0, 0), kScrim * a);
   paint::push_opacity();
   draw_card(cx_, cy_, cw_, ch_, spec_.danger ? t.red() : t.accent());
@@ -258,7 +257,7 @@ void Dialog::draw() {
     text::draw(error_, cx_ + kPad, fields_.back()->y() + kFieldH + 6, inner, kLineH, t.red(), text::REGULAR,
                text::size::LABEL);
   draw_children();
-  paint::pop_opacity(a);
+  paint::pop_opacity(a, card_scale(a), cx_ + cw_ / 2.0, cy_ + ch_ / 2.0);
 }
 
 // --- Toast ------------------------------------------------------------------
@@ -276,45 +275,21 @@ Toast *Toast::show(Window *win, const std::string &text, double seconds, Kind ki
   auto *t = new Toast();
   t->text_ = text;
   t->kind_ = kind;
-  t->shown_.jump(0);
   t->open(win);
-  t->shown_.set(1, anim::ms::POPUP_IN, anim::Ease::EaseOut);
+  // Rises in with Omarchy's easeOut, falls away with InCubic.
+  t->fade_in(anim::ms::POPUP_IN, anim::Ease::EaseOut, anim::ms::POPUP_OUT, anim::Ease::InCubic);
   if (seconds > 0)
     Fl::add_timeout(seconds, expire, t);
   return t;
 }
 
-void Toast::expire(void *data) {
-  auto *t = static_cast<Toast *>(data);
-  if (t->leaving_)
-    return;
-  t->leaving_ = true;
-  t->shown_.set(0, anim::ms::POPUP_OUT, anim::Ease::InCubic);
-  if (!t->shown_.running())
-    t->close();
-  else
-    anim::request_frame(step, t);
-  t->redraw_all();
-}
-
-void Toast::step(void *data) {
-  auto *t = static_cast<Toast *>(data);
-  if (!t->is_open())
-    return;
-  t->shown_.value();
-  if (t->shown_.running()) {
-    anim::request_frame(step, t);
-    t->redraw_all();
-  } else {
-    t->close();
-  }
-}
+void Toast::expire(void *data) { static_cast<Toast *>(data)->close(); }
 
 int Toast::handle(int event) {
   int ex = Fl::event_x(), ey = Fl::event_y();
   bool inside = ex >= cx_ && ex < cx_ + cw_ && ey >= cy_ && ey < cy_ + ch_;
   if (event == FL_PUSH && inside) {
-    expire(this);
+    close();
     return 1;
   }
   return 0;
@@ -322,7 +297,7 @@ int Toast::handle(int event) {
 
 void Toast::draw() {
   const Theme &t = theme();
-  double a = shown_.get(this);
+  double a = presence();
   int tw = int(text::width(text_, text::REGULAR, text::size::BODY)) + 40;
   cw_ = std::min(w() - 64, std::max(160, tw));
   ch_ = 40;
@@ -385,10 +360,9 @@ HelpOverlay *HelpOverlay::show(Window *win, std::vector<Row> rows, const std::st
   auto *o = new HelpOverlay();
   o->rows_ = std::move(rows);
   o->title_ = title;
-  o->shown_.jump(0);
   o->open(win);
   Fl::focus(o);
-  o->shown_.set(1, anim::ms::POPUP_IN, anim::Ease::EaseOut);
+  o->fade_in();
   return o;
 }
 
@@ -413,7 +387,7 @@ int HelpOverlay::handle(int event) {
 
 void HelpOverlay::draw() {
   const Theme &t = theme();
-  double a = shown_.get(this);
+  double a = presence();
   paint::fill(x(), y(), w(), h(), Rgb(0, 0, 0), kScrim * a);
   const int row_h = 27, col_gap = 28, pair_gap = 48;
   int n = int(rows_.size());
@@ -452,7 +426,7 @@ void HelpOverlay::draw() {
     text::draw(rows_[size_t(i)].second, rx + kw + col_gap, ry, dw, row_h, t.foreground());
   }
   fl_pop_clip();
-  paint::pop_opacity(a);
+  paint::pop_opacity(a, card_scale(a), cx + cw / 2.0, cy + ch / 2.0);
 }
 
 } // namespace fo

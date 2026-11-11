@@ -8,6 +8,7 @@
 #include "fltk-omarchy/anim.h"
 #include "fltk-omarchy/app.h"
 #include "fltk-omarchy/collection.h"
+#include "fltk-omarchy/dialog.h"
 #include "fltk-omarchy/menu.h"
 #include "fltk-omarchy/theme.h"
 #include "fltk-omarchy/widgets.h"
@@ -285,5 +286,94 @@ TEST(display_menu_submenu_aim_grace) {
   CHECK_EQ(m->highlighted(0), 1); // still on "Sort by", not "Rename"
   m->close();
   fo_test::settle();
+  win.hide();
+}
+
+namespace {
+int brightness(Rgb c) { return int(c.r) + int(c.g) + int(c.b); }
+bool is_child(Window &w, Fl_Widget *c) { return w.find(c) < w.children(); }
+} // namespace
+
+TEST(display_layers_fade_out_on_close) {
+  if (!fo_test::have_display())
+    return;
+  anim::set_enabled(1);
+  anim::freeze();
+  Window win(600, 400);
+  win.end();
+  fo_test::show(&win);
+  Rgb bg = fo_test::pixel(&win, 5, 5);
+  int answered = 0;
+  Dialog *d = Dialog::confirm(&win, "Delete?", "It goes for good.", "Delete", [&](bool) { ++answered; });
+  anim::advance(anim::ms::POPUP_IN + 20);
+  win.redraw();
+  fo_test::settle();
+  Rgb dim = fo_test::pixel(&win, 5, 5); // the scrim, fully shown
+  CHECK(brightness(dim) < brightness(bg) - 15);
+
+  Fl_Widget_Tracker alive(d);
+  d->cancel();
+  CHECK_EQ(answered, 1);
+  // Closed at once for the app: not modal, not on top, no events...
+  CHECK(!win.modal_open());
+  CHECK(win.top_layer() == nullptr);
+  CHECK(d->closing_out());
+  CHECK(!d->takesevents());
+  CHECK(!d->is_open());
+  // ... but still drawn while it fades out.
+  CHECK(is_child(win, d));
+  anim::advance(15);
+  win.redraw();
+  fo_test::settle();
+  CHECK(!alive.deleted() && is_child(win, d));
+  Rgb mid = fo_test::pixel(&win, 5, 5);
+  CHECK(brightness(mid) > brightness(dim));
+  CHECK(brightness(mid) < brightness(bg));
+  // Done: removed and deleted, the window shows through again.
+  anim::advance(anim::ms::POPUP_OUT);
+  fo_test::settle(0.2);
+  CHECK(alive.deleted());
+  CHECK(fo_test::near(fo_test::pixel(&win, 5, 5), bg, 2));
+
+  // Toasts and the help overlay fade out the same way.
+  Toast *t = Toast::show(&win, "Copied", 0);
+  Fl_Widget_Tracker toast(t);
+  anim::advance(anim::ms::POPUP_IN + 20);
+  fo_test::settle();
+  t->close();
+  CHECK(!toast.deleted() && t->closing_out());
+  anim::advance(anim::ms::POPUP_OUT + 20);
+  fo_test::settle(0.2);
+  CHECK(toast.deleted());
+  HelpOverlay *h = HelpOverlay::show(&win, {{"?", "Help"}});
+  Fl_Widget_Tracker help(h);
+  anim::advance(anim::ms::POPUP_IN + 20);
+  fo_test::settle();
+  send_key(h, FL_Escape);
+  CHECK(!help.deleted() && h->closing_out());
+  // Closing again while it fades is a no-op.
+  h->close();
+  anim::advance(anim::ms::POPUP_OUT + 20);
+  fo_test::settle(0.2);
+  CHECK(help.deleted());
+
+  // A dialog closed while still fading in fades out from where it was.
+  Dialog *q = Dialog::confirm(&win, "Again?", "", "Yes", nullptr);
+  Fl_Widget_Tracker quick(q);
+  anim::advance(10);
+  q->cancel();
+  CHECK(!quick.deleted());
+  anim::advance(anim::ms::POPUP_OUT / 2);
+  fo_test::settle(0.2);
+  CHECK(quick.deleted());
+
+  // With animations off they go at once.
+  anim::set_enabled(0);
+  Dialog *e = Dialog::confirm(&win, "Now?", "", "Yes", nullptr);
+  e->cancel();
+  CHECK(!is_child(win, e));
+  fo_test::settle();
+  anim::resume();
+  anim::set_enabled(-1);
   win.hide();
 }

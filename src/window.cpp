@@ -76,7 +76,52 @@ Layer::Layer() : Fl_Group(0, 0, 10, 10) {
   box(FL_NO_BOX);
 }
 
-Layer::~Layer() { delete restore_; }
+Layer::~Layer() {
+  Fl::remove_timeout(fade_step, this);
+  if (fade_host_) {
+    auto &f = fade_host_->fading_;
+    f.erase(std::remove(f.begin(), f.end(), this), f.end());
+  }
+  delete restore_;
+}
+
+void Layer::fade_in(int in_ms, anim::Ease in, int out_ms, anim::Ease out) {
+  fades_ = true;
+  fade_out_ms_ = out_ms;
+  fade_out_ease_ = out;
+  presence_.jump(0);
+  presence_.set(1, in_ms, in);
+  redraw_all();
+}
+
+double Layer::presence() {
+  if (!fades_)
+    return 1;
+  return presence_.get(this);
+}
+
+void Layer::fade_step(void *data) {
+  auto *l = static_cast<Layer *>(data);
+  l->presence_.value();
+  if (l->presence_.running() && anim::enabled() && l->fade_host_) {
+    l->fade_host_->redraw();
+    Fl::repeat_timeout(1.0 / std::max(10.0, anim::refresh_hz()), fade_step, data);
+    return;
+  }
+  l->finish_close();
+}
+
+void Layer::finish_close() {
+  Fl::remove_timeout(fade_step, this);
+  if (Window *win = fade_host_) {
+    auto &f = win->fading_;
+    f.erase(std::remove(f.begin(), f.end(), this), f.end());
+    fade_host_ = nullptr;
+    win->remove(this);
+    win->redraw();
+  }
+  Fl::delete_widget(this);
+}
 
 void Layer::open(Window *win) {
   if (!win || host_)
@@ -99,16 +144,33 @@ void Layer::close() {
   closing();
   Window *win = host_;
   bool had_focus = Fl::focus() && (Fl::focus() == this || Fl::focus()->inside(this));
-  win->drop_layer(this);
+  // From where it is (a layer closed while still fading in).
+  double shown = fades_ ? presence_.value() : 0;
+  int ms = int(fade_out_ms_ * shown + 0.5);
+  bool fade = fades_ && ms > 0 && anim::enabled() && win->shown() && visible();
+  win->drop_layer(this, !fade);
   host_ = nullptr;
   if (modal() && had_focus) {
     if (restore_ && !restore_->deleted() && restore_->widget()->visible_r())
       restore_->widget()->take_focus();
     else
       win->take_focus();
+    if (Fl::focus() == this || (Fl::focus() && Fl::focus()->inside(this)))
+      Fl::focus(win);
   }
   win->redraw();
-  Fl::delete_widget(this);
+  if (!fade) {
+    Fl::delete_widget(this);
+    return;
+  }
+  // Still drawn above the content, but no longer taking events (output
+  // widgets get none, and nothing is drawn greyed out).
+  set_output();
+  fade_host_ = win;
+  win->fading_.push_back(this);
+  presence_.jump(shown);
+  presence_.set(0, ms, fade_out_ease_);
+  Fl::add_timeout(1.0 / std::max(10.0, anim::refresh_hz()), fade_step, this);
 }
 
 void Layer::redraw_all() {
@@ -132,6 +194,9 @@ Window::Window(int x, int y, int w, int h, const char *title) : Fl_Double_Window
 Window::~Window() {
   // Layers are children: Fl_Group's destructor deletes them.
   layers_.clear();
+  for (Layer *l : fading_)
+    l->fade_host_ = nullptr;
+  fading_.clear();
   delete last_focus_;
 }
 
@@ -221,9 +286,10 @@ void Window::add_layer(Layer *l) {
   add(l); // last child: drawn last, gets events first
 }
 
-void Window::drop_layer(Layer *l) {
+void Window::drop_layer(Layer *l, bool remove_child) {
   layers_.erase(std::remove(layers_.begin(), layers_.end(), l), layers_.end());
-  remove(l);
+  if (remove_child)
+    remove(l);
 }
 
 int Window::handle(int event) {
@@ -280,7 +346,7 @@ int Window::handle(int event) {
 void Window::draw() {
   note_focus(); // focus moved from outside an event (right after show())
   color(theme().background().fl());
-  if (!layers_.empty() && damage())
+  if ((!layers_.empty() || !fading_.empty()) && damage())
     clear_damage(FL_DAMAGE_ALL); // translucent layers need what is below them redrawn
   Fl_Double_Window::draw();
 }
@@ -291,6 +357,8 @@ void Window::resize(int x, int y, int w, int h) {
     l->resize(0, 0, w, h);
     l->relayout();
   }
+  for (Layer *l : fading_)
+    l->resize(0, 0, w, h);
 }
 
 } // namespace fo

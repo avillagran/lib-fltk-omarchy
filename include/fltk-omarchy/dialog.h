@@ -3,6 +3,9 @@
 //
 // A dialog dims the window (a scrim that fades in over 180 ms) and shows a
 // card with a title, a message, an optional text field and two buttons.
+// The card grows from 97 % as it fades in and shrinks back as it fades out
+// (120 ms) on close, as Omarchy's PopupCard does; toasts and the help
+// overlay fade out too.
 // Enter confirms, Esc or a click on the scrim cancels. While it is open
 // it keeps the keyboard: window shortcuts wait until it is answered.
 //
@@ -115,7 +118,6 @@ private:
   std::function<void(const DialogAnswer &)> done_;
   std::function<bool(const std::string &)> validate_;
   int cx_ = 0, cy_ = 0, cw_ = 0, ch_ = 0;
-  Anim<double> shown_;
 };
 
 /// A short notice at the bottom of the window that goes away by itself
@@ -132,11 +134,8 @@ public:
 private:
   Toast() = default;
   static void expire(void *);
-  static void step(void *);
   std::string text_;
   Kind kind_ = Info;
-  Anim<double> shown_;
-  bool leaving_ = false;
   int cx_ = 0, cy_ = 0, cw_ = 0, ch_ = 0;
 };
 
@@ -170,7 +169,6 @@ private:
   HelpOverlay() = default;
   std::vector<Row> rows_;
   std::string title_;
-  Anim<double> shown_;
 };
 
 } // namespace fo
