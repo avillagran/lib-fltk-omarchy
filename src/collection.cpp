@@ -555,7 +555,7 @@ void Collection::draw() {
     draw_item(i, x() + cx, y() + cy - off, cw, ch, s);
   }
   // The focus ring slides from item to item.
-  if (focused && focus_visible() && current_ >= 0 && current_ < n) {
+  if (focused && focus_visible() && current_ >= 0 && current_ < n && (ring_on_selected_ || !sel_[size_t(current_)])) {
     int cx, cy, cw, ch;
     cell(current_, cx, cy, cw, ch);
     RectF target{double(cx), double(cy), double(cw), double(ch)};

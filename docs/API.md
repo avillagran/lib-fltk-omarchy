@@ -197,7 +197,7 @@ Windows later.
   `accepts_drop` / `on_drop`.
 - **Collection** — subclass with `count()`, `draw_item(i, x, y, w, h,
   state)`, `item_text(i)`; `layout(List|Grid)`, `row_height`,
-  `tile_size`, `padding`, `reload(reset)`; `set_current`, `select`,
+  `tile_size`, `padding`, `focus_ring_on_selected`, `reload(reset)`; `set_current`, `select`,
   `select_all`, `clear_selection`, `selection()`, `ensure_visible`,
   `scroll_to`, `item_rect`, `item_at`; callbacks `on_activate`,
   `on_selection_change`, `on_context`, `on_drag_start`, `on_key`,

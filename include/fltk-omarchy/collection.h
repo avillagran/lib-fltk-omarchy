@@ -67,6 +67,10 @@ public:
   void tile_size(int w, int h);
   /// Inner padding around the items (default 12 for lists, 24 for grids).
   void padding(int px);
+  /// Whether the keyboard focus ring is drawn on a selected cursor item
+  /// (default on). Off when the item draws its own selection clearly, as
+  /// Folio's tiles do; the ring then shows only on an unselected cursor.
+  void focus_ring_on_selected(bool on) { ring_on_selected_ = on; redraw(); }
   /// Columns in the current layout (1 for lists).
   int columns() const;
   /// The item's rectangle in widget coordinates (scrolled), or false.
@@ -137,6 +141,7 @@ private:
   bool key(int k);
   Layout layout_ = Layout::List;
   int row_h_ = 32, tile_w_ = 172, tile_h_ = 196, pad_ = -1;
+  bool ring_on_selected_ = true;
   std::vector<char> sel_;
   int current_ = -1, anchor_ = -1, hover_ = -1, prev_hover_ = -1, drop_index_ = -2;
   Scroller scroller_;
