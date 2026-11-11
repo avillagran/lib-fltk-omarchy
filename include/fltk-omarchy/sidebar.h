@@ -5,7 +5,8 @@
 //
 // Keyboard: Up/Down/Home/End move the cursor (an accent outline), Enter or
 // Right activates, Esc calls on_finished (hand the keyboard back to the
-// files), Tab leaves as usual. Long lists scroll smoothly.
+// files), Tab leaves as usual. Clicking a row activates it and calls
+// on_finished too. Long lists scroll smoothly.
 //
 // Drops: set accepts_drop / on_drop; while something is dragged over a
 // row it is outlined, and FL_PASTE text (a text/uri-list) is delivered.

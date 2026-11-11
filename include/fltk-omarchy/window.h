@@ -87,6 +87,13 @@ public:
   /// The fo::Window that contains `w` (nullptr if it is in another kind).
   static Window *of(Fl_Widget *w);
 
+  /// The widget that gets the keyboard back when the window does (after
+  /// the window lost the focus, or at the first key when the window system
+  /// never gave it). Set from the focus seen on every event and draw; set
+  /// it yourself after moving the focus from outside an event.
+  void remember_focus(Fl_Widget *w);
+  Fl_Widget *remembered_focus() const { return last_focus_ ? last_focus_->widget() : nullptr; }
+
   int handle(int event) override;
   void draw() override;
   void resize(int x, int y, int w, int h) override;
@@ -102,6 +109,9 @@ private:
   void drop_layer(Layer *l);
   std::vector<Shortcut> shortcuts_;
   std::vector<Layer *> layers_;
+  Fl_Widget_Tracker *last_focus_ = nullptr;
+  void note_focus();
+  bool restore_focus();
 };
 
 } // namespace fo

@@ -197,8 +197,13 @@ int Sidebar::handle(int event) {
     if (on_eject_button(s.row, ex)) {
       if (eject_)
         eject_(rows_[size_t(s.row)]);
-    } else if (activate_) {
-      activate_(rows_[size_t(s.row)]);
+    } else {
+      // Like Enter: open the row and hand the keyboard back to the files,
+      // so the next arrow moves there and not here.
+      if (activate_)
+        activate_(rows_[size_t(s.row)]);
+      if (finished_)
+        finished_();
     }
     redraw();
     return 1;

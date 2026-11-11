@@ -140,6 +140,30 @@ TEST(sidebar_keyboard_and_active) {
   CHECK_EQ(s.rows()[2].section, pinned);
 }
 
+TEST(sidebar_click_hands_the_keyboard_back) {
+  Sidebar s(0, 0, 240, 400);
+  s.add_section("Home", "/home/me");
+  s.add_row({"Documents", "file-text", "/home/me/Documents"});
+  s.add_row({"Pictures", "image", "/home/me/Pictures"});
+  std::string opened;
+  int finished = 0;
+  s.on_activate([&](const SidebarRow &r) { opened = r.id; });
+  s.on_finished([&] { ++finished; });
+  // Find a point on the second row: scan down until it opens.
+  for (int y = 0; y < 400 && opened.empty(); y += 4) {
+    Fl::e_x = 40;
+    Fl::e_y = y;
+    Fl::e_keysym = FL_Button + FL_LEFT_MOUSE;
+    Fl::e_state = FL_BUTTON1;
+    s.handle(FL_PUSH);
+    if (!opened.empty() && opened != "/home/me/Pictures")
+      opened.clear(), finished = 0;
+  }
+  Fl::e_state = 0;
+  CHECK_STR(opened, "/home/me/Pictures");
+  CHECK_EQ(finished, 1);
+}
+
 TEST(dialog_ask_returns_fields_button_and_check) {
   Window win(800, 600);
   win.end();
@@ -207,6 +231,26 @@ TEST(window_run_shortcut_matches_the_current_key) {
   Fl::e_text = const_cast<char *>("w");
   CHECK(!win.run_shortcut());
   CHECK_EQ(quit, 1);
+}
+
+TEST(window_remembers_the_focus_to_give_back) {
+  // Giving the focus back needs a display (FLTK asks the window system
+  // for the window's focus); the bookkeeping does not.
+  Window win(400, 300);
+  CheckBox first(0, 0, 200, 24, "First");
+  auto *second = new CheckBox(0, 40, 200, 24, "Second");
+  win.end();
+  CheckBox outside(0, 0, 200, 24, "Outside");
+  CHECK(win.remembered_focus() == nullptr);
+  win.remember_focus(second);
+  CHECK(win.remembered_focus() == second);
+  win.remember_focus(&outside); // not in this window: ignored
+  win.remember_focus(&win);
+  CHECK(win.remembered_focus() == second);
+  delete second; // a deleted widget is forgotten
+  CHECK(win.remembered_focus() == nullptr);
+  win.remember_focus(&first);
+  CHECK(win.remembered_focus() == &first);
 }
 
 TEST(checkbox_toggles_from_the_keyboard) {

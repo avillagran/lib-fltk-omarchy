@@ -132,6 +132,41 @@ Window::Window(int x, int y, int w, int h, const char *title) : Fl_Double_Window
 Window::~Window() {
   // Layers are children: Fl_Group's destructor deletes them.
   layers_.clear();
+  delete last_focus_;
+}
+
+void Window::remember_focus(Fl_Widget *w) {
+  if (w == this || (w && !contains(w)))
+    return;
+  if (last_focus_ && last_focus_->widget() == w)
+    return;
+  delete last_focus_;
+  last_focus_ = w ? new Fl_Widget_Tracker(w) : nullptr;
+}
+
+void Window::note_focus() {
+  Fl_Widget *f = Fl::focus();
+  if (f && f != this && contains(f) && !top_layer())
+    remember_focus(f);
+}
+
+// FLTK forgets the focused widget when the window loses the window
+// system's focus, and gives the window's first child the keyboard when it
+// comes back during a key (a Group skips its saved focus for arrow and Tab
+// keys). For a window whose first child is a sidebar that sends arrows to
+// the wrong place, so the last focused widget comes back instead.
+bool Window::restore_focus() {
+  Fl_Widget *w = remembered_focus();
+  if (!w || !contains(w) || !w->visible_focus() || !w->active_r())
+    return false;
+  for (Fl_Widget *p = w; p && p != this; p = p->parent())
+    if (!p->visible())
+      return false;
+  if (!w->handle(FL_FOCUS))
+    return false;
+  if (!w->contains(Fl::focus()))
+    Fl::focus(w);
+  return true;
 }
 
 void Window::shortcut(const std::string &spec, std::function<void()> fn) {
@@ -210,6 +245,15 @@ int Window::handle(int event) {
     top->close();
     top = nullptr;
   }
+  if ((event == FL_KEYBOARD || event == FL_SHORTCUT) && !top && !contains(Fl::focus()) &&
+      Fl::event_key() != FL_Tab && restore_focus()) {
+    // A key reached the window while nothing in it had the keyboard (the
+    // window system never gave the window the focus, or took it away):
+    // it goes to the widget that had it last, as a keystroke.
+    for (Fl_Widget *w = Fl::focus(); w && w != this; w = w->parent())
+      if (w->handle(FL_KEYBOARD))
+        return 1;
+  }
   if (event == FL_SHORTCUT && !top) {
     for (auto &s : shortcuts_)
       if (event_is(s.key)) {
@@ -220,10 +264,21 @@ int Window::handle(int event) {
   }
   if (event == FL_FOCUS && top)
     return top->handle(event);
-  return Fl_Double_Window::handle(event);
+  if (event == FL_FOCUS && !contains(Fl::focus())) {
+    // Tab (with or without Shift) keeps FLTK's order; anything else
+    // (the window coming back, a stray arrow) restores the last widget.
+    bool tabbing = Fl::event_key() == FL_Tab && !Fl::event_state(FL_CTRL | FL_ALT | FL_META);
+    if (!tabbing && restore_focus())
+      return 1;
+  }
+  note_focus();
+  int r = Fl_Double_Window::handle(event);
+  note_focus();
+  return r;
 }
 
 void Window::draw() {
+  note_focus(); // focus moved from outside an event (right after show())
   color(theme().background().fl());
   if (!layers_.empty() && damage())
     clear_damage(FL_DAMAGE_ALL); // translucent layers need what is below them redrawn
