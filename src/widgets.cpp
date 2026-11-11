@@ -410,7 +410,8 @@ int Breadcrumbs::handle(int event) {
     return 1;
   case FL_KEYBOARD: {
     int k = Fl::event_key();
-    if (hits_.empty())
+    // Alt+Left and the like belong to the window (back, forward).
+    if (hits_.empty() || Fl::event_state(FL_CTRL | FL_ALT | FL_META))
       return 0;
     size_t at = hits_.size() - 1;
     for (size_t i = 0; i < hits_.size(); ++i)

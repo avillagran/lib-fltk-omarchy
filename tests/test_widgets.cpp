@@ -264,6 +264,22 @@ TEST(checkbox_toggles_from_the_keyboard) {
   CHECK(seen);
 }
 
+TEST(collection_empty_keeps_the_arrows) {
+  Names c(400, 200);
+  c.names.clear();
+  c.reload(true);
+  Fl::e_keysym = FL_Down;
+  Fl::e_state = 0;
+  Fl::e_text = const_cast<char *>("");
+  Fl::e_length = 0;
+  CHECK_EQ(c.handle(FL_KEYBOARD), 1); // FLTK would move the focus otherwise
+  CHECK_EQ(c.current(), -1);
+  Fl::e_keysym = FL_Left;
+  CHECK_EQ(c.handle(FL_KEYBOARD), 0); // the list layout leaves Left to the app
+  Fl::e_keysym = FL_Enter;
+  CHECK_EQ(c.handle(FL_KEYBOARD), 0);
+}
+
 TEST(collection_no_cursor) {
   Names c(400, 200);
   c.reload(true);

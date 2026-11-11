@@ -316,8 +316,22 @@ bool Collection::key(int k) {
   }
   if (state & (FL_CTRL | FL_ALT | FL_META))
     return false;
-  if (n == 0)
+  if (n == 0) {
+    // Nothing to move to, but the arrows are still ours: passing them on
+    // would let FLTK move the focus to a neighbouring widget.
+    switch (k) {
+    case FL_Left:
+    case FL_Right:
+      return layout_ != Layout::List;
+    case FL_Up:
+    case FL_Down:
+    case FL_Home:
+    case FL_End:
+    case FL_Page_Up:
+    case FL_Page_Down: return true;
+    }
     return false;
+  }
   switch (k) {
   case FL_Up: move_cursor(cur < 0 ? 0 : cur - cols, shift); return true;
   case FL_Down: move_cursor(cur < 0 ? 0 : cur + cols, shift); return true;
