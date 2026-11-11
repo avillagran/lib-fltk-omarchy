@@ -11,10 +11,10 @@ import sys
 
 ICONS = """
 app-window archive arrow-down arrow-down-a-z arrow-down-wide-narrow arrow-left
-arrow-right arrow-up arrow-up-a-z arrow-up-down book-open calendar camera check
+arrow-right arrow-up arrow-up-a-z arrow-up-down book-open bookmark calendar camera check
 chevron-down chevron-left chevron-right chevron-up circle circle-alert
 circle-check clipboard clipboard-paste clock cloud columns-2 columns-3 copy
-download ellipsis ellipsis-vertical external-link eye eye-off file file-archive
+database download ellipsis ellipsis-vertical external-link eye eye-off file file-archive
 file-audio file-code file-image file-json file-music file-plus file-spreadsheet
 file-text file-type file-video folder folder-input folder-open folder-output
 folder-plus globe grip-vertical hard-drive hash history house image info
