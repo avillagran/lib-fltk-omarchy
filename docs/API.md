@@ -66,8 +66,14 @@ built-in dark palette with Omarchy's yellow accent is used.
   `set(target, ms, ease)`, `jump(v)`, `value()`, `get(widget)` (schedules
   the next frame while moving), `running()`.
 - `fo::Scroller` — wheel glide math (`wheel`, `scroll_to`, `jump`,
-  `position`, `passes`); `fo::ScrollBar` — the thin overlay bar;
-  `fo::ScrollArea` — a vertical scrolling container for one child.
+  `position`, `passes`); `fo::ScrollBar` — the thin overlay bar, vertical
+  or `ScrollBar::Horizontal`;
+  `fo::ScrollArea` — a scrolling container for one child, `axes(Vertical`
+  (default) `| Horizontal | Both)`: `scroll_to` / `scroll_to_x`,
+  `ensure_visible` / `ensure_visible_x`, `offset` / `offset_x`,
+  `max_offset` / `max_offset_x`. Shift+wheel and horizontal wheel steps
+  scroll sideways; a nested scroller under the pointer gets the wheel
+  first.
 
 See [ANIMATION.md](ANIMATION.md).
 
@@ -176,7 +182,7 @@ Windows later.
 | `Dialog` (confirm / prompt) | `dialog.h` | [dialog](components/dialog.png), [prompt](components/prompt.png) |
 | `Toast` | `dialog.h` | [toast](components/toast.png) |
 | `HelpOverlay` | `dialog.h` | [help](components/help.png) |
-| `ScrollArea`, `ScrollBar` | `scroll.h` | (any scrolled view) |
+| `ScrollArea`, `ScrollBar` (both axes) | `scroll.h` | (any scrolled view) |
 
 - **Button** — `primary(bool)`, `on_click(fn)`, `preferred_width()`.
 - **IconButton** — `icon(name)`, `tooltip_text(t)` (shown after 600 ms),
