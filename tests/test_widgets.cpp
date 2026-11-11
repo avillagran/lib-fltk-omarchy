@@ -5,7 +5,10 @@
 #include <cstring>
 
 #include "fltk-omarchy/collection.h"
+#include "fltk-omarchy/dialog.h"
 #include "fltk-omarchy/sidebar.h"
+#include "fltk-omarchy/widgets.h"
+#include "fltk-omarchy/window.h"
 
 #include <FL/Fl.H>
 
@@ -135,4 +138,84 @@ TEST(sidebar_keyboard_and_active) {
   key(&s, FL_Home);
   CHECK_EQ(s.cursor(), 0);
   CHECK_EQ(s.rows()[2].section, pinned);
+}
+
+TEST(dialog_ask_returns_fields_button_and_check) {
+  Window win(800, 600);
+  win.end();
+  DialogSpec spec;
+  spec.title = "Sign in";
+  spec.fields = {{"User", "me"}, {"Password", "", true}};
+  spec.check = "Remember";
+  spec.buttons = {"Cancel", "Skip", "Connect"};
+  DialogAnswer got;
+  int calls = 0;
+  Dialog *d = Dialog::ask(&win, spec, [&](const DialogAnswer &a) {
+    got = a;
+    ++calls;
+  });
+  CHECK(d != nullptr);
+  CHECK(win.modal_open());
+  // The fields are the dialog's first children, in order.
+  auto *pw = dynamic_cast<TextField *>(d->child(1));
+  CHECK(pw != nullptr);
+  pw->value("secret");
+  auto *check = dynamic_cast<CheckBox *>(d->child(2));
+  CHECK(check != nullptr);
+  check->checked(true);
+  d->choose(1);
+  CHECK_EQ(calls, 1);
+  CHECK_EQ(got.button, 1);
+  CHECK_EQ(got.values.size(), size_t(2));
+  CHECK_STR(got.values[0], "me");
+  CHECK_STR(got.values[1], "secret");
+  CHECK(got.checked);
+  CHECK(!win.modal_open());
+}
+
+TEST(dialog_ask_escape_cancels_and_primary_validates) {
+  Window win(800, 600);
+  win.end();
+  DialogAnswer got;
+  got.button = 99;
+  Dialog *d = Dialog::ask(&win, DialogSpec(), [&](const DialogAnswer &a) { got = a; });
+  key(d, FL_Escape);
+  CHECK_EQ(got.button, -1);
+
+  bool answered = false;
+  Dialog *p = Dialog::prompt(&win, "Rename", "", "a.txt", "Rename", [&](bool, const std::string &) { answered = true; });
+  p->on_validate([](const std::string &s) { return s != "a.txt"; });
+  p->accept(); // refused: the dialog stays
+  CHECK(!answered);
+  CHECK(win.modal_open());
+  p->cancel();
+  CHECK(answered);
+}
+
+TEST(window_run_shortcut_matches_the_current_key) {
+  Window win(400, 300);
+  win.end();
+  int quit = 0;
+  win.shortcut("q", [&] { ++quit; });
+  Fl::e_keysym = 'q';
+  Fl::e_state = 0;
+  Fl::e_text = const_cast<char *>("q");
+  Fl::e_length = 1;
+  CHECK(win.run_shortcut());
+  CHECK_EQ(quit, 1);
+  Fl::e_keysym = 'w';
+  Fl::e_text = const_cast<char *>("w");
+  CHECK(!win.run_shortcut());
+  CHECK_EQ(quit, 1);
+}
+
+TEST(checkbox_toggles_from_the_keyboard) {
+  CheckBox c(0, 0, 200, 24, "Apply to all");
+  bool seen = false;
+  c.on_change([&](bool on) { seen = on; });
+  CHECK(!c.checked());
+  Fl::focus(&c);
+  key(&c, FL_Enter);
+  CHECK(c.checked());
+  CHECK(seen);
 }

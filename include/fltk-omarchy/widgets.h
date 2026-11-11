@@ -67,6 +67,27 @@ private:
   Anim<Rgb> fill_;
 };
 
+/// A check box with a label (Folio's dialogs: "Apply to all"): a small
+/// square that fills with the accent when checked. Click, Space or Enter
+/// toggles it.
+class CheckBox : public Fl_Button {
+public:
+  CheckBox(int x, int y, int w, int h, const char *label = nullptr);
+  bool checked() const { return value() != 0; }
+  void checked(bool on) { value(on ? 1 : 0); redraw(); }
+  /// Called after every toggle.
+  void on_change(std::function<void(bool)> fn) { change_ = std::move(fn); }
+  /// Width that fits the box and the label.
+  int preferred_width() const;
+  void draw() override;
+  int handle(int event) override;
+
+private:
+  static void cb(Fl_Widget *, void *);
+  std::function<void(bool)> change_;
+  bool hovered_ = false;
+};
+
 /// A single-line text field (Folio's PlainField): a dark box with an
 /// accent edge while typing and a placeholder that stays inside it.
 ///
@@ -87,6 +108,8 @@ public:
   void on_key(std::function<bool(int key)> fn) { key_ = std::move(fn); }
   /// Sets the text and selects [from, to) (to = -1: the end).
   void set_text(const std::string &text, int from = 0, int to = -1);
+  /// Hides what is typed (passwords): dots instead of characters.
+  void secret(bool on);
   void draw() override;
   int handle(int event) override;
 

@@ -72,6 +72,11 @@ public:
   /// focused used it. See keys.h for the spec syntax.
   void shortcut(const std::string &spec, std::function<void()> fn);
   void remove_shortcut(const std::string &spec);
+  /// Runs the shortcut matching the current key event, as if nothing had
+  /// used the key. For widgets that would otherwise take a plain key
+  /// (type-ahead) but want window keys such as "q" or "?" to win. Returns
+  /// false when none matches or a modal layer is open.
+  bool run_shortcut();
   /// The registered shortcuts, for a help overlay.
   std::vector<std::string> shortcut_specs() const;
 

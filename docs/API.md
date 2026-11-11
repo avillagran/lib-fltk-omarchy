@@ -22,7 +22,9 @@ win->shortcut("Ctrl+L", [] { /* ... */ });   // window-wide keys
   are drawn only then.
 - `fo::Window` — double-buffered window in the theme background that hosts
   **layers** (menus, dialogs, toasts, tooltips, help) above its content.
-  `shortcut(spec, fn)`, `remove_shortcut`, `shortcut_specs`,
+  `shortcut(spec, fn)`, `remove_shortcut`, `run_shortcut()` (runs the
+  shortcut for the current key from a widget that would otherwise take
+  it, e.g. type-ahead), `shortcut_specs`,
   `top_layer()`, `modal_open()`, `Window::of(widget)`.
 - `fo::Layer` — base for anything drawn above the content: `open(win)`,
   `close()`, `modal()`, `passes_keys()`, `relayout()`. Modal layers take
@@ -163,6 +165,7 @@ Windows later.
 | Widget | Header | Screenshot |
 |---|---|---|
 | `Button` (primary / plain) | `widgets.h` | [dialog](components/dialog.png) |
+| `CheckBox` | `widgets.h` | (in `Dialog::ask`) |
 | `IconButton` + tooltip | `widgets.h`, `dialog.h` | [tooltip](components/tooltip.png) |
 | `TextField` | `widgets.h` | [prompt](components/prompt.png) |
 | `Breadcrumbs` | `widgets.h` | [grid](components/grid.png) |
@@ -179,7 +182,10 @@ Windows later.
 - **IconButton** — `icon(name)`, `tooltip_text(t)` (shown after 600 ms),
   `active_state(bool)` (toggled tint), `focusable(bool)`, `on_click(fn)`.
 - **TextField** — `placeholder`, `on_enter`, `on_escape`, `on_change`,
-  `on_complete` (Tab), `on_key` (first look), `set_text(text, from, to)`.
+  `on_complete` (Tab), `on_key` (first look), `set_text(text, from, to)`,
+  `secret(bool)` (passwords).
+- **CheckBox** — `checked()`, `checked(bool)`, `on_change(fn)`,
+  `preferred_width()`; click, Space or Enter toggles.
 - **Breadcrumbs** — `segments({{label, path}...})`, `on_navigate(index)`;
   folds leading segments into "…" (a menu) when narrow; Left/Right/Enter.
 - **SplitPane** — two children, draggable hairline divider, `set_split(px,
@@ -204,7 +210,12 @@ Windows later.
   `MenuItem::separator()`.
 - **Dialog** — `confirm(win, title, message, action, done(bool), danger)`,
   `prompt(win, title, message, initial, action, done(ok, text), from,
-  to)`, `on_validate`, `set_error`, `accept()`, `cancel()`.
+  to)`, and the general form `ask(win, DialogSpec, done(DialogAnswer))`:
+  any number of fields (`DialogField{placeholder, initial, secret}`),
+  buttons (the last is primary), an optional check box ("Apply to all")
+  and `scrim_cancels`; the answer carries the button index (-1 for
+  cancelled), the values and the check. `on_validate`, `set_error`,
+  `accept()`, `choose(i)`, `cancel()`.
 - **Toast** — `Toast::show(win, text, seconds, Info|Error)`.
 - **Tooltip** — `Tooltip::open_for(widget, text)`, `Tooltip::close_all()`.
 - **HelpOverlay** — `HelpOverlay::show(win, {{keys, description}...},

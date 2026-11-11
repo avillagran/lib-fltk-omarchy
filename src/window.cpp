@@ -152,6 +152,18 @@ std::vector<std::string> Window::shortcut_specs() const {
   return v;
 }
 
+bool Window::run_shortcut() {
+  if (modal_open())
+    return false;
+  for (auto &s : shortcuts_)
+    if (event_is(s.key)) {
+      auto fn = s.fn;
+      fn();
+      return true;
+    }
+  return false;
+}
+
 bool Window::modal_open() const {
   for (Layer *l : layers_)
     if (l->modal())

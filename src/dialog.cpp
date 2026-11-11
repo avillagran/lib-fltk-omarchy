@@ -28,54 +28,94 @@ void draw_card(int x, int y, int w, int h, Rgb edge) {
 
 Dialog *Dialog::confirm(Window *win, const std::string &title, const std::string &message,
                         const std::string &action, std::function<void(bool)> done, bool danger) {
-  auto *d = new Dialog();
-  d->title_ = title;
-  d->message_ = message;
-  d->danger_ = danger;
-  d->done_ = [done](bool ok, const std::string &) {
+  DialogSpec s;
+  s.title = title;
+  s.message = message;
+  s.danger = danger;
+  s.buttons = {tr("Cancel"), action};
+  s.focus_field = -1;
+  return ask(win, std::move(s), [done](const DialogAnswer &a) {
     if (done)
-      done(ok);
-  };
-  d->build(win, false);
-  d->ok_->copy_label(action.c_str());
-  d->ok_->take_focus();
-  return d;
+      done(a.button == 1);
+  });
 }
 
 Dialog *Dialog::prompt(Window *win, const std::string &title, const std::string &message, const std::string &initial,
                        const std::string &action, std::function<void(bool, const std::string &)> done,
                        int select_from, int select_to) {
+  DialogSpec s;
+  s.title = title;
+  s.message = message;
+  DialogField f;
+  f.initial = initial;
+  f.select_from = select_from;
+  f.select_to = select_to;
+  s.fields.push_back(f);
+  s.buttons = {tr("Cancel"), action};
+  return ask(win, std::move(s), [done](const DialogAnswer &a) {
+    if (done)
+      done(a.button == 1, a.values.empty() ? std::string() : a.values[0]);
+  });
+}
+
+Dialog *Dialog::ask(Window *win, DialogSpec spec, std::function<void(const DialogAnswer &)> done) {
+  if (!win)
+    return nullptr;
   auto *d = new Dialog();
-  d->title_ = title;
-  d->message_ = message;
+  if (spec.buttons.empty())
+    spec.buttons = {tr("Cancel"), tr("OK")};
+  d->spec_ = std::move(spec);
   d->done_ = std::move(done);
-  d->build(win, true);
-  d->ok_->copy_label(action.c_str());
-  d->field_->set_text(initial, select_from, select_to);
-  d->field_->take_focus();
+  d->build(win);
+  int ff = d->spec_.focus_field;
+  if (!win->shown())
+    return d; // tests: no display, no keyboard focus
+  if (ff >= 0 && ff < int(d->fields_.size()))
+    d->fields_[size_t(ff)]->take_focus();
+  else
+    d->buttons_.back()->take_focus();
   return d;
 }
 
-void Dialog::build(Window *win, bool with_field) {
+void Dialog::build(Window *win) {
   begin();
-  if (with_field) {
-    field_ = new TextField(0, 0, 100, kFieldH);
-    field_->on_enter([this] { accept(); });
-    field_->on_escape([this] { cancel(); });
-    field_->on_change([this] {
+  for (const auto &f : spec_.fields) {
+    auto *field = new TextField(0, 0, 100, kFieldH);
+    field->placeholder(f.placeholder);
+    field->secret(f.secret);
+    field->set_text(f.initial, f.select_from, f.select_to);
+    field->on_escape([this] { cancel(); });
+    field->on_enter([this, field] {
+      // Enter in a field moves to the next one, the last one answers.
+      for (size_t i = 0; i + 1 < fields_.size(); ++i)
+        if (fields_[i] == field) {
+          fields_[i + 1]->take_focus();
+          return;
+        }
+      accept();
+    });
+    field->on_change([this] {
       if (!error_.empty()) {
         error_.clear();
         relayout();
         redraw_all();
       }
     });
+    fields_.push_back(field);
   }
-  cancel_ = new Button(0, 0, 88, kButtonH, nullptr);
-  cancel_->copy_label(tr("Cancel"));
-  cancel_->on_click([this] { cancel(); });
-  ok_ = new Button(0, 0, 88, kButtonH, nullptr);
-  ok_->primary(true);
-  ok_->on_click([this] { accept(); });
+  if (!spec_.check.empty()) {
+    check_ = new CheckBox(0, 0, 100, 24, nullptr);
+    check_->copy_label(spec_.check.c_str());
+    check_->checked(spec_.checked);
+  }
+  for (size_t i = 0; i < spec_.buttons.size(); ++i) {
+    auto *b = new Button(0, 0, 88, kButtonH, nullptr);
+    b->copy_label(spec_.buttons[i].c_str());
+    b->primary(i + 1 == spec_.buttons.size());
+    int index = int(i);
+    b->on_click([this, index] { choose(index); });
+    buttons_.push_back(b);
+  }
   end();
   shown_.jump(0);
   open(win);
@@ -83,34 +123,46 @@ void Dialog::build(Window *win, bool with_field) {
 }
 
 void Dialog::relayout() {
-  if (!host())
+  // Measuring text needs the display: a window not shown yet lays the card
+  // out when it first draws.
+  if (!host() || !host()->shown()) {
+    cw_ = 0;
     return;
-  cw_ = std::min(w() - 64, field_ ? 520 : 480);
+  }
+  cw_ = std::min(w() - 64, fields_.empty() && buttons_.size() <= 2 ? 480 : 520);
   int inner = cw_ - 2 * kPad;
-  lines_ = message_.empty() ? std::vector<std::string>()
-                            : text::wrap(message_, inner, text::fltk_measure(text::REGULAR, text::size::BODY), 8);
+  lines_ = spec_.message.empty()
+               ? std::vector<std::string>()
+               : text::wrap(spec_.message, inner, text::fltk_measure(text::REGULAR, text::size::BODY), 8);
   ch_ = 2 * kPad + kTitleH;
   if (!lines_.empty())
     ch_ += kGap + int(lines_.size()) * kLineH;
-  if (field_)
-    ch_ += kGap + kFieldH;
+  ch_ += int(fields_.size()) * (kGap + kFieldH);
   if (!error_.empty())
     ch_ += 6 + kLineH;
+  if (check_)
+    ch_ += kGap + 24;
   ch_ += kGap + 4 + kButtonH;
   cx_ = (w() - cw_) / 2;
   cy_ = std::max(16, (h() - ch_) / 2);
   int yy = cy_ + kPad + kTitleH + (lines_.empty() ? 0 : kGap + int(lines_.size()) * kLineH);
-  if (field_) {
-    field_->resize(cx_ + kPad, yy + kGap, inner, kFieldH);
+  for (auto *f : fields_) {
+    f->resize(cx_ + kPad, yy + kGap, inner, kFieldH);
     yy += kGap + kFieldH;
   }
   if (!error_.empty())
     yy += 6 + kLineH;
-  int bw = std::max(88, ok_->preferred_width());
-  int cbw = std::max(88, cancel_->preferred_width());
+  if (check_) {
+    check_->resize(cx_ + kPad, yy + kGap, std::min(inner, check_->preferred_width()), 24);
+    yy += kGap + 24;
+  }
   int by = yy + kGap + 4;
-  ok_->resize(cx_ + cw_ - kPad - bw, by, bw, kButtonH);
-  cancel_->resize(ok_->x() - 10 - cbw, by, cbw, kButtonH);
+  int right = cx_ + cw_ - kPad;
+  for (size_t i = buttons_.size(); i-- > 0;) {
+    int bw = std::max(88, buttons_[i]->preferred_width());
+    buttons_[i]->resize(right - bw, by, bw, kButtonH);
+    right -= bw + 10;
+  }
 }
 
 void Dialog::set_error(const std::string &text) {
@@ -119,21 +171,31 @@ void Dialog::set_error(const std::string &text) {
   redraw_all();
 }
 
-void Dialog::finish(bool ok) {
+void Dialog::finish(int button) {
   auto done = std::move(done_);
-  std::string value = field_ ? field_->value() : "";
+  DialogAnswer a;
+  a.button = button;
+  for (auto *f : fields_)
+    a.values.push_back(f->value());
+  a.checked = check_ && check_->checked();
   close();
   if (done)
-    done(ok, value);
+    done(a);
 }
 
-void Dialog::accept() {
-  if (field_ && validate_ && !validate_(field_->value()))
+void Dialog::choose(int index) {
+  if (index < 0 || index >= int(buttons_.size())) {
+    finish(-1);
     return;
-  finish(true);
+  }
+  if (index + 1 == int(buttons_.size()) && !fields_.empty() && validate_ && !validate_(fields_[0]->value()))
+    return;
+  finish(index);
 }
 
-void Dialog::cancel() { finish(false); }
+void Dialog::accept() { choose(int(buttons_.size()) - 1); }
+
+void Dialog::cancel() { finish(-1); }
 
 int Dialog::handle(int event) {
   switch (event) {
@@ -144,10 +206,14 @@ int Dialog::handle(int event) {
       return 1;
     }
     if (Fl::event_key() == FL_Enter || Fl::event_key() == FL_KP_Enter) {
-      if (Fl::focus() == cancel_)
-        cancel();
-      else
-        accept();
+      for (size_t i = 0; i < buttons_.size(); ++i)
+        if (Fl::focus() == buttons_[i]) {
+          choose(int(i));
+          return 1;
+        }
+      if (Fl::focus() == check_ && event == FL_KEYBOARD)
+        return Fl_Group::handle(event);
+      accept();
       return 1;
     }
     if (event == FL_KEYBOARD)
@@ -156,7 +222,8 @@ int Dialog::handle(int event) {
   case FL_PUSH: {
     int ex = Fl::event_x(), ey = Fl::event_y();
     if (ex < cx_ || ex >= cx_ + cw_ || ey < cy_ || ey >= cy_ + ch_) {
-      cancel();
+      if (spec_.scrim_cancels)
+        cancel();
       return 1;
     }
     Fl_Group::handle(event);
@@ -173,20 +240,22 @@ int Dialog::handle(int event) {
 
 void Dialog::draw() {
   const Theme &t = theme();
+  if (cw_ == 0)
+    relayout();
   double a = shown_.get(this);
   paint::fill(x(), y(), w(), h(), Rgb(0, 0, 0), kScrim * a);
   paint::push_opacity();
-  draw_card(cx_, cy_, cw_, ch_, danger_ ? t.red() : t.accent());
+  draw_card(cx_, cy_, cw_, ch_, spec_.danger ? t.red() : t.accent());
   int inner = cw_ - 2 * kPad;
-  text::draw(title_, cx_ + kPad, cy_ + kPad, inner, kTitleH, t.bright_foreground(), text::SEMIBOLD,
+  text::draw(spec_.title, cx_ + kPad, cy_ + kPad, inner, kTitleH, t.bright_foreground(), text::SEMIBOLD,
              text::size::HEADING);
   int yy = cy_ + kPad + kTitleH + kGap;
   for (const auto &l : lines_) {
     text::draw(l, cx_ + kPad, yy, inner, kLineH, t.foreground());
     yy += kLineH;
   }
-  if (!error_.empty() && field_)
-    text::draw(error_, cx_ + kPad, field_->y() + kFieldH + 6, inner, kLineH, t.red(), text::REGULAR,
+  if (!error_.empty() && !fields_.empty())
+    text::draw(error_, cx_ + kPad, fields_.back()->y() + kFieldH + 6, inner, kLineH, t.red(), text::REGULAR,
                text::size::LABEL);
   draw_children();
   paint::pop_opacity(a);

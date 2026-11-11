@@ -27,7 +27,42 @@ class Fl_Widget_Tracker;
 namespace fo {
 
 class Button;
+class CheckBox;
 class TextField;
+
+/// A text field of a form dialog (Dialog::ask).
+struct DialogField {
+  std::string placeholder;
+  std::string initial;
+  bool secret = false; ///< a password: typed characters are hidden
+  int select_from = 0, select_to = -1;
+};
+
+/// Everything a form dialog shows (Dialog::ask): a title, a message, any
+/// number of fields, an optional check box and any number of buttons.
+struct DialogSpec {
+  std::string title, message;
+  std::vector<DialogField> fields;
+  /// Left to right. The last one is the primary choice that Enter picks.
+  /// Empty: "Cancel" and "OK".
+  std::vector<std::string> buttons;
+  /// A check box under the message ("Apply to all"); "" for none.
+  std::string check;
+  bool checked = false;
+  bool danger = false;
+  /// A click on the scrim cancels (otherwise only Esc and the buttons
+  /// answer, e.g. when something is waiting for the answer).
+  bool scrim_cancels = true;
+  /// The field that gets the keyboard first (-1: the primary button).
+  int focus_field = 0;
+};
+
+/// How a form dialog was answered.
+struct DialogAnswer {
+  int button = -1; ///< index into DialogSpec::buttons; -1: cancelled (Esc, scrim)
+  std::vector<std::string> values; ///< the fields' text, in order
+  bool checked = false;
+};
 
 class Dialog : public Layer {
 public:
@@ -42,9 +77,21 @@ public:
                         std::function<void(bool ok, const std::string &text)> done, int select_from = 0,
                         int select_to = -1);
 
-  /// Answers it from code.
+  /// A general form: several fields (passwords too), several buttons and
+  /// a check box. `done` gets which button answered and the values.
+  ///
+  ///   fo::DialogSpec s;
+  ///   s.title = "Sign in";
+  ///   s.fields = {{"User", user}, {"Password", "", true}};
+  ///   s.buttons = {"Cancel", "Connect"};
+  ///   fo::Dialog::ask(win, s, [](const fo::DialogAnswer &a) { if (a.button == 1) ...; });
+  static Dialog *ask(Window *win, DialogSpec spec, std::function<void(const DialogAnswer &)> done);
+
+  /// Answers it from code: accept() picks the primary (last) button.
   void accept();
   void cancel();
+  /// Picks button `index` (validation applies to the primary one).
+  void choose(int index);
   /// Shows a problem under the field (e.g. "That name is taken") and keeps
   /// the dialog open. Use from a prompt's validator.
   void set_error(const std::string &text);
@@ -57,14 +104,15 @@ public:
 
 private:
   Dialog() = default;
-  void build(Window *win, bool with_field);
-  void finish(bool ok);
-  std::string title_, message_, error_;
+  void build(Window *win);
+  void finish(int button);
+  DialogSpec spec_;
+  std::string error_;
   std::vector<std::string> lines_;
-  bool danger_ = false;
-  Button *ok_ = nullptr, *cancel_ = nullptr;
-  TextField *field_ = nullptr;
-  std::function<void(bool, const std::string &)> done_;
+  std::vector<Button *> buttons_;
+  std::vector<TextField *> fields_;
+  CheckBox *check_ = nullptr;
+  std::function<void(const DialogAnswer &)> done_;
   std::function<bool(const std::string &)> validate_;
   int cx_ = 0, cy_ = 0, cw_ = 0, ch_ = 0;
   Anim<double> shown_;

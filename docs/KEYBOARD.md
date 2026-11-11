@@ -48,7 +48,8 @@ everywhere.
 | TextField | Enter → `on_enter`, Esc → `on_escape`, Tab → `on_complete` when set (otherwise Tab moves focus), `on_key` first look; FLTK's editing keys |
 | Button, IconButton | Enter or Space |
 | PopupMenu | ↑ ↓ (and j k with no modifier), Home/End, Enter or Space, → opens a submenu, ← or Esc closes it, a letter jumps to the next entry starting with it, Esc closes; Tab stays inside. **Any other key closes the menu and goes on to the app**, so window shortcuts work while a menu is open |
-| Dialog | Enter confirms (or cancels when Cancel has focus), Esc cancels, Tab moves between the field and the buttons. A dialog keeps the keyboard: window shortcuts wait until it is answered |
+| CheckBox | Space or Enter toggles |
+| Dialog | Enter in a field moves to the next field, in the last one (or anywhere else) confirms (or cancels when Cancel has focus), Esc cancels, Tab moves between the field and the buttons. A dialog keeps the keyboard: window shortcuts wait until it is answered |
 | HelpOverlay | Esc, ? or Enter close it |
 
 ## Mouse, for completeness

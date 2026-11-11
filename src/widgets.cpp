@@ -78,6 +78,69 @@ void Button::draw() {
              labelsize(), FL_ALIGN_CENTER);
 }
 
+// --- CheckBox -----------------------------------------------------------------
+
+CheckBox::CheckBox(int x, int y, int w, int h, const char *label) : Fl_Button(x, y, w, h, label) {
+  box(FL_NO_BOX);
+  type(FL_TOGGLE_BUTTON);
+  labelfont(text::REGULAR);
+  labelsize(text::size::BODY);
+  callback(cb, this);
+}
+
+void CheckBox::cb(Fl_Widget *, void *data) {
+  auto *c = static_cast<CheckBox *>(data);
+  c->redraw();
+  if (c->change_)
+    c->change_(c->checked());
+}
+
+int CheckBox::preferred_width() const {
+  return 16 + 10 + int(text::width(label() ? label() : "", text::REGULAR, text::size::BODY)) + 4;
+}
+
+int CheckBox::handle(int event) {
+  switch (event) {
+  case FL_ENTER:
+  case FL_LEAVE:
+    hovered_ = event == FL_ENTER;
+    redraw();
+    Fl_Button::handle(event);
+    return 1;
+  case FL_FOCUS:
+  case FL_UNFOCUS:
+    redraw();
+    return Fl_Button::handle(event);
+  case FL_KEYBOARD:
+    if (has_focus(this) && (Fl::event_key() == FL_Enter || Fl::event_key() == FL_KP_Enter)) {
+      value(!value());
+      do_callback();
+      return 1;
+    }
+    break;
+  }
+  return Fl_Button::handle(event);
+}
+
+void CheckBox::draw() {
+  const Theme &t = theme();
+  const int s = 16;
+  int bx = x(), by = y() + (h() - s) / 2;
+  int r = std::min(3, t.radius_small());
+  if (value()) {
+    paint::round_fill(bx, by, s, s, r, t.accent());
+    paint::line(bx + 3.5, by + 8.5, bx + 6.5, by + 11.5, 2, t.accent_foreground());
+    paint::line(bx + 6.5, by + 11.5, bx + 12.5, by + 4.5, 2, t.accent_foreground());
+  } else {
+    paint::round_fill(bx, by, s, s, r, t.dark_background());
+    paint::round_frame(bx, by, s, s, r, 1, hovered_ ? t.foreground() : t.tint(t.foreground(), 0.35));
+  }
+  if (has_focus(this) && focus_visible())
+    paint::round_frame(x() - 3, y(), w() + 6, h(), t.radius_small(), 1, t.accent());
+  text::draw(label() ? label() : "", bx + s + 10, y(), w() - s - 10, h(), active_r() ? t.foreground() : t.secondary_foreground(),
+             text::REGULAR, labelsize());
+}
+
 // --- IconButton ---------------------------------------------------------------
 
 IconButton::IconButton(int x, int y, int w, int h, const char *icon_name, const char *tip)
@@ -168,6 +231,11 @@ void TextField::cb(Fl_Widget *, void *data) {
   auto *f = static_cast<TextField *>(data);
   if (f->change_)
     f->change_();
+}
+
+void TextField::secret(bool on) {
+  input_type(on ? FL_SECRET_INPUT : FL_NORMAL_INPUT);
+  redraw();
 }
 
 void TextField::set_text(const std::string &t, int from, int to) {
