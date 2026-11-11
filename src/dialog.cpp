@@ -19,8 +19,11 @@ const int kPad = 28, kTitleH = 22, kLineH = 19, kFieldH = 38, kButtonH = 36, kGa
 
 void draw_card(int x, int y, int w, int h, Rgb edge) {
   const Theme &t = theme();
-  paint::round_fill(x, y, w, h, t.radius(), t.background());
-  paint::round_frame(x, y, w, h, t.radius(), 1, edge);
+  // Files' sheets and panels: the background inside a 1 px edge, 10 px
+  // corners when the theme rounds.
+  int r = t.radius() > 0 ? 10 : 0;
+  paint::round_fill(x, y, w, h, r, edge);
+  paint::round_fill(x + 1, y + 1, w - 2, h - 2, r, t.background());
 }
 } // namespace
 
@@ -304,10 +307,11 @@ void Toast::draw() {
   cx_ = (w() - cw_) / 2;
   cy_ = h() - ch_ - 24 + int((1 - a) * 8);
   paint::push_opacity();
-  paint::round_fill(cx_, cy_, cw_, ch_, t.radius(), t.lighter_background());
-  paint::round_frame(cx_, cy_, cw_, ch_, t.radius(), 1, kind_ == Error ? t.red() : t.hairline());
+  int r = t.radius() > 0 ? 7 : 0;
+  paint::round_fill(cx_, cy_, cw_, ch_, r, kind_ == Error ? t.red() : t.accent());
+  paint::round_fill(cx_ + 1, cy_ + 1, cw_ - 2, ch_ - 2, r, t.card());
   text::draw(text_, cx_ + 20, cy_, cw_ - 40, ch_, kind_ == Error ? t.red() : t.bright_foreground(), text::REGULAR,
-             text::size::BODY, FL_ALIGN_CENTER);
+             12, FL_ALIGN_CENTER);
   paint::pop_opacity(a);
 }
 

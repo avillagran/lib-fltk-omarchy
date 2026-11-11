@@ -15,7 +15,8 @@
 namespace fo {
 
 namespace {
-const int kItemH = 32, kSepH = 9, kPadY = 4, kMinW = 220;
+// Files' popups: 28 px entries, a 1 px accent edge, hairline separators.
+const int kItemH = 28, kSepH = 9, kPadY = 4, kMinW = 220;
 
 bool usable(const MenuItem &m) { return !m.is_separator && m.enabled; }
 } // namespace
@@ -86,8 +87,8 @@ void PopupMenu::measure(Card &c) {
   for (const auto &it : c.items) {
     if (it.is_separator)
       continue;
-    int wl = int(text::width(it.label, text::REGULAR, text::size::BODY));
-    int ws = it.submenu.empty() ? int(text::width(it.shortcut, text::REGULAR, text::size::SMALL)) : 12;
+    int wl = int(text::width(it.label, text::REGULAR, 12));
+    int ws = it.submenu.empty() ? int(text::width(it.shortcut, text::REGULAR, 10)) : 12;
     widest = std::max(widest, wl + ws + 48 + (icons ? 26 : 0) + (it.checked ? 20 : 0));
   }
   c.w = std::max(kMinW, widest);
@@ -388,10 +389,10 @@ int PopupMenu::handle(int event) {
 void PopupMenu::draw() {
   const Theme &t = theme();
   bool mirror = rtl();
-  int r = std::min(6, t.radius());
+  int r = t.radius() > 0 ? 7 : 0;
   for (const Card &c : cards_) {
-    paint::round_fill(c.x, c.y, c.w, c.h, r, t.background());
-    paint::round_frame(c.x, c.y, c.w, c.h, r, 1, t.foreground(), 0.16);
+    paint::round_fill(c.x, c.y, c.w, c.h, r, t.accent());
+    paint::round_fill(c.x + 1, c.y + 1, c.w - 2, c.h - 2, r, t.background());
     bool icons = false;
     for (const auto &it : c.items)
       if (!it.icon.empty())
@@ -400,37 +401,38 @@ void PopupMenu::draw() {
     for (size_t i = 0; i < c.items.size(); ++i) {
       const MenuItem &it = c.items[i];
       if (it.is_separator) {
-        paint::hline(c.x + 1, yy + 4, c.w - 2, t.foreground(), 0.12);
+        paint::hline(c.x + 12, yy + 4, c.w - 24, t.card());
         yy += kSepH;
         continue;
       }
       bool hi = int(i) == c.highlight && it.enabled;
       if (hi)
-        paint::round_fill(c.x + 4, yy, c.w - 8, kItemH, t.radius_small(), t.accent(), 0.18);
-      Rgb fg = !it.enabled ? t.secondary_foreground() : hi ? t.bright_foreground() : t.foreground();
+        paint::round_fill(c.x + 2, yy, c.w - 4, kItemH, r ? 5 : 0, t.card());
+      Rgb fg = !it.enabled ? t.muted() : hi ? t.bright_foreground() : t.foreground();
       // Laid out left to right, mirrored for right-to-left languages.
       auto mx = [&](int x0, int w0) { return mirror ? c.x + c.w - (x0 - c.x) - w0 : x0; };
-      int lx = c.x + 14;
+      int lx = c.x + 12;
       if (icons) {
         if (!it.icon.empty())
-          icon::draw(it.icon, mx(lx, 16), yy + (kItemH - 16) / 2, 16, fg);
+          icon::draw(it.icon, mx(lx, 14), yy + (kItemH - 14) / 2, 14, fg);
         lx += 26;
       }
-      int right = c.x + c.w - 14;
+      int right = c.x + c.w - 12;
       if (!it.submenu.empty()) {
-        icon::draw(mirror ? "chevron-left" : "chevron-right", mx(right - 12, 12), yy + (kItemH - 12) / 2, 12, fg);
+        text::draw(mirror ? "\xE2\x80\xB9" : "\xE2\x80\xBA", mx(right - 10, 10), yy, 10, kItemH, fg, text::REGULAR, 13,
+                   FL_ALIGN_CENTER, text::Elide::None);
         right -= 18;
       } else if (it.checked) {
-        icon::draw("check", mx(right - 14, 14), yy + (kItemH - 14) / 2, 14, t.accent());
+        icon::draw("check", mx(right - 12, 12), yy + (kItemH - 12) / 2, 12, t.accent());
         right -= 20;
       }
       if (it.submenu.empty() && !it.shortcut.empty()) {
-        int sw = int(text::width(it.shortcut, text::REGULAR, text::size::SMALL) + 1);
-        text::draw(it.shortcut, mx(right - sw, sw), yy, sw, kItemH, t.secondary_foreground(), text::REGULAR,
-                   text::size::SMALL, mirror ? FL_ALIGN_LEFT : FL_ALIGN_RIGHT, text::Elide::None);
-        right -= sw + 16;
+        int sw = int(text::width(it.shortcut, text::REGULAR, 10) + 1);
+        text::draw(it.shortcut, mx(right - sw, sw), yy, sw, kItemH, t.dim(), text::REGULAR, 10,
+                   mirror ? FL_ALIGN_LEFT : FL_ALIGN_RIGHT, text::Elide::None);
+        right -= sw + 14;
       }
-      text::draw(it.label, mx(lx, right - lx), yy, right - lx, kItemH, fg, text::REGULAR, text::size::BODY,
+      text::draw(it.label, mx(lx, right - lx), yy, right - lx, kItemH, fg, text::REGULAR, 12,
                  mirror ? FL_ALIGN_RIGHT : FL_ALIGN_LEFT);
       yy += kItemH;
     }

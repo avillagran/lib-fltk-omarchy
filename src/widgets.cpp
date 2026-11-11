@@ -63,20 +63,21 @@ int Button::handle(int event) {
 }
 
 void Button::draw() {
+  // Files' buttons (view.rs button()): the main choice on a card in the
+  // accent, the others on the background in dim text, a card on hover.
   const Theme &t = theme();
-  Rgb target = primary_ ? (hovered_ ? mix(t.accent(), Rgb(255, 255, 255), 0.08) : t.accent())
-                        : t.tint(t.foreground(), hovered_ || value() ? 0.10 : 0.05);
+  int r = t.radius() > 0 ? 7 : 0;
+  Rgb target = primary_ ? (hovered_ ? mix(t.card(), t.foreground(), 0.06) : t.card())
+                        : hovered_ || value() ? t.card() : t.background();
   fill_.set(target, anim::ms::BUTTON, anim::Ease::Linear);
   Rgb fill = fill_.get(this);
-  if (!active_r())
-    fill = t.tint(t.foreground(), 0.03);
-  paint::round_fill(x(), y(), w(), h(), t.radius_small(), fill);
+  if (fill != t.background())
+    paint::round_fill(x(), y(), w(), h(), r, fill);
   if (has_focus(this) && focus_visible())
-    paint::round_frame(x(), y(), w(), h(), t.radius_small(), 1,
-                       primary_ ? t.accent_foreground() : t.accent());
-  Rgb fg = !active_r() ? t.secondary_foreground() : primary_ ? t.accent_foreground() : t.foreground();
-  text::draw(label() ? label() : "", x() + 8, y(), w() - 16, h(), fg, primary_ ? text::SEMIBOLD : text::REGULAR,
-             labelsize(), FL_ALIGN_CENTER);
+    paint::round_frame(x(), y(), w(), h(), r, 1, t.accent());
+  Rgb fg = !active_r() ? t.muted() : primary_ ? t.accent() : hovered_ ? t.foreground() : t.dim();
+  text::draw(label() ? label() : "", x() + 8, y(), w() - 16, h(), fg, primary_ ? text::BOLD : text::REGULAR, 12,
+             FL_ALIGN_CENTER);
 }
 
 // --- CheckBox -----------------------------------------------------------------
@@ -202,19 +203,20 @@ int IconButton::handle(int event) {
 }
 
 void IconButton::draw() {
+  // Files' header buttons: a card when toggled, the accent when toggled or
+  // hovered, dim otherwise.
   const Theme &t = theme();
   Rgb bg = t.background();
-  Rgb target = active_ ? t.tint(t.accent(), 0.16)
-               : (hovered_ || value()) && active_r() ? t.tint(t.foreground(), 0.08)
-                                                   : bg;
+  int r = t.radius() > 0 ? 7 : 0;
+  Rgb target = active_ ? t.card() : (hovered_ || value()) && active_r() ? mix(bg, t.card(), 0.5) : bg;
   fill_.set(target, anim::ms::BUTTON, anim::Ease::Linear);
   Rgb fill = fill_.get(this);
   if (fill != bg)
-    paint::round_fill(x(), y(), w(), h(), t.radius_small(), fill);
+    paint::round_fill(x(), y(), w(), h(), r, fill);
   if (has_focus(this) && focus_visible())
-    paint::round_frame(x(), y(), w(), h(), t.radius_small(), 1, t.accent());
-  Rgb fg = !active_r() ? t.tint(t.foreground(), 0.35) : active_ ? t.bright_foreground() : t.foreground();
-  int s = std::min(18, std::min(w(), h()) - 8);
+    paint::round_frame(x(), y(), w(), h(), r, 1, t.accent());
+  Rgb fg = !active_r() ? t.muted() : active_ || hovered_ ? t.accent() : t.dim();
+  int s = std::min(16, std::min(w(), h()) - 8);
   icon::draw(icon_, x() + (w() - s) / 2, y() + (h() - s) / 2, s, fg);
 }
 
@@ -226,7 +228,7 @@ TextField::TextField(int x, int y, int w, int h, const char *label) : Fl_Input(x
   // the rounded frame itself; the erase stays inside the text area.
   box(FL_FLAT_BOX);
   textfont(text::REGULAR);
-  textsize(text::size::BODY);
+  textsize(12);
   when(FL_WHEN_CHANGED);
   callback(cb, this);
 }
@@ -279,14 +281,15 @@ void TextField::draw() {
   const Theme &t = theme();
   // Fl_Input_ erases the text area with color() and draws the selection
   // with selection_color(): keep them in the theme.
-  color(t.dark_background().fl());
+  // Files' fields: a card, an accent edge while typing.
+  int r = t.radius() > 0 ? 7 : 0;
+  color(t.card().fl());
   textcolor(t.bright_foreground().fl());
-  selection_color(t.accent().fl());
+  selection_color(t.selection().fl());
   cursor_color(t.accent().fl());
   if (damage() & FL_DAMAGE_ALL) {
-    paint::round_fill(x(), y(), w(), h(), t.radius_small(), t.dark_background());
-    paint::round_frame(x(), y(), w(), h(), t.radius_small(), 1,
-                       has_focus(this) ? t.accent() : t.tint(t.foreground(), 0.18));
+    paint::round_fill(x(), y(), w(), h(), r, has_focus(this) ? t.accent() : t.card());
+    paint::round_fill(x() + 1, y() + 1, w() - 2, h() - 2, r, t.card());
   }
   int px = 12, py = std::max(2, (h() - textsize() - 8) / 2);
   drawtext(x() + px, y() + py, w() - 2 * px, h() - 2 * py);
