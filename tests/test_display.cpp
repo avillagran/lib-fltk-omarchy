@@ -12,6 +12,7 @@
 #include "fltk-omarchy/columns.h"
 #include "fltk-omarchy/i18n.h"
 #include "fltk-omarchy/menu.h"
+#include "fltk-omarchy/shell.h"
 #include "fltk-omarchy/theme.h"
 #include "fltk-omarchy/widgets.h"
 #include "fltk-omarchy/window.h"
@@ -505,4 +506,85 @@ TEST(display_rtl_rows_breadcrumbs_and_menus) {
   fo_test::settle();
   win.hide();
   anim::set_enabled(-1);
+}
+
+// Files' tab drag: past 5 px the tab is dragged, the drop point follows the
+// halves of the tab under the pointer, and the move is asked on release.
+TEST(display_tab_strip_drag_reorders_on_release) {
+  if (!fo_test::have_display())
+    return;
+  if (!fo_test::have_xtest()) {
+    std::printf("  skip: XTest is not available\n");
+    return;
+  }
+  anim::set_enabled(0);
+  Window win(10, 10, 700, 120, "tabs");
+  auto *strip = new TabStrip(0, 40, 700, 32);
+  win.end();
+  strip->tabs({"alpha", "beta", "gamma"}, 0);
+  std::vector<std::pair<int, int>> moves;
+  int selected = -1;
+  strip->on_reorder([&](int from, int to) { moves.push_back({from, to}); });
+  strip->on_select([&](int i) { selected = i; });
+  fo_test::show(&win);
+  int x0, w0, x2, w2;
+  CHECK(strip->tab_rect(0, x0, w0));
+  CHECK(strip->tab_rect(2, x2, w2));
+  // Dragged onto the right half of "gamma": it goes last (remove, then insert).
+  fo_test::drag(&win, x0 + 20, 56, x2 + w2 - 30, 56);
+  CHECK_EQ(int(moves.size()), 1);
+  if (!moves.empty()) {
+    CHECK_EQ(moves[0].first, 0);
+    CHECK_EQ(moves[0].second, 2);
+  }
+  CHECK_EQ(selected, -1); // a drag is not a click
+  CHECK_EQ(strip->drop_at(), -1);
+  // A short travel is a click; leaving the strip cancels the drop.
+  fo_test::drag(&win, x2 + 20, 56, x2 + 22, 57);
+  CHECK_EQ(selected, 2);
+  fo_test::drag(&win, x2 + 20, 56, x0 + 10, 110);
+  CHECK_EQ(int(moves.size()), 1);
+  win.hide();
+  anim::set_enabled(-1);
+}
+
+// Files' free header: a press there moves the window (Xvfb has no window
+// manager, so the window follows the drag itself); controls keep theirs.
+TEST(display_window_moves_from_its_move_area) {
+  if (!fo_test::have_display())
+    return;
+  if (!fo_test::have_xtest()) {
+    std::printf("  skip: XTest is not available\n");
+    return;
+  }
+  Window win(100, 100, 400, 200, "move");
+  win.end();
+  bool pressed_control = false;
+  win.move_area([&](int x, int y) {
+    if (y >= 58)
+      return false;
+    if (x >= 300) { // a control: the area leaves it out
+      pressed_control = true;
+      return false;
+    }
+    return true;
+  });
+  fo_test::show(&win);
+  const int x0 = win.x_root(), y0 = win.y_root();
+  fo_test::drag(&win, 100, 20, 160, 50);
+  fo_test::settle(0.2);
+  CHECK_EQ(win.x_root() - x0, 60);
+  CHECK_EQ(win.y_root() - y0, 30);
+  CHECK(!win.moving());
+  // Below the header and on a control nothing moves.
+  const int x1 = win.x_root(), y1 = win.y_root();
+  fo_test::drag(&win, 100, 120, 150, 150);
+  fo_test::drag(&win, 320, 20, 360, 40);
+  fo_test::settle(0.2);
+  CHECK(pressed_control);
+  CHECK_EQ(win.x_root(), x1);
+  CHECK_EQ(win.y_root(), y1);
+  // Outside a press, begin_move() refuses.
+  CHECK(!win.begin_move());
+  win.hide();
 }

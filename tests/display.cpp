@@ -147,4 +147,27 @@ void click(Fl_Window *w, int x, int y) {
   settle(0.1);
 }
 
+void drag(Fl_Window *w, int x0, int y0, int x1, int y1, int steps) {
+  move_pointer(w, x0, y0);
+#if FLTK_USE_X11 && defined(FO_HAVE_XTEST)
+  if (Display *d = fl_x11_display()) {
+    const int rx = w->x_root(), ry = w->y_root();
+    XTestFakeButtonEvent(d, 1, True, CurrentTime);
+    XSync(d, False);
+    settle(0.05);
+    for (int i = 1; i <= steps; ++i) {
+      XTestFakeMotionEvent(d, -1, rx + x0 + (x1 - x0) * i / steps, ry + y0 + (y1 - y0) * i / steps,
+                           CurrentTime);
+      XSync(d, False);
+      settle(0.03);
+    }
+    XTestFakeButtonEvent(d, 1, False, CurrentTime);
+    XSync(d, False);
+  }
+#else
+  (void)x1, (void)y1, (void)steps;
+#endif
+  settle(0.1);
+}
+
 } // namespace fo_test

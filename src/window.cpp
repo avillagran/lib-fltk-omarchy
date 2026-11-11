@@ -9,8 +9,14 @@
 
 #include <FL/Fl.H>
 #include <FL/fl_draw.H>
+#include <FL/platform.H>
 
 #include <algorithm>
+
+#if FLTK_USE_X11
+#include <X11/Xatom.h>
+#include <X11/Xlib.h>
+#endif
 
 namespace fo {
 
@@ -292,7 +298,127 @@ void Window::drop_layer(Layer *l, bool remove_child) {
     remove(l);
 }
 
+// ---------------------------------------------------------------------------
+// Moving the window from a free area (Files' header).
+
+namespace {
+#if FLTK_USE_X11
+// True when the running window manager advertises `wanted` in EWMH's
+// _NET_SUPPORTED (and has its _NET_SUPPORTING_WM_CHECK window set).
+bool ewmh_supports(Display *d, Atom wanted) {
+  ::Window root = DefaultRootWindow(d);
+  auto property = [&](const char *name, Atom type, unsigned long &n, unsigned char *&data) {
+    Atom got = None;
+    int format = 0;
+    unsigned long after = 0;
+    n = 0, data = nullptr;
+    if (XGetWindowProperty(d, root, XInternAtom(d, name, False), 0, 4096, False, type, &got, &format, &n,
+                           &after, &data) != Success)
+      return false;
+    if (!data || got != type || format != 32) {
+      if (data)
+        XFree(data);
+      data = nullptr;
+      return false;
+    }
+    return true;
+  };
+  unsigned long n = 0;
+  unsigned char *data = nullptr;
+  if (!property("_NET_SUPPORTING_WM_CHECK", XA_WINDOW, n, data))
+    return false;
+  XFree(data);
+  if (!n || !property("_NET_SUPPORTED", XA_ATOM, n, data))
+    return false;
+  bool found = false;
+  const Atom *atoms = reinterpret_cast<const Atom *>(data);
+  for (unsigned long i = 0; i < n && !found; ++i)
+    found = atoms[i] == wanted;
+  XFree(data);
+  return found;
+}
+#endif
+} // namespace
+
+bool Window::begin_move() {
+  // Files' bridge: only the genuine left-button press of this very window.
+  if (!shown() || parent() || fullscreen_active() || Fl::event() != FL_PUSH ||
+      Fl::event_button() != FL_LEFT_MOUSE || Fl::event_buttons() != FL_BUTTON1)
+    return false;
+#if FLTK_USE_WAYLAND
+  if (fl_wl_display()) {
+    // FLTK 1.4's Wayland driver turns a reposition made while e_state is
+    // exactly FL_BUTTON1 (no lock modifiers) into xdg_toplevel.move with the
+    // seat's latest serial (this press), then clears e_state and pushed().
+    // Wayland ignores the position itself, so a 1 px change is enough.
+    const int saved = Fl::e_state;
+    Fl::e_state = FL_BUTTON1;
+    position(x() > 0 ? x() - 1 : x() + 1, y());
+    if (Fl::e_state == 0)
+      return true; // the request went out; the compositor decides
+    Fl::e_state = saved;
+    return false;
+  }
+#endif
+#if FLTK_USE_X11
+  if (Display *d = fl_x11_display()) {
+    Atom moveresize = XInternAtom(d, "_NET_WM_MOVERESIZE", False);
+    if (ewmh_supports(d, moveresize)) {
+      const float s = Fl::screen_scale(screen_num());
+      XEvent ev{};
+      ev.xclient.type = ClientMessage;
+      ev.xclient.window = fl_x11_xid(this);
+      ev.xclient.message_type = moveresize;
+      ev.xclient.format = 32;
+      ev.xclient.data.l[0] = long(Fl::event_x_root() * s);
+      ev.xclient.data.l[1] = long(Fl::event_y_root() * s);
+      ev.xclient.data.l[2] = 8; // _NET_WM_MOVERESIZE_MOVE
+      ev.xclient.data.l[3] = Button1;
+      ev.xclient.data.l[4] = 1; // a normal application
+      XUngrabPointer(d, CurrentTime);
+      XSendEvent(d, DefaultRootWindow(d), False, SubstructureRedirectMask | SubstructureNotifyMask, &ev);
+      XFlush(d);
+      // The window manager owns the pointer until the release.
+      Fl::pushed(nullptr);
+      Fl::e_state &= ~FL_BUTTONS;
+      return true;
+    }
+    // No window manager that moves windows for us: follow the drag.
+    drag_move_ = true;
+    move_x0_ = Fl::event_x_root(), move_y0_ = Fl::event_y_root();
+    move_wx_ = x(), move_wy_ = y();
+    return true;
+  }
+#endif
+  return false;
+}
+
 int Window::handle(int event) {
+  if (drag_move_) {
+    if (event == FL_DRAG) {
+      position(move_wx_ + Fl::event_x_root() - move_x0_, move_wy_ + Fl::event_y_root() - move_y0_);
+      return 1;
+    }
+    if (event == FL_RELEASE || event == FL_PUSH || event == FL_UNFOCUS || event == FL_HIDE) {
+      drag_move_ = false;
+      cursor(hand_ ? FL_CURSOR_HAND : FL_CURSOR_DEFAULT);
+      if (event == FL_RELEASE)
+        return 1;
+    }
+  }
+  if (move_area_ && (event == FL_PUSH || event == FL_MOVE || event == FL_ENTER || event == FL_LEAVE)) {
+    const bool in = event != FL_LEAVE && !modal_open() && !fullscreen_active() &&
+                    move_area_(Fl::event_x(), Fl::event_y());
+    if (in != hand_) {
+      hand_ = in;
+      cursor(in ? FL_CURSOR_HAND : FL_CURSOR_DEFAULT);
+    }
+    if (in && event == FL_PUSH && Fl::event_button() == FL_LEFT_MOUSE && begin_move()) {
+      if (drag_move_)
+        cursor(FL_CURSOR_MOVE);
+      return 1;
+    }
+  }
   Layer *top = nullptr;
   for (auto it = layers_.rbegin(); it != layers_.rend(); ++it)
     if ((*it)->modal()) {

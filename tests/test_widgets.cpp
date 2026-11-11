@@ -369,3 +369,56 @@ TEST(menu_aim_triangle) {
   CHECK(PopupMenu::aiming(560, 110, 540, 130, 300, 100, 200, 120, false));
   CHECK(!PopupMenu::aiming(560, 110, 580, 130, 300, 100, 200, 120, false));
 }
+
+// Files' path editing: components between "/" (and white space) for
+// Ctrl+arrows and Ctrl+Backspace/Delete; Ctrl+Y redoes; Tab completion is
+// an edit that Ctrl+Z takes back.
+TEST(textfield_path_components_and_redo) {
+  Fl_Group g(0, 0, 400, 40);
+  auto *f = new TextField(0, 0, 400, 40);
+  g.end();
+  f->separators("/");
+  f->value("~/Pictures/Lisbon 2026/img-01.jpg");
+  CHECK_EQ(f->component_left(f->size()), 23); // "img-01.jpg" is one component
+  CHECK_EQ(f->component_left(23), 18);        // then "2026"
+  CHECK_EQ(f->component_left(11), 2);         // over "/" and "Pictures"
+  CHECK_EQ(f->component_right(0), 1);         // "~"
+  CHECK_EQ(f->component_right(1), 10);        // "/Pictures"
+  Fl::focus(f);
+  f->insert_position(f->size());
+  key(f, FL_Left, FL_CTRL);
+  CHECK_EQ(f->insert_position(), 23);
+  key(f, FL_Left, FL_CTRL | FL_SHIFT); // extends: the mark stays
+  CHECK_EQ(f->insert_position(), 18);
+  CHECK_EQ(f->mark(), 23);
+  f->insert_position(f->size());
+  key(f, FL_BackSpace, FL_CTRL);
+  CHECK_STR(std::string(f->value()), "~/Pictures/Lisbon 2026/");
+  key(f, FL_BackSpace, FL_CTRL);
+  CHECK_STR(std::string(f->value()), "~/Pictures/Lisbon ");
+  key(f, 'z', FL_CTRL); // FLTK merges adjacent deletions into one undo step
+  CHECK_STR(std::string(f->value()), "~/Pictures/Lisbon 2026/img-01.jpg");
+  key(f, 'y', FL_CTRL);
+  CHECK_STR(std::string(f->value()), "~/Pictures/Lisbon ");
+  f->insert_position(0);
+  key(f, FL_Delete, FL_CTRL);
+  CHECK_STR(std::string(f->value()), "/Pictures/Lisbon ");
+  // Tab completion replaces the text as one undoable edit.
+  int changes = 0;
+  f->on_change([&] { ++changes; });
+  f->on_complete([](const std::string &t) { return t + "x/"; });
+  f->value("~/Pi");
+  key(f, FL_Tab);
+  CHECK_STR(std::string(f->value()), "~/Pix/");
+  CHECK_EQ(f->insert_position(), f->size());
+  CHECK(changes >= 1);
+  key(f, 'z', FL_CTRL);
+  CHECK_STR(std::string(f->value()), "~/Pi");
+  // Without separators, FLTK's own words.
+  f->separators("");
+  f->value("a/b");
+  f->insert_position(3);
+  key(f, FL_Left, FL_CTRL);
+  CHECK_EQ(f->insert_position(), 2);
+  Fl::focus(nullptr);
+}

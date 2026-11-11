@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 
 namespace fo {
 
@@ -304,11 +305,50 @@ int TabStrip::handle(int event) {
     hover_plus_ = false;
     redraw();
     return 1;
-  case FL_PUSH:
+  case FL_PUSH: {
+    int c = -1;
+    pressed_ = Fl::event_button() == FL_LEFT_MOUSE ? at(c) : -1;
+    if (c >= 0)
+      pressed_ = -1; // Files: a press on the close button never drags
+    press_x_ = ex, press_y_ = ey;
+    dragging_ = false;
+    drop_at_ = -1;
     return 1;
+  }
+  case FL_DRAG: {
+    // Files: after 5 px of travel the tab is dragged; the drop point is
+    // before or after the tab under the pointer (its halves), none outside
+    // the strip.
+    if (pressed_ < 0 || !reorder_)
+      return 1;
+    if (!dragging_ && std::max(std::abs(ex - press_x_), std::abs(ey - press_y_)) < 5)
+      return 1;
+    dragging_ = true;
+    int c;
+    int i = ey >= y() && ey < y() + h() ? at(c) : -1;
+    int drop = i < 0 ? -1 : i + (ex >= slots_[size_t(i)].x + slots_[size_t(i)].w / 2 ? 1 : 0);
+    if (drop != drop_at_) {
+      drop_at_ = drop;
+      redraw();
+    }
+    return 1;
+  }
   case FL_RELEASE: {
     int c;
     int i = at(c);
+    const bool dragged = dragging_;
+    const int from = pressed_, drop = drop_at_;
+    pressed_ = drop_at_ = -1;
+    dragging_ = false;
+    if (dragged) {
+      redraw();
+      if (from >= 0 && drop >= 0 && Fl::event_inside(this) && reorder_) {
+        int to = drop - (from < drop ? 1 : 0);
+        if (to != from)
+          reorder_(from, to);
+      }
+      return 1;
+    }
     if (!Fl::event_inside(this))
       return 1;
     if (Fl::event_button() == FL_RIGHT_MOUSE) {
@@ -362,6 +402,12 @@ void TabStrip::draw() {
     line_.set(target, anim::ms::INDICATOR);
     RectF l = line_.get(this);
     paint::fill(int(l.x), int(l.y), int(l.w), 2, t.accent());
+  }
+  if (dragging_ && drop_at_ >= 0 && !slots_.empty()) {
+    // Files: a 2 px accent line where the dragged tab would land.
+    const Slot &s = slots_[size_t(std::min(drop_at_, int(slots_.size()) - 1))];
+    int edge = drop_at_ >= int(slots_.size()) ? s.x + s.w : s.x;
+    paint::fill(edge - 1, y() + 2, 2, std::max(1, h() - 4), t.accent());
   }
   icon::draw("plus", plus_x_ + 8, y() + (h() - 16) / 2, 16, hover_plus_ ? t.bright_foreground() : t.accent());
   paint::fill(x(), y() + h() - 1, w(), 1, t.card());

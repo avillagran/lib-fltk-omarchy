@@ -99,6 +99,14 @@ public:
   void on_new(std::function<void()> fn) { new_ = std::move(fn); }
   /// Right click on a tab (index) for a context menu; x, y in the window.
   void on_context(std::function<void(int, int, int)> fn) { context_ = std::move(fn); }
+  /// Files' tab drag: after 5 px of travel an accent line shows where the
+  /// tab would go (before or after the tab under the pointer); releasing
+  /// inside the strip asks to move it there as a remove-then-insert
+  /// (from, to), leaving the strip cancels. The owner reorders its tabs and
+  /// calls tabs() again. Without a handler, tabs do not move.
+  void on_reorder(std::function<void(int, int)> fn) { reorder_ = std::move(fn); }
+  /// Where a dragged tab would land now (0..count), -1 when not dragging.
+  int drop_at() const { return dragging_ ? drop_at_ : -1; }
   /// A tab's rectangle (widget coordinates are window coordinates).
   bool tab_rect(int i, int &x, int &w) const;
 
@@ -118,6 +126,9 @@ private:
   std::function<void(int)> select_, close_;
   std::function<void()> new_;
   std::function<void(int, int, int)> context_;
+  std::function<void(int, int)> reorder_;
+  int pressed_ = -1, press_x_ = 0, press_y_ = 0, drop_at_ = -1;
+  bool dragging_ = false;
 };
 
 /// Files' status bar: what is marked and listed on the left (red for

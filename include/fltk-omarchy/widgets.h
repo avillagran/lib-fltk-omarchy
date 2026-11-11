@@ -111,11 +111,22 @@ public:
   void set_text(const std::string &text, int from = 0, int to = -1);
   /// Hides what is typed (passwords): dots instead of characters.
   void secret(bool on);
+  /// Files' path editing (line_edit.rs): with separators (e.g. "/"; white
+  /// space always counts), Ctrl+Left/Right (Shift extends) jump over whole
+  /// components, Ctrl+Backspace/Delete remove one, and a double click
+  /// selects the component under the pointer. Empty (the default) keeps
+  /// FLTK's words.
+  void separators(std::string chars) { separators_ = std::move(chars); }
+  /// Component boundaries for separators() (byte offsets into value()).
+  int component_left(int pos) const;
+  int component_right(int pos) const;
   void draw() override;
   int handle(int event) override;
 
 private:
   static void cb(Fl_Widget *, void *);
+  bool separator_at(int pos) const;
+  std::string separators_;
   std::string placeholder_;
   std::function<void()> enter_, escape_, change_;
   std::function<std::string(const std::string &)> complete_;

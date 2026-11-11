@@ -26,6 +26,14 @@ win->shortcut("Ctrl+L", [] { /* ... */ });   // window-wide keys
   shortcut for the current key from a widget that would otherwise take
   it, e.g. type-ahead), `shortcut_specs`,
   `top_layer()`, `modal_open()`, `Window::of(widget)`.
+  `move_area(fn(x, y))` makes a free area (Files' header without its
+  controls) show a hand and move the window on a left press;
+  `begin_move()` asks for that move from the press being handled:
+  Wayland through FLTK's own `xdg_toplevel.move` path (a reposition while
+  only the left button is down), X11 through EWMH `_NET_WM_MOVERESIZE`,
+  or the window follows the drag itself without a window manager that
+  supports it. Public FLTK API only; interactive resizing from the
+  corners has no public path on Wayland and is left to the compositor.
 - `fo::Layer` — base for anything drawn above the content: `open(win)`,
   `close()`, `modal()`, `passes_keys()`, `relayout()`. Modal layers take
   the keyboard and give focus back on close. Subclasses that call
@@ -225,7 +233,10 @@ back to built-in patterns without `locale_t`. See
   button; `plain(true)` + `metrics(30, 6)` for back/forward/up.
 - **TabStrip** — `tabs(labels, current)`, `on_select`, `on_close` (the ×
   or a middle click), `on_new` ("+" or a click on empty space),
-  `on_context`; the current tab sits on a card over a sliding accent line.
+  `on_context`, `on_reorder(from, to)` (Files' drag: after 5 px an accent
+  line shows the drop point, the release inside the strip asks for the
+  move, leaving the strip cancels); the current tab sits on a card over a
+  sliding accent line.
 - **StatusBar** — `left(text, error)`, `hint(text)`, `right(text)`,
   `badge(text, color)` (Files: marked/listed, a tip, the filesystem, PSS).
 - **SortHeader** — `columns({{label, icon, x, w, right}...})`,
@@ -325,7 +336,8 @@ toast, tooltip, sidebar-focus), with the Tokyo Night fallback palette.
   `focus_ring_on_selected`, and fo::Window giving the keyboard back to the
   last widget after the window lost the X input focus (real XTest key
   presses when libXtst is available) and when a key or the focus comes
-  back while nothing has the keyboard.
+  back while nothing has the keyboard; TabStrip's drag-to-reorder and a
+  window moving from its `move_area` (real XTest drags).
 - Visually (Xvfb screenshots, at scale 1 and 1.25): every widget state in
   the table above.
 - Not exercised automatically: live pointer and wheel input, drag and

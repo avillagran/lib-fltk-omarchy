@@ -250,11 +250,60 @@ void TextField::set_text(const std::string &t, int from, int to) {
   insert_position(end, std::min(std::max(from, 0), end));
 }
 
+bool TextField::separator_at(int pos) const {
+  unsigned char c = static_cast<unsigned char>(index(pos));
+  return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == '\v' ||
+         (c && separators_.find(char(c)) != std::string::npos);
+}
+
+int TextField::component_left(int pos) const {
+  // Files: back over separators, then over the component (bytes of a UTF-8
+  // sequence are never separators, so whole characters move together).
+  while (pos > 0 && separator_at(pos - 1))
+    --pos;
+  while (pos > 0 && !separator_at(pos - 1))
+    --pos;
+  return pos;
+}
+
+int TextField::component_right(int pos) const {
+  while (pos < size() && separator_at(pos))
+    ++pos;
+  while (pos < size() && !separator_at(pos))
+    ++pos;
+  return pos;
+}
+
 int TextField::handle(int event) {
   if (event == FL_KEYBOARD && has_focus(this)) {
     int k = Fl::event_key();
     if (key_ && key_(k))
       return 1;
+    const int mods = Fl::event_state() & (FL_CTRL | FL_ALT | FL_META);
+    const bool shift = Fl::event_state(FL_SHIFT);
+    if (mods == FL_CTRL && (k == 'y' || k == 'Y')) {
+      // Files: Ctrl+Y redoes, like Ctrl+Shift+Z.
+      if (!readonly())
+        redo(); // Fl_Input_ runs the change callback
+      return 1;
+    }
+    if (!separators_.empty() && mods == FL_CTRL && input_type() != FL_SECRET_INPUT) {
+      const int pos = insert_position();
+      if (k == FL_Left || k == FL_Right) {
+        int to = k == FL_Left ? component_left(pos) : component_right(pos);
+        insert_position(to, shift ? mark() : to);
+        return 1;
+      }
+      if ((k == FL_BackSpace || k == FL_Delete) && !shift && !readonly()) {
+        if (mark() != pos)
+          cut();
+        else if (k == FL_BackSpace)
+          cut(component_left(pos), pos);
+        else
+          cut(pos, component_right(pos));
+        return 1;
+      }
+    }
     if (k == FL_Escape && escape_) {
       escape_();
       return 1;
@@ -264,17 +313,33 @@ int TextField::handle(int event) {
       return 1;
     }
     if (k == FL_Tab && complete_ && !(Fl::event_state() & (FL_SHIFT | FL_CTRL | FL_ALT))) {
+      // Replaced as an edit (Ctrl+Z takes the completion back), not set:
+      // value() would forget the undo history.
       std::string done = complete_(value());
-      value(done.c_str());
+      if (done != value())
+        replace(0, size(), done.data(), int(done.size())); // runs the change callback
       insert_position(size());
-      if (change_)
-        change_();
       return 1;
     }
   }
   if (event == FL_FOCUS || event == FL_UNFOCUS)
     redraw();
-  return Fl_Input::handle(event);
+  const int r = Fl_Input::handle(event);
+  if (event == FL_PUSH && Fl::event_clicks() == 1 && !separators_.empty() && input_type() != FL_SECRET_INPUT &&
+      size() > 0) {
+    // Files: a double click selects the path component under the pointer
+    // (FLTK has just selected its word there), or the separator itself.
+    int at = std::min(mark(), insert_position());
+    int a = at, b = at;
+    while (a > 0 && !separator_at(a - 1))
+      --a;
+    while (b < size() && !separator_at(b))
+      ++b;
+    if (a == b && b < size())
+      ++b;
+    insert_position(b, a);
+  }
+  return r;
 }
 
 void TextField::draw() {

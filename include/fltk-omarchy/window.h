@@ -122,12 +122,32 @@ public:
   void remember_focus(Fl_Widget *w);
   Fl_Widget *remembered_focus() const { return last_focus_ ? last_focus_->widget() : nullptr; }
 
+  /// Files' free header: where `area(x, y)` returns true (window
+  /// coordinates; the app leaves its own controls out), the pointer shows
+  /// a hand and a left press moves the window (begin_move()). Nothing
+  /// happens while a modal layer is open or the window is fullscreen.
+  void move_area(std::function<bool(int, int)> area) { move_area_ = std::move(area); }
+  /// Asks the window system to move the window with the pointer. Only
+  /// valid while the left-button FL_PUSH of this window is being handled
+  /// (anything else returns false). Wayland: FLTK's own path, which sends
+  /// xdg_toplevel.move with the press serial when a shown toplevel is
+  /// repositioned while only the left button is down; the compositor
+  /// decides. X11: the EWMH _NET_WM_MOVERESIZE request when the window
+  /// manager supports it, otherwise the window follows the drag itself
+  /// (moving() until the release). No private FLTK structures are used.
+  bool begin_move();
+  /// True while the window follows a drag itself (X11 without EWMH).
+  bool moving() const { return drag_move_; }
+
   int handle(int event) override;
   void draw() override;
   void resize(int x, int y, int w, int h) override;
 
 private:
   friend class Layer;
+  std::function<bool(int, int)> move_area_;
+  bool drag_move_ = false, hand_ = false;
+  int move_x0_ = 0, move_y0_ = 0, move_wx_ = 0, move_wy_ = 0;
   struct Shortcut {
     Key key;
     std::string spec;

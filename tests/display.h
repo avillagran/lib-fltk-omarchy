@@ -32,5 +32,9 @@ void press_key(int fl_key);
 void move_pointer(Fl_Window *w, int x, int y);
 /// Clicks the left button at window coordinates of `w`.
 void click(Fl_Window *w, int x, int y);
+/// Drags with the left button from (x0, y0) to (x1, y1) of `w`, in
+/// `steps` motions, the end points taken from the window's position at
+/// the press (the window may move under the pointer).
+void drag(Fl_Window *w, int x0, int y0, int x1, int y1, int steps = 8);
 
 } // namespace fo_test
