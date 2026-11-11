@@ -1,6 +1,7 @@
 #include "fltk-omarchy/menu.h"
 
 #include "fltk-omarchy/anim.h"
+#include "fltk-omarchy/i18n.h"
 #include "fltk-omarchy/icons.h"
 #include "fltk-omarchy/paint.h"
 #include "fltk-omarchy/text.h"
@@ -98,21 +99,36 @@ void PopupMenu::measure(Card &c) {
 void PopupMenu::place(Card &c, int ax, int ay, int aw, int ah, bool below, bool right) {
   measure(c);
   int W = w(), H = h();
+  // Right to left, menus open toward the left and align with the anchor's
+  // right edge unless asked otherwise (which then means its left edge).
+  bool mirror = rtl();
   if (below) {
-    c.x = right ? ax + aw - c.w : ax;
+    c.x = right != mirror ? ax + aw - c.w : ax;
     c.y = ay + ah + 4;
     if (c.y + c.h > H - 4 && ay - 4 - c.h >= 4)
       c.y = ay - 4 - c.h;
   } else if (aw > 0) { // a submenu beside its entry
-    c.x = ax + aw - 2;
     c.y = ay - kPadY;
-    if (c.x + c.w > W - 4)
+    if (!mirror) {
+      c.x = ax + aw - 2;
+      if (c.x + c.w > W - 4)
+        c.x = ax - c.w + 2;
+    } else {
       c.x = ax - c.w + 2;
+      if (c.x < 4)
+        c.x = ax + aw - 2;
+    }
   } else { // at a point
-    c.x = ax;
     c.y = ay;
-    if (c.x + c.w > W - 4)
+    if (!mirror) {
+      c.x = ax;
+      if (c.x + c.w > W - 4)
+        c.x = ax - c.w;
+    } else {
       c.x = ax - c.w;
+      if (c.x < 4)
+        c.x = ax;
+    }
     if (c.y + c.h > H - 4)
       c.y = ay - c.h;
   }
@@ -332,12 +348,14 @@ int PopupMenu::handle(int event) {
       choose(ci, c.highlight);
       return 1;
     }
-    if (k == FL_Right) {
+    // Into a submenu: Right, or Left when the menu is mirrored.
+    bool mirror = rtl();
+    if ((k == FL_Right && !mirror) || (k == FL_Left && mirror)) {
       if (c.highlight >= 0 && !c.items[size_t(c.highlight)].submenu.empty())
         open_sub(ci, c.highlight, true);
       return 1;
     }
-    if (k == FL_Left) {
+    if (k == FL_Left || k == FL_Right) {
       if (ci > 0) {
         cards_.pop_back();
         redraw_all();
@@ -369,6 +387,7 @@ int PopupMenu::handle(int event) {
 
 void PopupMenu::draw() {
   const Theme &t = theme();
+  bool mirror = rtl();
   int r = std::min(6, t.radius());
   for (const Card &c : cards_) {
     paint::round_fill(c.x, c.y, c.w, c.h, r, t.background());
@@ -389,27 +408,30 @@ void PopupMenu::draw() {
       if (hi)
         paint::round_fill(c.x + 4, yy, c.w - 8, kItemH, t.radius_small(), t.accent(), 0.18);
       Rgb fg = !it.enabled ? t.secondary_foreground() : hi ? t.bright_foreground() : t.foreground();
+      // Laid out left to right, mirrored for right-to-left languages.
+      auto mx = [&](int x0, int w0) { return mirror ? c.x + c.w - (x0 - c.x) - w0 : x0; };
       int lx = c.x + 14;
       if (icons) {
         if (!it.icon.empty())
-          icon::draw(it.icon, lx, yy + (kItemH - 16) / 2, 16, fg);
+          icon::draw(it.icon, mx(lx, 16), yy + (kItemH - 16) / 2, 16, fg);
         lx += 26;
       }
       int right = c.x + c.w - 14;
       if (!it.submenu.empty()) {
-        icon::draw("chevron-right", right - 12, yy + (kItemH - 12) / 2, 12, fg);
+        icon::draw(mirror ? "chevron-left" : "chevron-right", mx(right - 12, 12), yy + (kItemH - 12) / 2, 12, fg);
         right -= 18;
       } else if (it.checked) {
-        icon::draw("check", right - 14, yy + (kItemH - 14) / 2, 14, t.accent());
+        icon::draw("check", mx(right - 14, 14), yy + (kItemH - 14) / 2, 14, t.accent());
         right -= 20;
       }
       if (it.submenu.empty() && !it.shortcut.empty()) {
         int sw = int(text::width(it.shortcut, text::REGULAR, text::size::SMALL) + 1);
-        text::draw(it.shortcut, right - sw, yy, sw, kItemH, t.secondary_foreground(), text::REGULAR,
-                   text::size::SMALL, FL_ALIGN_RIGHT, text::Elide::None);
+        text::draw(it.shortcut, mx(right - sw, sw), yy, sw, kItemH, t.secondary_foreground(), text::REGULAR,
+                   text::size::SMALL, mirror ? FL_ALIGN_LEFT : FL_ALIGN_RIGHT, text::Elide::None);
         right -= sw + 16;
       }
-      text::draw(it.label, lx, yy, right - lx, kItemH, fg, text::REGULAR, text::size::BODY);
+      text::draw(it.label, mx(lx, right - lx), yy, right - lx, kItemH, fg, text::REGULAR, text::size::BODY,
+                 mirror ? FL_ALIGN_RIGHT : FL_ALIGN_LEFT);
       yy += kItemH;
     }
   }

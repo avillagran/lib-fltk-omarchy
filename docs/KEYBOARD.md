@@ -53,6 +53,11 @@ everywhere.
 | Dialog | Enter in a field moves to the next field, in the last one (or anywhere else) confirms (or cancels when Cancel has focus), Esc cancels, Tab moves between the field and the buttons. A dialog keeps the keyboard: window shortcuts wait until it is answered |
 | HelpOverlay | Esc, ? or Enter close it |
 
+Right to left (`fo::rtl()`), Left and Right swap their meaning wherever
+they follow the reading direction: Collection grids, Breadcrumbs, the
+Sidebar's "toward the files" key, menus (Left opens a submenu) and
+ColumnView.
+
 ## Mouse, for completeness
 
 Collection: click selects, Ctrl+click or Alt+click toggles, Shift+click

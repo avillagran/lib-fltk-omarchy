@@ -10,6 +10,7 @@
 #include "fltk-omarchy/collection.h"
 #include "fltk-omarchy/dialog.h"
 #include "fltk-omarchy/columns.h"
+#include "fltk-omarchy/i18n.h"
 #include "fltk-omarchy/menu.h"
 #include "fltk-omarchy/theme.h"
 #include "fltk-omarchy/widgets.h"
@@ -419,6 +420,89 @@ TEST(display_columns_keyboard_and_clicks) {
   fo_test::click(&win, cols[2]->x() + 60, 30);
   CHECK(Fl::focus() == cols[2]);
   CHECK_EQ(view->active(), 2);
+  win.hide();
+  anim::set_enabled(-1);
+}
+
+namespace {
+struct RtlScope {
+  RtlScope() { i18n::set_language("ar"); }
+  ~RtlScope() { i18n::set_language(""); }
+};
+
+class IconRows : public Collection {
+public:
+  IconRows(int x, int y, int w, int h) : Collection(x, y, w, h) {}
+  int count() const override { return 3; }
+  void draw_item(int, int x, int y, int w, int h, const ItemState &s) override {
+    draw_row(x, y, w, h, s, "folder", "", "", theme().accent());
+  }
+};
+
+// Non-background pixels in a column strip of a row.
+int ink(Fl_Window *win, int x0, int x1, int y0, int y1) {
+  Rgb bg = theme().background();
+  int n = 0;
+  for (int y = y0; y < y1; y += 2)
+    for (int x = x0; x < x1; ++x)
+      if (!fo_test::near(fo_test::pixel(win, x, y), bg, 12))
+        ++n;
+  return n;
+}
+} // namespace
+
+TEST(display_rtl_rows_breadcrumbs_and_menus) {
+  if (!fo_test::have_display())
+    return;
+  anim::set_enabled(0);
+  RtlScope rtl;
+  Window win(600, 400);
+  auto *rows = new IconRows(0, 0, 600, 120);
+  auto *crumbs = new Breadcrumbs(20, 140, 560, 40);
+  win.end();
+  fo_test::show(&win);
+  rows->reload(true);
+  rows->clear_selection();
+  win.redraw();
+  fo_test::settle();
+  // Row 0 is at y 12..44: the icon is drawn at the right end, not the left.
+  CHECK(ink(&win, 600 - 12 - 40, 600 - 12, 14, 42) > 10);
+  CHECK_EQ(ink(&win, 12, 12 + 40, 14, 42), 0);
+
+  // Breadcrumbs: the trail starts at the right edge.
+  int went = -1;
+  crumbs->segments({{"~", "/home/me"}, {"Pictures", "/home/me/Pictures"}, {"Lisbon", "/l"}});
+  crumbs->on_navigate([&](int i) { went = i; });
+  Fl::e_x = crumbs->x() + crumbs->w() - 4;
+  Fl::e_y = crumbs->y() + 20;
+  crumbs->handle(FL_RELEASE);
+  CHECK_EQ(went, 0);
+  went = -1;
+  Fl::e_x = crumbs->x() + 4;
+  crumbs->handle(FL_RELEASE);
+  CHECK_EQ(went, -1); // nothing at the left end of a short trail
+
+  // Menus open to the left of the pointer, submenus too, and Left opens
+  // a submenu.
+  std::vector<MenuItem> items = {{"Open"}, {"Sort by", "", nullptr, {{"Name"}, {"Size"}}}, {"Rename"}};
+  PopupMenu *m = PopupMenu::open_at(&win, 580, 60, items);
+  int cx, cy, cw, ch;
+  CHECK(m->card_rect(0, cx, cy, cw, ch));
+  CHECK_EQ(cx + cw, 580);
+  send_key(m, FL_Down);
+  send_key(m, FL_Down);
+  CHECK_EQ(m->highlighted(0), 1);
+  send_key(m, FL_Right); // closes nothing, opens nothing
+  CHECK_EQ(m->depth(), 1);
+  send_key(m, FL_Left);
+  CHECK_EQ(m->depth(), 2);
+  int sx, sy, sw, sh;
+  CHECK(m->card_rect(1, sx, sy, sw, sh));
+  CHECK(sx + sw <= cx + 2);
+  send_key(m, FL_Right); // back out
+  CHECK_EQ(m->depth(), 1);
+  m->close();
+  fo_test::settle();
   win.hide();
   anim::set_enabled(-1);
 }

@@ -1,6 +1,7 @@
 #include "fltk-omarchy/collection.h"
 
 #include "fltk-omarchy/app.h"
+#include "fltk-omarchy/i18n.h"
 #include "fltk-omarchy/icons.h"
 #include "fltk-omarchy/paint.h"
 #include "fltk-omarchy/text.h"
@@ -22,6 +23,9 @@ Collection::Collection(int x, int y, int w, int h) : Fl_Widget(x, y, w, h) {
   set_visible_focus();
   bar_.place(x + w - 10, y, 10, h);
 }
+
+// Right to left the scrollbar sits on the left edge.
+static void place_bar(ScrollBar &bar, int x, int y, int w, int h) { bar.place(rtl() ? x : x + w - 10, y, 10, h); }
 
 // --- Geometry -------------------------------------------------------------------
 
@@ -61,7 +65,10 @@ void Collection::cell(int i, int &cx, int &cy, int &cw, int &ch) const {
   int cols = columns();
   cw = (w() - 2 * pad) / cols;
   ch = tile_h_;
-  cx = pad + (i % cols) * cw;
+  int col = i % cols;
+  if (rtl())
+    col = cols - 1 - col; // tiles flow from the right
+  cx = pad + col * cw;
   cy = pad + (i / cols) * tile_h_;
 }
 
@@ -97,6 +104,8 @@ int Collection::item_at(int ex, int ey) const {
     int col = (cx - pad) / cw;
     if (col >= cols)
       return -1;
+    if (rtl())
+      col = cols - 1 - col;
     i = ((cy - pad) / tile_h_) * cols + col;
   }
   return i < n ? i : -1;
@@ -104,7 +113,7 @@ int Collection::item_at(int ex, int ey) const {
 
 void Collection::resize(int X, int Y, int W, int H) {
   Fl_Widget::resize(X, Y, W, H);
-  bar_.place(X + W - 10, Y, 10, H);
+  place_bar(bar_, X, Y, W, H);
   ring_ = Anim<RectF>(); // the grid reflows: no sliding from old places
 }
 
@@ -309,6 +318,8 @@ bool Collection::key(int k) {
   bool shift = state & FL_SHIFT, ctrl = state & FL_CTRL;
   int cols = columns();
   int cur = current_ < 0 ? -1 : current_;
+  // Right to left, Left goes forward in a grid.
+  int left = rtl() ? 1 : -1;
   int page = std::max(1, h() / (layout_ == Layout::List ? row_h_ : tile_h_)) * cols;
   if (ctrl && (k == 'a' || k == 'A')) {
     select_all();
@@ -338,12 +349,12 @@ bool Collection::key(int k) {
   case FL_Left:
     if (layout_ == Layout::List)
       return false;
-    move_cursor(cur < 0 ? 0 : cur - 1, shift);
+    move_cursor(cur < 0 ? 0 : cur + left, shift);
     return true;
   case FL_Right:
     if (layout_ == Layout::List)
       return false;
-    move_cursor(cur < 0 ? 0 : cur + 1, shift);
+    move_cursor(cur < 0 ? 0 : cur - left, shift);
     return true;
   case FL_Home: move_cursor(0, shift); return true;
   case FL_End: move_cursor(n - 1, shift); return true;
@@ -367,6 +378,7 @@ bool Collection::key(int k) {
 int Collection::handle(int event) {
   double max = max_offset();
   double p = pos_;
+  place_bar(bar_, x(), y(), w(), h());
   if (bar_.handle(event, this, p, max, h())) {
     scroller_.jump(p);
     redraw();
@@ -543,6 +555,7 @@ void Collection::draw() {
   pos_ = scroller_.position(max);
   if (scroller_.running())
     anim::request_frame(this);
+  place_bar(bar_, x(), y(), w(), h());
   int off = int(std::lround(pos_));
   fl_push_clip(x(), y(), w(), h());
   paint::fill(x(), y(), w(), h(), t.background());
@@ -602,22 +615,28 @@ void Collection::draw_row(int X, int Y, int W, int H, const ItemState &s, const 
   else if (s.hover > 0)
     paint::round_fill(X, Y, W, H, r, t.foreground(), 0.06 * s.hover);
   Rgb fg = s.selected ? t.accent() : t.foreground();
+  // Laid out left to right, then mirrored when the language reads right
+  // to left: the icon at the right edge, the detail and chevron at the left.
+  bool mirror = rtl();
+  auto mx = [&](int x0, int w0) { return mirror ? X + W - (x0 - X) - w0 : x0; };
   int ix = X + 12;
   int is = std::min(16, H - 8);
-  icon::draw(icn, ix, Y + (H - is) / 2, is, icon_color == Rgb() ? fg : icon_color);
+  icon::draw(icn, mx(ix, is), Y + (H - is) / 2, is, icon_color == Rgb() ? fg : icon_color);
   int lx = ix + is + 12;
   int right = X + W - 12;
   if (chevron) {
-    icon::draw("chevron-right", right - 14, Y + (H - 14) / 2, 14, s.selected ? t.accent() : t.secondary_foreground());
+    icon::draw(mirror ? "chevron-left" : "chevron-right", mx(right - 14, 14), Y + (H - 14) / 2, 14,
+               s.selected ? t.accent() : t.secondary_foreground());
     right -= 22;
   }
   if (!detail.empty()) {
     int dw = std::min(int(text::width(detail, text::REGULAR, text::size::LABEL)) + 1, (right - lx) / 2);
-    text::draw(detail, right - dw, Y, dw, H, t.secondary_foreground(), text::REGULAR, text::size::LABEL,
-               FL_ALIGN_RIGHT);
+    text::draw(detail, mx(right - dw, dw), Y, dw, H, t.secondary_foreground(), text::REGULAR, text::size::LABEL,
+               mirror ? FL_ALIGN_LEFT : FL_ALIGN_RIGHT);
     right -= dw + 16;
   }
-  text::draw(name, lx, Y, right - lx, H, fg, text::REGULAR, text::size::BODY, FL_ALIGN_LEFT, text::Elide::Middle);
+  text::draw(name, mx(lx, right - lx), Y, right - lx, H, fg, text::REGULAR, text::size::BODY,
+             mirror ? FL_ALIGN_RIGHT : FL_ALIGN_LEFT, text::Elide::Middle);
 }
 
 void Collection::draw_tile(int X, int Y, int W, int H, const ItemState &s, const std::string &icn,

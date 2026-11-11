@@ -37,7 +37,8 @@ void watch(const std::string &language_file = "");
 void set_language(const std::string &code);
 /// Current language code ("en" by default).
 const std::string &language();
-/// True for right-to-left languages (ar, he, fa, ur).
+/// True for right-to-left languages (ar, he, fa, ur, and any language the
+/// locale registry marks "rtl").
 bool rtl();
 
 /// The first line of a language file if it is a valid code, else "en".
@@ -75,6 +76,10 @@ std::string format_when(std::time_t t, std::time_t now = 0);
 
 /// Shorthands.
 inline const char *tr(const char *source) { return i18n::tr(source); }
+/// True while the language reads right to left: the toolkit's widgets
+/// mirror then (Sidebar, Breadcrumbs, Collection, menus, SplitPane,
+/// ColumnView).
+inline bool rtl() { return i18n::rtl(); }
 inline std::string trn(const char *source, long long n) { return i18n::trn(source, n); }
 
 } // namespace fo

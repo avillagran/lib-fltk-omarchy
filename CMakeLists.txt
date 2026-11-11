@@ -82,6 +82,7 @@ if(FO_BUILD_TESTS)
     tests/test_process.cpp
     tests/test_scroll.cpp
     tests/test_columns.cpp
+    tests/test_rtl.cpp
     tests/test_widgets.cpp
   )
   target_link_libraries(fo_tests PRIVATE fltk-omarchy::fltk-omarchy)

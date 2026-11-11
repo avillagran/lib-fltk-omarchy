@@ -16,6 +16,10 @@
 // with it, Esc closes. Any other key closes the menu and goes on to the
 // app (so window shortcuts work while a menu is open).
 //
+// Right to left (fo::rtl()) menus mirror: they open to the left of the
+// pointer, submenus open on the left, entries read from the right, and
+// Left opens a submenu while Right closes it.
+//
 //   std::vector<fo::MenuItem> items = {
 //     {"Open", "⏎", [&] { open(); }},
 //     fo::MenuItem::separator(),
@@ -62,7 +66,8 @@ public:
   /// to stay inside the window.
   static PopupMenu *open_at(Window *win, int x, int y, std::vector<MenuItem> items);
   /// Opens below a rectangle (a toolbar button), or above it when there
-  /// is no room below; right-aligned with it when `align_right`.
+  /// is no room below; aligned with its end (the right edge, or the left
+  /// edge right to left) when `align_right`, with its start otherwise.
   static PopupMenu *open_below(Window *win, int x, int y, int w, int h, std::vector<MenuItem> items,
                                bool align_right = false);
   /// Called when the menu closes without a choice (Esc, click outside).

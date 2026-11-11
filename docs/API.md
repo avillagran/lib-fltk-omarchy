@@ -146,7 +146,18 @@ std::string s = fo::trn("%n items", n);
 ```
 
 - Language from `~/.config/omarchy/language`, followed live;
-  `set_language`, `language()`, `rtl()`, `parse_language`.
+  `set_language`, `language()`, `rtl()` (also `fo::rtl()`),
+  `parse_language`.
+- Right to left (Arabic, Hebrew, Persian, Urdu, or a registry entry with
+  `"direction": "rtl"`) the widgets mirror, read at draw and event time so
+  a language switch takes effect live: Sidebar rows (icon at the right,
+  status and eject at the left, Left hands the keyboard back), Breadcrumbs
+  (the trail starts at the right edge; Left goes deeper), Collection rows
+  (`draw_row`), grids (tiles flow from the right; Left moves forward) and
+  scrollbars (left edge), menus (open to the left, mirrored entries, Left
+  opens a submenu), SplitPane (the first pane on the right) and
+  ColumnView. See [components/rtl.png](components/rtl.png). Dialog button
+  order, the help overlay and toolbar layouts are left to the app.
 - Catalogs: embedded JSON, layered en → base → regional (pt → pt-BR);
   values are strings or CLDR plural forms. The toolkit ships its own few
   strings in es, pt, fr, de and it.

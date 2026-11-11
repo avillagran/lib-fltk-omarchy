@@ -125,7 +125,7 @@ private:
 /// segment is bright and bold; others are clickable. When the path does
 /// not fit, the first segments fold into "…", which opens a menu of them
 /// (inside an fo::Window). Keyboard: Left/Right move between segments,
-/// Enter goes there.
+/// Enter goes there. Right to left the trail starts at the right edge.
 class Breadcrumbs : public Fl_Widget {
 public:
   struct Segment {
@@ -162,7 +162,9 @@ public:
   void draw() override;
 };
 
-/// Two panes and a draggable divider (horizontal: left | right).
+/// Two panes and a draggable divider (horizontal: left | right, or
+/// right | left when fo::rtl(): the first pane is at the start of the
+/// reading direction).
 /// Keyboard: none (the divider is a mouse affordance); set_split() moves it
 /// from code, animated over 190 ms when asked.
 class SplitPane : public Fl_Group {
@@ -186,7 +188,7 @@ private:
   void apply(int px);
   Orientation o_;
   int split_ = 200, min1_ = 120, min2_ = 120;
-  bool dragging_ = false, hover_ = false, collapsed_ = false;
+  bool dragging_ = false, hover_ = false, collapsed_ = false, rtl_ = false;
   int grab_ = 0, before_collapse_ = 0;
   Anim<double> motion_;
   std::function<void(int)> change_;

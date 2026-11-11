@@ -1,6 +1,7 @@
 #include "fltk-omarchy/sidebar.h"
 
 #include "fltk-omarchy/app.h"
+#include "fltk-omarchy/i18n.h"
 #include "fltk-omarchy/icons.h"
 #include "fltk-omarchy/paint.h"
 #include "fltk-omarchy/text.h"
@@ -135,17 +136,20 @@ void Sidebar::reveal(int row) {
 }
 
 bool Sidebar::on_eject_button(int row, int ex) const {
-  return row >= 0 && rows_[size_t(row)].ejectable && ex >= x() + w() - kInset - kEject - 4;
+  if (row < 0 || !rows_[size_t(row)].ejectable)
+    return false;
+  // The eject button is at the end of the row: the left edge right to left.
+  return rtl() ? ex < x() + kInset + kEject + 4 : ex >= x() + w() - kInset - kEject - 4;
 }
 
 void Sidebar::resize(int X, int Y, int W, int H) {
   Fl_Widget::resize(X, Y, W, H);
-  bar_.place(X + W - 10, Y, 10, H);
+  bar_.place(rtl() ? X : X + W - 10, Y, 10, H);
 }
 
 int Sidebar::handle(int event) {
   double max = std::max(0, content_h_ - h());
-  bar_.place(x() + w() - 10, y(), 10, h());
+  bar_.place(rtl() ? x() : x() + w() - 10, y(), 10, h());
   double p = pos_;
   if (bar_.handle(event, this, p, max, h())) {
     scroller_.jump(p);
@@ -249,9 +253,14 @@ int Sidebar::handle(int event) {
     case FL_Down: set_cursor(step(cursor_, 1)); return 1;
     case FL_Home: set_cursor(step(-1, 1)); return 1;
     case FL_End: set_cursor(step(n, -1)); return 1;
+    case FL_Left:
+    case FL_Right:
+      // Toward the files: Right, or Left when the sidebar is mirrored.
+      if ((k == FL_Right) == rtl())
+        return 0;
+      // fall through
     case FL_Enter:
     case FL_KP_Enter:
-    case FL_Right:
     case ' ':
       if (activate_ && cursor_ >= 0 && cursor_ < n)
         activate_(rows_[size_t(cursor_)]);
@@ -305,11 +314,16 @@ void Sidebar::draw() {
   pos_ = scroller_.position(max);
   if (scroller_.running())
     anim::request_frame(this);
-  bar_.place(x() + w() - 10, y(), 10, h());
+  bool mirror = rtl();
+  bar_.place(mirror ? x() : x() + w() - 10, y(), 10, h());
   fl_push_clip(x(), y(), w(), h());
   paint::fill(x(), y(), w(), h(), t.background());
   int off = y() - int(std::lround(pos_));
   int rx = x() + kInset, rw = w() - 2 * kInset;
+  // Rows are laid out left to right and mirrored for right-to-left
+  // languages: icon at the right, label right-aligned, status and eject
+  // button at the left.
+  auto mx = [&](int x0, int w0) { return mirror ? rx + rw - (x0 - rx) - w0 : x0; };
   int r = t.radius_small();
   bool keyed = Fl::focus() == this && focus_visible();
 
@@ -337,8 +351,11 @@ void Sidebar::draw() {
       if (!sec.id.empty() && active_ >= 0 && rows_[size_t(active_)].id == sec.id)
         c = t.accent();
       fl_font(text::REGULAR, text::size::SMALL);
-      text::draw_spaced(text::upper(sec.title), rx + kPadX, sy + kHeaderH - fl_descent(), kSpacing, c, text::REGULAR,
-                        text::size::SMALL);
+      std::string title = text::upper(sec.title);
+      int hx = rx + kPadX;
+      if (mirror)
+        hx = rx + rw - kPadX - text::width_spaced(title, kSpacing, text::REGULAR, text::size::SMALL);
+      text::draw_spaced(title, hx, sy + kHeaderH - fl_descent(), kSpacing, c, text::REGULAR, text::size::SMALL);
       continue;
     }
     const SidebarRow &row = rows_[size_t(s.row)];
@@ -351,25 +368,26 @@ void Sidebar::draw() {
       paint::round_frame(rx, sy, rw, kRowH, r, 1, t.accent());
     Rgb fg = active ? t.bright_foreground() : t.foreground();
     int ix = rx + kPadX;
-    icon::draw(row.icon.empty() ? "folder" : row.icon, ix, sy + (kRowH - kIcon) / 2, kIcon, fg);
+    icon::draw(row.icon.empty() ? "folder" : row.icon, mx(ix, kIcon), sy + (kRowH - kIcon) / 2, kIcon, fg);
     int lx = ix + kIcon + kIconGap;
     int right = rx + rw - kPadX;
     if (row.ejectable) {
       int ex = rx + rw - kEject - 3;
       if (s.row == hover_ && eject_hover_)
-        paint::round_fill(ex, sy + (kRowH - kEject) / 2, kEject, kEject, r, t.foreground(), 0.08);
-      icon::draw("eject", ex + (kEject - 16) / 2, sy + (kRowH - 16) / 2, 16,
+        paint::round_fill(mx(ex, kEject), sy + (kRowH - kEject) / 2, kEject, kEject, r, t.foreground(), 0.08);
+      icon::draw("eject", mx(ex + (kEject - 16) / 2, 16), sy + (kRowH - 16) / 2, 16,
                  s.row == hover_ ? t.foreground() : t.secondary_foreground());
       right = ex - 6;
     }
     if (!row.status.empty()) {
       int sw = int(text::width(row.status, text::REGULAR, text::size::SMALL)) + 1;
       Rgb sc = row.status_color == Rgb() ? t.secondary_foreground() : row.status_color;
-      text::draw(row.status, right - sw, sy, sw, kRowH, sc, text::REGULAR, text::size::SMALL, FL_ALIGN_RIGHT,
-                 text::Elide::None);
+      text::draw(row.status, mx(right - sw, sw), sy, sw, kRowH, sc, text::REGULAR, text::size::SMALL,
+                 mirror ? FL_ALIGN_LEFT : FL_ALIGN_RIGHT, text::Elide::None);
       right -= sw + 8;
     }
-    text::draw(row.label, lx, sy, right - lx, kRowH, fg);
+    text::draw(row.label, mx(lx, right - lx), sy, right - lx, kRowH, fg, text::REGULAR, text::size::BODY,
+               mirror ? FL_ALIGN_RIGHT : FL_ALIGN_LEFT);
   }
   bar_.draw(this, pos_, max, h());
   fl_pop_clip();

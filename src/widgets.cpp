@@ -2,6 +2,7 @@
 
 #include "fltk-omarchy/app.h"
 #include "fltk-omarchy/dialog.h"
+#include "fltk-omarchy/i18n.h"
 #include "fltk-omarchy/icons.h"
 #include "fltk-omarchy/menu.h"
 #include "fltk-omarchy/paint.h"
@@ -338,8 +339,10 @@ void Breadcrumbs::layout_hits() {
   while (first_ < n - 1 && total(first_) > w())
     ++first_;
   int cx = x();
+  // Right to left the trail starts at the right edge.
+  bool mirror = rtl();
   auto push = [&](int index, int width) {
-    hits_.push_back(Hit{cx, width, index});
+    hits_.push_back(Hit{mirror ? x() + w() - (cx - x()) - width : cx, width, index});
     cx += width + 2 * kCrumbGap + slash;
   };
   push(0, seg_w(0));
@@ -417,12 +420,15 @@ int Breadcrumbs::handle(int event) {
     for (size_t i = 0; i < hits_.size(); ++i)
       if (hits_[i].index == cursor_)
         at = i;
-    if (k == FL_Left && at > 0) {
+    // Left goes toward the start of the trail, which is on the right
+    // when the language reads right to left.
+    bool back = (k == FL_Left) != rtl();
+    if ((k == FL_Left || k == FL_Right) && back && at > 0) {
       cursor_ = hits_[at - 1].index;
       redraw();
       return 1;
     }
-    if (k == FL_Right && at + 1 < hits_.size()) {
+    if ((k == FL_Left || k == FL_Right) && !back && at + 1 < hits_.size()) {
       cursor_ = hits_[at + 1].index;
       redraw();
       return 1;
@@ -443,18 +449,22 @@ void Breadcrumbs::draw() {
   fl_push_clip(x(), y(), w(), h());
   int n = int(segs_.size());
   bool keyed = has_focus(this) && focus_visible();
+  bool mirror = rtl();
+  int slash_w = int(text::width("/", text::REGULAR, text::size::TITLE));
   for (size_t i = 0; i < hits_.size(); ++i) {
     const Hit &hh = hits_[i];
-    if (i > 0)
-      text::draw("/", hh.x - kCrumbGap - int(text::width("/", text::REGULAR, text::size::TITLE)), y(),
-                 int(text::width("/", text::REGULAR, text::size::TITLE)) + 2, h(),
+    if (i > 0) // the separator before each segment, in reading order
+      text::draw("/", mirror ? hh.x + hh.w + kCrumbGap : hh.x - kCrumbGap - slash_w, y(), slash_w + 2, h(),
                  t.tint(t.foreground(), 0.35), text::REGULAR, text::size::TITLE, FL_ALIGN_LEFT, text::Elide::None);
     bool last = hh.index == n - 1;
     Rgb c = last ? t.bright_foreground() : hh.index == hover_ ? t.foreground() : t.secondary_foreground();
     const std::string &label = hh.index == -1 ? std::string(kFold) : segs_[size_t(hh.index)].label;
-    int avail = std::min(hh.w + 2, x() + w() - hh.x);
-    text::draw(label, hh.x, y(), avail, h(), c, last ? text::SEMIBOLD : text::REGULAR, text::size::TITLE,
-               FL_ALIGN_LEFT, last ? text::Elide::Middle : text::Elide::None);
+    int lx = std::max(hh.x, x());
+    int avail = std::min(hh.w + 2, x() + w() - lx);
+    if (mirror)
+      avail = std::min(hh.w + 2, hh.x + hh.w + 2 - lx);
+    text::draw(label, lx, y(), avail, h(), c, last ? text::SEMIBOLD : text::REGULAR, text::size::TITLE,
+               mirror ? FL_ALIGN_RIGHT : FL_ALIGN_LEFT, last ? text::Elide::Middle : text::Elide::None);
     if (keyed && hh.index == cursor_)
       paint::round_frame(hh.x - 5, y() + h() / 2 - 13, hh.w + 10, 26, t.radius_small(), 1, t.accent());
   }
@@ -480,7 +490,11 @@ void SplitPane::apply(int px) {
   split_ = px;
   Fl_Widget *a = children() > 0 ? child(0) : nullptr;
   Fl_Widget *b = children() > 1 ? child(1) : nullptr;
-  if (o_ == Horizontal) {
+  rtl_ = rtl();
+  if (o_ == Horizontal && rtl_) { // the first pane on the right
+    if (a) a->resize(x() + w() - px, y(), px, h());
+    if (b) b->resize(x(), y(), std::max(0, w() - px - 1), h());
+  } else if (o_ == Horizontal) {
     if (a) a->resize(x(), y(), px, h());
     if (b) b->resize(x() + px + 1, y(), std::max(0, w() - px - 1), h());
   } else {
@@ -535,7 +549,7 @@ void SplitPane::resize(int X, int Y, int W, int H) {
 }
 
 int SplitPane::handle(int event) {
-  int pos = o_ == Horizontal ? Fl::event_x() - x() : Fl::event_y() - y();
+  int pos = o_ == Horizontal ? (rtl_ ? x() + w() - Fl::event_x() : Fl::event_x() - x()) : Fl::event_y() - y();
   bool on_divider = !collapsed_ && std::abs(pos - split_) <= 3;
   switch (event) {
   case FL_MOVE:
@@ -579,13 +593,18 @@ int SplitPane::handle(int event) {
 }
 
 void SplitPane::draw() {
+  if (o_ == Horizontal && rtl_ != rtl()) {
+    // The language changed direction: swap the panes.
+    apply(split_);
+    damage(FL_DAMAGE_ALL);
+  }
   Fl_Group::draw();
   const Theme &t = theme();
   if (collapsed_ && split_ >= (o_ == Horizontal ? w() : h()))
     return;
   Rgb line = dragging_ || hover_ ? t.accent() : t.hairline();
   if (o_ == Horizontal)
-    paint::vline(x() + split_, y(), h(), line);
+    paint::vline(rtl_ ? x() + w() - split_ - 1 : x() + split_, y(), h(), line);
   else
     paint::hline(x(), y() + split_, w(), line);
 }
