@@ -299,8 +299,14 @@ void TextField::draw() {
 
 // --- Breadcrumbs ----------------------------------------------------------------
 
+// Files' path chips (breadcrumb_ui.rs): 24 px chips on a card, the current
+// folder on the accent, "›" between them, the ancestors that do not fit
+// folded into a leading "…" chip that opens a menu of them.
 static const char *kFold = "\xE2\x80\xA6";
-static const int kCrumbGap = 10;
+static const char *kSep = "\xE2\x80\xBA";
+static const int kChipH = 24, kSepW = 18, kChipPad = 8, kChipMax = 180, kCurrentMax = 260;
+
+static int chip_round() { return theme().radius() > 0 ? 7 : 0; }
 
 Breadcrumbs::Breadcrumbs(int x, int y, int w, int h) : Fl_Widget(x, y, w, h) {
   box(FL_NO_BOX);
@@ -320,38 +326,32 @@ void Breadcrumbs::layout_hits() {
   int n = int(segs_.size());
   if (!n)
     return;
-  auto seg_w = [&](int i) {
-    bool last = i == n - 1;
-    return int(text::width(segs_[size_t(i)].label, last ? text::SEMIBOLD : text::REGULAR, text::size::TITLE) + 0.5);
+  auto chip_w = [&](int i) {
+    int max = i == n - 1 ? kCurrentMax : kChipMax;
+    return std::min(max, int(text::width(segs_[size_t(i)].label, text::REGULAR, 12) + 0.5) + 2 * kChipPad);
   };
-  int slash = int(text::width("/", text::REGULAR, text::size::TITLE) + 0.5);
-  int fold = int(text::width(kFold, text::REGULAR, text::size::TITLE) + 0.5);
-  // Fold leading segments (keeping the first, usually ~ or /) until it fits.
-  first_ = 1;
-  auto total = [&](int first) {
-    int sum = seg_w(0);
-    if (first > 1)
-      sum += 2 * kCrumbGap + slash + fold;
-    for (int i = first; i < n; ++i)
-      sum += 2 * kCrumbGap + slash + seg_w(i);
-    return sum;
-  };
-  while (first_ < n - 1 && total(first_) > w())
-    ++first_;
+  int fold = int(text::width(kFold, text::REGULAR, 12) + 0.5) + 2 * 10;
+  // Keep as many trailing chips as fit; the rest fold into "…".
+  first_ = n - 1;
+  int used = chip_w(n - 1);
+  while (first_ > 0) {
+    int add = chip_w(first_ - 1) + kSepW;
+    int reserve = first_ - 1 > 0 ? fold + kSepW : 0;
+    if (used + add + reserve > w())
+      break;
+    used += add;
+    --first_;
+  }
   int cx = x();
-  // Right to left the trail starts at the right edge.
   bool mirror = rtl();
   auto push = [&](int index, int width) {
     hits_.push_back(Hit{mirror ? x() + w() - (cx - x()) - width : cx, width, index});
-    cx += width + 2 * kCrumbGap + slash;
+    cx += width + kSepW;
   };
-  push(0, seg_w(0));
-  if (first_ > 1)
+  if (first_ > 0)
     push(-1, fold);
   for (int i = first_; i < n; ++i)
-    push(i, seg_w(i));
-  if (first_ == 1 && n > 1 && total(1) <= w())
-    first_ = 0;
+    push(i, std::min(chip_w(i), std::max(24, x() + w() - cx)));
 }
 
 void Breadcrumbs::activate(int index) {
@@ -360,21 +360,29 @@ void Breadcrumbs::activate(int index) {
     if (!win)
       return;
     std::vector<MenuItem> items;
-    for (int i = 1; i < std::max(1, first_); ++i)
-      items.push_back(MenuItem(segs_[size_t(i)].label, "", [this, i] { activate(i); }));
+    for (int i = first_ - 1; i >= 0; --i)
+      items.push_back(MenuItem(segs_[size_t(i)].label, "", [this, i] { activate(i); }).with_icon("folder"));
     for (const auto &hit : hits_)
       if (hit.index == -1)
-        PopupMenu::open_below(win, hit.x - 8, y(), hit.w + 16, h(), items);
+        PopupMenu::open_below(win, hit.x, y() + (h() - kChipH) / 2, hit.w, kChipH, items);
     return;
   }
   if (index >= 0 && index < int(segs_.size()) - 1 && navigate_)
     navigate_(index);
 }
 
+void Breadcrumbs::open_fold() {
+  for (const auto &hit : hits_)
+    if (hit.index == -1) {
+      activate(-1);
+      return;
+    }
+}
+
 int Breadcrumbs::handle(int event) {
   auto hit_at = [&](int ex) {
     for (const auto &h : hits_)
-      if (ex >= h.x - 4 && ex < h.x + h.w + 4)
+      if (ex >= h.x && ex < h.x + h.w)
         return h.index;
     return -2;
   };
@@ -397,7 +405,18 @@ int Breadcrumbs::handle(int event) {
     redraw();
     return 1;
   case FL_PUSH:
-    return Fl::event_button() == FL_LEFT_MOUSE ? 1 : 0;
+    if (Fl::event_button() != FL_LEFT_MOUSE)
+      return 0;
+    // The current chip and the empty field belong to the owner (Files:
+    // clicking the address edits the path).
+    if (hit_at(Fl::event_x()) == -2 || hit_at(Fl::event_x()) == int(segs_.size()) - 1) {
+      if (empty_click_) {
+        empty_click_();
+        return 1;
+      }
+      return 0;
+    }
+    return 1;
   case FL_RELEASE: {
     int hv = hit_at(Fl::event_x());
     if (hv != -2 && Fl::event_inside(this))
@@ -450,23 +469,21 @@ void Breadcrumbs::draw() {
   int n = int(segs_.size());
   bool keyed = has_focus(this) && focus_visible();
   bool mirror = rtl();
-  int slash_w = int(text::width("/", text::REGULAR, text::size::TITLE));
+  int cy = y() + (h() - kChipH) / 2;
   for (size_t i = 0; i < hits_.size(); ++i) {
     const Hit &hh = hits_[i];
-    if (i > 0) // the separator before each segment, in reading order
-      text::draw("/", mirror ? hh.x + hh.w + kCrumbGap : hh.x - kCrumbGap - slash_w, y(), slash_w + 2, h(),
-                 t.tint(t.foreground(), 0.35), text::REGULAR, text::size::TITLE, FL_ALIGN_LEFT, text::Elide::None);
-    bool last = hh.index == n - 1;
-    Rgb c = last ? t.bright_foreground() : hh.index == hover_ ? t.foreground() : t.secondary_foreground();
+    if (i > 0) // the separator before each chip, in reading order
+      text::draw(kSep, mirror ? hh.x + hh.w : hh.x - kSepW, y(), kSepW, h(), t.dim(), text::REGULAR, 12,
+                 FL_ALIGN_CENTER, text::Elide::None);
+    bool current = hh.index == n - 1;
+    Rgb fill = current ? t.accent() : hh.index == hover_ ? mix(t.background(), t.foreground(), 0.16) : t.card();
+    paint::round_fill(hh.x, cy, hh.w, kChipH, chip_round(), fill);
+    Rgb fg = current ? t.background() : hh.index == hover_ ? t.bright_foreground() : t.foreground();
     const std::string &label = hh.index == -1 ? std::string(kFold) : segs_[size_t(hh.index)].label;
-    int lx = std::max(hh.x, x());
-    int avail = std::min(hh.w + 2, x() + w() - lx);
-    if (mirror)
-      avail = std::min(hh.w + 2, hh.x + hh.w + 2 - lx);
-    text::draw(label, lx, y(), avail, h(), c, last ? text::SEMIBOLD : text::REGULAR, text::size::TITLE,
-               mirror ? FL_ALIGN_RIGHT : FL_ALIGN_LEFT, last ? text::Elide::Middle : text::Elide::None);
+    text::draw(label, hh.x + kChipPad, y(), hh.w - 2 * kChipPad, h(), fg, text::REGULAR, 12,
+               hh.index == -1 ? FL_ALIGN_CENTER : (mirror ? FL_ALIGN_RIGHT : FL_ALIGN_LEFT));
     if (keyed && hh.index == cursor_)
-      paint::round_frame(hh.x - 5, y() + h() / 2 - 13, hh.w + 10, 26, t.radius_small(), 1, t.accent());
+      paint::round_frame(hh.x - 2, cy - 2, hh.w + 4, kChipH + 4, chip_round(), 1, t.accent());
   }
   fl_pop_clip();
 }

@@ -139,11 +139,15 @@ private:
   int cx_ = 0, cy_ = 0, cw_ = 0, ch_ = 0;
 };
 
-/// A small label under (or above) a widget. IconButton shows its own after
-/// a 600 ms hover; other widgets call show()/hide().
+/// A small label under (or above) a widget, in Files' look: a 28 px card
+/// in the background color with a card-colored edge, 12 px text.
+/// IconButton shows its own after a 600 ms hover; ToolBar after two
+/// seconds; other widgets call open_for()/open_at() and close_all().
 class Tooltip : public Layer {
 public:
   static void open_for(Fl_Widget *anchor, const std::string &text);
+  /// Under a rectangle given in window coordinates.
+  static void open_at(Window *win, int x, int y, int w, int h, const std::string &text);
   static void close_all();
   bool modal() const override { return false; }
   void draw() override;

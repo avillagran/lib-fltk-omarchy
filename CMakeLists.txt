@@ -51,6 +51,7 @@ add_library(fltk-omarchy STATIC
   src/platform.cpp
   src/process.cpp
   src/scroll.cpp
+  src/shell.cpp
   src/sidebar.cpp
   src/text.cpp
   src/theme.cpp

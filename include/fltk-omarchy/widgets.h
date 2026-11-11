@@ -121,11 +121,12 @@ private:
   std::function<bool(int)> key_;
 };
 
-/// The path bar's breadcrumbs: "~ / Pictures / Lisbon 2026". The last
-/// segment is bright and bold; others are clickable. When the path does
-/// not fit, the first segments fold into "…", which opens a menu of them
-/// (inside an fo::Window). Keyboard: Left/Right move between segments,
-/// Enter goes there. Right to left the trail starts at the right edge.
+/// Files' path chips: "… › home › Pictures › Lisbon 2026". Each segment
+/// is a 24 px chip on a card, the current folder on the accent; the
+/// others are clickable. When the path does not fit, the leading
+/// segments fold into a "…" chip, which opens a menu of them (inside an
+/// fo::Window). Keyboard: Left/Right move between chips, Enter goes there.
+/// Right to left the trail starts at the right edge.
 class Breadcrumbs : public Fl_Widget {
 public:
   struct Segment {
@@ -139,6 +140,10 @@ public:
   void on_navigate(std::function<void(int index)> fn) { navigate_ = std::move(fn); }
   /// Index of the first segment shown (0 unless folded).
   int first_visible() const { return first_; }
+  /// A click on the current chip or on empty space (Files edits the path).
+  void on_empty_click(std::function<void()> fn) { empty_click_ = std::move(fn); }
+  /// Opens the menu of folded ancestors (Files: Alt+Down), if any.
+  void open_fold();
   void draw() override;
   int handle(int event) override;
 
@@ -151,6 +156,7 @@ private:
   std::vector<Segment> segs_;
   std::vector<Hit> hits_;
   std::function<void(int)> navigate_;
+  std::function<void()> empty_click_;
   int first_ = 0, hover_ = -2, cursor_ = -2;
 };
 

@@ -16,6 +16,7 @@
 #include "fltk-omarchy/platform.h"
 #include "fltk-omarchy/process.h"
 #include "fltk-omarchy/scroll.h"
+#include "fltk-omarchy/shell.h"
 #include "fltk-omarchy/sidebar.h"
 #include "fltk-omarchy/text.h"
 #include "fltk-omarchy/theme.h"

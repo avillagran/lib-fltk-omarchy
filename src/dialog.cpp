@@ -333,6 +333,17 @@ void Tooltip::open_for(Fl_Widget *anchor, const std::string &text) {
   g_tip.reset(new Fl_Widget_Tracker(t));
 }
 
+void Tooltip::open_at(Window *win, int x, int y, int w, int h, const std::string &text) {
+  close_all();
+  if (!win || text.empty())
+    return;
+  auto *t = new Tooltip();
+  t->text_ = text;
+  t->ax_ = x, t->ay_ = y, t->aw_ = w, t->ah_ = h;
+  t->open(win);
+  g_tip.reset(new Fl_Widget_Tracker(t));
+}
+
 void Tooltip::close_all() {
   if (g_tip && !g_tip->deleted())
     static_cast<Tooltip *>(g_tip->widget())->close();
@@ -341,15 +352,18 @@ void Tooltip::close_all() {
 
 void Tooltip::draw() {
   const Theme &t = theme();
-  int tw = int(text::width(text_, text::REGULAR, text::size::LABEL)) + 18;
-  int th = 26;
-  int tx = std::max(4, std::min(ax_ + (aw_ - tw) / 2, w() - tw - 4));
+  // Files' toolbar tooltip: 28 px, 12 px text with 12 px of padding, a
+  // card-colored edge around a background fill, 6 px under the anchor.
+  int tw = std::min(w() - 16, int(text::width(text_, text::REGULAR, 12)) + 24);
+  int th = 28;
+  int tx = std::max(8, std::min(ax_ + (aw_ - tw) / 2, w() - tw - 8));
   int ty = ay_ + ah_ + 6;
   if (ty + th > h() - 4)
     ty = ay_ - th - 6;
-  paint::round_fill(tx, ty, tw, th, t.radius_small(), t.lighter_background());
-  paint::round_frame(tx, ty, tw, th, t.radius_small(), 1, t.hairline());
-  text::draw(text_, tx + 9, ty, tw - 18, th, t.bright_foreground(), text::REGULAR, text::size::LABEL);
+  int r = t.radius() > 0 ? 5 : 0;
+  paint::round_fill(tx, ty, tw, th, r, t.card());
+  paint::round_fill(tx + 1, ty + 1, tw - 2, th - 2, r, t.background());
+  text::draw(text_, tx + 12, ty, tw - 24, th, t.foreground(), text::REGULAR, 12, FL_ALIGN_CENTER);
 }
 
 // --- HelpOverlay --------------------------------------------------------------

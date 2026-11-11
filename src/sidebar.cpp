@@ -16,14 +16,107 @@
 namespace fo {
 
 namespace {
-const int kTop = 20, kInset = 12, kRowH = 34, kRowGap = 1, kHeaderH = 14, kHeaderTop = 21, kHeaderBottom = 6;
-const int kPadX = 14, kIcon = 18, kIconGap = 14, kEject = 28;
-const double kSpacing = 1.3;
+// Files' rail (places_sidebar.rs, view.rs): 34 px rows from 8 px down,
+// fills inset 5 px, icons centered on the rail's 26 px axis, labels from
+// 53 px, 20 px section slots (a hairline in the rail, a label expanded).
+const int kTop = 8, kInset = 5, kRowH = 34, kRowGap = 0, kHeaderH = 20, kFillH = 30;
+const int kIconAxis = 26, kLabelX = 53, kIcon = 16, kEject = 26, kBottom = 6;
+const int kOpenMs = 350, kCloseMs = 140;
+
+int round7() { return theme().radius() > 0 ? 7 : 0; }
+Rgb rail_fill(const Theme &t) { return mix(t.background(), t.foreground(), 0.04); }
+Rgb rail_edge(const Theme &t) { return mix(t.background(), t.foreground(), 0.15); }
+Rgb row_selected(const Theme &t) { return mix(t.background(), t.foreground(), 0.21); }
+Rgb row_hover(const Theme &t) { return mix(t.background(), t.foreground(), 0.12); }
 } // namespace
 
 Sidebar::Sidebar(int x, int y, int w, int h) : Fl_Widget(x, y, w, h) {
   box(FL_NO_BOX);
   set_visible_focus();
+}
+
+Sidebar::~Sidebar() {
+  Fl::remove_timeout(open_timer, this);
+  Fl::remove_timeout(close_timer, this);
+}
+
+void Sidebar::rail(bool on, int collapsed, int expanded) {
+  rail_ = on;
+  rail_w_ = collapsed;
+  wide_w_ = std::max(collapsed, expanded);
+  want_expanded_ = pinned_;
+  width_anim_.jump(want_expanded_ ? wide_w_ : rail_w_);
+  redraw();
+}
+
+int Sidebar::desired_width() {
+  if (!rail_)
+    return w();
+  return int(std::lround(width_anim_.value()));
+}
+
+double Sidebar::reveal() const {
+  if (!rail_)
+    return 1.0;
+  if (wide_w_ <= rail_w_)
+    return 0.0;
+  return std::max(0.0, std::min(1.0, double(w() - rail_w_) / (wide_w_ - rail_w_)));
+}
+
+void Sidebar::width_frame(void *data) {
+  auto *sb = static_cast<Sidebar *>(data);
+  if (sb->width_)
+    sb->width_();
+  sb->redraw();
+  if (sb->width_anim_.running())
+    anim::request_frame(width_frame, sb);
+}
+
+void Sidebar::expand(bool on) {
+  if (!rail_)
+    return;
+  on = on || pinned_;
+  if (on == want_expanded_)
+    return;
+  want_expanded_ = on;
+  width_anim_.set(on ? wide_w_ : rail_w_, anim::ms::LAYOUT, anim::Ease::OutCubic);
+  anim::request_frame(width_frame, this);
+  width_frame(this);
+}
+
+void Sidebar::open_timer(void *data) {
+  auto *sb = static_cast<Sidebar *>(data);
+  if (sb->hovering_)
+    sb->expand(true);
+}
+
+void Sidebar::close_timer(void *data) {
+  auto *sb = static_cast<Sidebar *>(data);
+  if (!sb->hovering_ && Fl::focus() != sb)
+    sb->expand(false);
+}
+
+void Sidebar::pinned(bool on) {
+  pinned_ = on;
+  if (rail_)
+    expand(on || hovering_ || Fl::focus() == this);
+  redraw();
+}
+
+int Sidebar::pin_y() const {
+  // In the rail the pin is its own icon above the footer rows; expanded it
+  // sits at the end of the last footer row.
+  return y() + h() - kBottom - footer_h_ - (reveal() < 0.5 ? kRowH : 0);
+}
+
+bool Sidebar::on_pin_button(int ex, int ey) const {
+  if (!rail_)
+    return false;
+  int py = pin_y();
+  if (reveal() < 0.5)
+    return ey >= py && ey < py + kRowH;
+  int fy = y() + h() - kBottom - kRowH;
+  return ey >= fy && ey < fy + kRowH && ex >= x() + w() - 40;
 }
 
 void Sidebar::clear() {
@@ -87,21 +180,26 @@ void Sidebar::layout() {
   for (size_t s = 0; s < sections_.size(); ++s) {
     if (!sections_[s].visible)
       continue;
-    if (!sections_[s].title.empty()) {
-      int top = first ? 0 : kHeaderTop;
-      slots_.push_back(Slot{int(s), -1, yy + top, kHeaderH});
-      yy += top + kHeaderH + kHeaderBottom;
-    } else if (!first) {
-      yy += kHeaderTop / 2;
+    bool any = false;
+    for (const auto &r : rows_)
+      any = any || (r.section == int(s) && !r.footer);
+    if (!any && sections_[s].title.empty())
+      continue;
+    if (!first || !sections_[s].title.empty()) {
+      slots_.push_back(Slot{int(s), -1, yy, kHeaderH});
+      yy += kHeaderH;
     }
     first = false;
     for (size_t r = 0; r < rows_.size(); ++r)
-      if (rows_[r].section == int(s)) {
+      if (rows_[r].section == int(s) && !rows_[r].footer) {
         slots_.push_back(Slot{int(s), int(r), yy, kRowH});
         yy += kRowH + kRowGap;
       }
   }
-  content_h_ = yy + 20;
+  footer_h_ = 0;
+  for (const auto &r : rows_)
+    footer_h_ += r.footer ? kRowH : 0;
+  content_h_ = yy + 8;
 }
 
 int Sidebar::row_y(int row) const {
@@ -112,11 +210,22 @@ int Sidebar::row_y(int row) const {
 }
 
 int Sidebar::slot_at(int ey) const {
+  // Footer rows: fixed at the bottom, outside the scrolled list. They are
+  // reported as negative slot numbers: -2 - their row.
+  int fy = y() + h() - kBottom - footer_h_;
+  if (ey >= fy) {
+    for (size_t r = 0; r < rows_.size(); ++r)
+      if (rows_[r].footer) {
+        if (ey >= fy && ey < fy + kRowH)
+          return -2 - int(r);
+        fy += kRowH;
+      }
+    return -1;
+  }
   int cy = ey - y() + int(std::lround(pos_));
   for (size_t i = 0; i < slots_.size(); ++i) {
     const Slot &s = slots_[i];
-    int pad = s.row < 0 ? 4 : 0;
-    if (cy >= s.y - pad && cy < s.y + s.h + pad)
+    if (cy >= s.y && cy < s.y + s.h)
       return int(i);
   }
   return -1;
@@ -136,7 +245,7 @@ void Sidebar::reveal(int row) {
 }
 
 bool Sidebar::on_eject_button(int row, int ex) const {
-  if (row < 0 || !rows_[size_t(row)].ejectable)
+  if (row < 0 || !rows_[size_t(row)].ejectable || reveal() < 0.5)
     return false;
   // The eject button is at the end of the row: the left edge right to left.
   return rtl() ? ex < x() + kInset + kEject + 4 : ex >= x() + w() - kInset - kEject - 4;
@@ -148,64 +257,89 @@ void Sidebar::resize(int X, int Y, int W, int H) {
 }
 
 int Sidebar::handle(int event) {
-  double max = std::max(0, content_h_ - h());
-  bar_.place(rtl() ? x() : x() + w() - 10, y(), 10, h());
+  double max = std::max(0, content_h_ - (h() - footer_h_ - kBottom));
+  int list_h = h() - footer_h_ - kBottom - (rail_ && reveal() < 0.5 ? kRowH : 0);
+  bar_.place(rtl() ? x() : x() + w() - 6, y(), 6, list_h);
   double p = pos_;
-  if (bar_.handle(event, this, p, max, h())) {
+  if (bar_.handle(event, this, p, max, list_h)) {
     scroller_.jump(p);
     redraw();
     return 1;
   }
   int ex = Fl::event_x(), ey = Fl::event_y();
+  auto row_of = [&](int si) {
+    if (si <= -2)
+      return -2 - si;
+    return si >= 0 ? slots_[size_t(si)].row : -1;
+  };
   switch (event) {
   case FL_ENTER:
+    hovering_ = true;
+    Fl::remove_timeout(close_timer, this);
+    if (rail_ && !want_expanded_)
+      Fl::add_timeout(kOpenMs / 1000.0, open_timer, this);
+    // fall through
   case FL_MOVE: {
     int si = slot_at(ey);
-    int hv = si >= 0 ? slots_[size_t(si)].row : -1;
+    int hv = row_of(si);
     int hh = si >= 0 && slots_[size_t(si)].row < 0 && !sections_[size_t(slots_[size_t(si)].section)].id.empty()
                  ? slots_[size_t(si)].section
                  : -1;
     bool ej = on_eject_button(hv, ex);
-    if (hv != hover_ || hh != hover_header_ || ej != eject_hover_) {
+    bool pin = on_pin_button(ex, ey);
+    if (pin)
+      hv = -1;
+    if (hv != hover_ || hh != hover_header_ || ej != eject_hover_ || pin != pin_hover_) {
       hover_ = hv;
       hover_header_ = hh;
       eject_hover_ = ej;
+      pin_hover_ = pin;
       window()->cursor(hh >= 0 ? FL_CURSOR_HAND : FL_CURSOR_DEFAULT);
       redraw();
     }
     return 1;
   }
   case FL_LEAVE:
+    hovering_ = false;
+    Fl::remove_timeout(open_timer, this);
+    if (rail_ && want_expanded_ && !pinned_)
+      Fl::add_timeout(kCloseMs / 1000.0, close_timer, this);
     hover_ = hover_header_ = -1;
-    eject_hover_ = false;
+    eject_hover_ = pin_hover_ = false;
     window()->cursor(FL_CURSOR_DEFAULT);
     redraw();
     return 1;
   case FL_PUSH: {
-    int si = slot_at(ey);
-    if (si < 0)
-      return 1;
-    const Slot &s = slots_[size_t(si)];
-    if (Fl::event_button() == FL_RIGHT_MOUSE) {
-      if (s.row >= 0 && context_)
-        context_(rows_[size_t(s.row)], ex, ey);
+    if (on_pin_button(ex, ey)) {
+      pinned(!pinned_);
+      if (pin_)
+        pin_(pinned_);
       return 1;
     }
-    if (s.row < 0) {
-      const std::string &id = sections_[size_t(s.section)].id;
+    int si = slot_at(ey);
+    if (si == -1)
+      return 1;
+    int row = row_of(si);
+    if (Fl::event_button() == FL_RIGHT_MOUSE) {
+      if (row >= 0 && context_)
+        context_(rows_[size_t(row)], ex, ey);
+      return 1;
+    }
+    if (row < 0) {
+      const std::string &id = sections_[size_t(slots_[size_t(si)].section)].id;
       if (!id.empty() && header_)
         header_(id);
       return 1;
     }
-    cursor_ = s.row;
-    if (on_eject_button(s.row, ex)) {
+    cursor_ = row;
+    if (on_eject_button(row, ex)) {
       if (eject_)
-        eject_(rows_[size_t(s.row)]);
+        eject_(rows_[size_t(row)]);
     } else {
       // Like Enter: open the row and hand the keyboard back to the files,
       // so the next arrow moves there and not here.
       if (activate_)
-        activate_(rows_[size_t(s.row)]);
+        activate_(rows_[size_t(row)]);
       if (finished_)
         finished_();
     }
@@ -227,9 +361,12 @@ int Sidebar::handle(int event) {
     if (active_ >= 0)
       cursor_ = active_;
     reveal(cursor_);
+    expand(true);
     redraw();
     return 1;
   case FL_UNFOCUS:
+    if (!hovering_)
+      expand(false);
     redraw();
     return 1;
   case FL_KEYBOARD: {
@@ -242,17 +379,25 @@ int Sidebar::handle(int event) {
     auto visible_row = [&](int r) {
       return sections_[size_t(rows_[size_t(r)].section)].visible;
     };
-    auto step = [&](int from, int dir) {
-      for (int r = from + dir; r >= 0 && r < n; r += dir)
-        if (visible_row(r))
-          return r;
-      return from;
-    };
+    // Keyboard order: the list, then the footer rows.
+    std::vector<int> order;
+    for (int r = 0; r < n; ++r)
+      if (visible_row(r) && !rows_[size_t(r)].footer)
+        order.push_back(r);
+    for (int r = 0; r < n; ++r)
+      if (visible_row(r) && rows_[size_t(r)].footer)
+        order.push_back(r);
+    if (order.empty())
+      return 0;
+    size_t at = 0;
+    for (size_t i = 0; i < order.size(); ++i)
+      if (order[i] == cursor_)
+        at = i;
     switch (k) {
-    case FL_Up: set_cursor(step(cursor_, -1)); return 1;
-    case FL_Down: set_cursor(step(cursor_, 1)); return 1;
-    case FL_Home: set_cursor(step(-1, 1)); return 1;
-    case FL_End: set_cursor(step(n, -1)); return 1;
+    case FL_Up: set_cursor(order[at > 0 ? at - 1 : 0]); return 1;
+    case FL_Down: set_cursor(order[std::min(order.size() - 1, at + 1)]); return 1;
+    case FL_Home: set_cursor(order.front()); return 1;
+    case FL_End: set_cursor(order.back()); return 1;
     case FL_Left:
     case FL_Right:
       // Toward the files: Right, or Left when the sidebar is mirrored.
@@ -278,8 +423,7 @@ int Sidebar::handle(int event) {
   }
   case FL_DND_ENTER:
   case FL_DND_DRAG: {
-    int si = slot_at(ey);
-    int r = si >= 0 ? slots_[size_t(si)].row : -1;
+    int r = row_of(slot_at(ey));
     if (r >= 0 && accepts_ && !accepts_(rows_[size_t(r)]))
       r = -1;
     if (!accepts_ && !dropped_)
@@ -310,86 +454,110 @@ int Sidebar::handle(int event) {
 
 void Sidebar::draw() {
   const Theme &t = theme();
-  double max = std::max(0, content_h_ - h());
+  double rv = reveal();
+  bool labels = rv > 0.35;
+  int list_h = h() - footer_h_ - kBottom - (rail_ && !labels ? kRowH : 0);
+  double max = std::max(0, content_h_ - list_h);
   pos_ = scroller_.position(max);
   if (scroller_.running())
     anim::request_frame(this);
   bool mirror = rtl();
-  bar_.place(mirror ? x() : x() + w() - 10, y(), 10, h());
+  bar_.place(mirror ? x() : x() + w() - 6, y(), 6, list_h);
   fl_push_clip(x(), y(), w(), h());
-  paint::fill(x(), y(), w(), h(), t.background());
-  int off = y() - int(std::lround(pos_));
-  int rx = x() + kInset, rw = w() - 2 * kInset;
+  paint::fill(x(), y(), w(), h(), rail_ ? rail_fill(t) : t.background());
+  if (rail_)
+    paint::vline(mirror ? x() : x() + w() - 1, y(), h(), rail_edge(t));
+  int rx = x() + kInset, rw = w() - 2 * kInset - (rail_ ? 1 : 0);
   // Rows are laid out left to right and mirrored for right-to-left
   // languages: icon at the right, label right-aligned, status and eject
   // button at the left.
-  auto mx = [&](int x0, int w0) { return mirror ? rx + rw - (x0 - rx) - w0 : x0; };
-  int r = t.radius_small();
+  auto mx = [&](int x0, int w0) { return mirror ? x() + w() - (x0 - x()) - w0 : x0; };
+  int r = round7();
   bool keyed = Fl::focus() == this && focus_visible();
+  // Labels fade in with the reveal.
+  auto label_color = [&](Rgb c) { return mix(rail_ ? rail_fill(t) : t.background(), c, std::min(1.0, rv * 1.5)); };
 
-  // The hover tint slides between rows.
-  if (hover_ >= 0 && hover_ != active_) {
-    RectF target{double(rx), double(row_y(hover_)), double(rw), double(kRowH)};
-    if (!hover_fill_.initialized() || hover_fill_.target().h == 0)
-      hover_fill_.jump(target);
-    else
-      hover_fill_.set(target, anim::ms::ROW * 2);
-    RectF hf = hover_fill_.get(this);
-    paint::round_fill(int(std::lround(hf.x)), off + int(std::lround(hf.y)), int(std::lround(hf.w)), kRowH, r,
-                      t.foreground(), 0.06);
-  } else {
-    hover_fill_.jump(RectF{});
-  }
-
-  for (const Slot &s : slots_) {
-    int sy = off + s.y;
-    if (sy + s.h < y() || sy > y() + h())
-      continue;
-    if (s.row < 0) {
-      const Section &sec = sections_[size_t(s.section)];
-      Rgb c = s.section == hover_header_ ? t.foreground() : t.secondary_foreground();
-      if (!sec.id.empty() && active_ >= 0 && rows_[size_t(active_)].id == sec.id)
-        c = t.accent();
-      fl_font(text::REGULAR, text::size::SMALL);
-      std::string title = text::upper(sec.title);
-      int hx = rx + kPadX;
-      if (mirror)
-        hx = rx + rw - kPadX - text::width_spaced(title, kSpacing, text::REGULAR, text::size::SMALL);
-      text::draw_spaced(title, hx, sy + kHeaderH - fl_descent(), kSpacing, c, text::REGULAR, text::size::SMALL);
-      continue;
-    }
-    const SidebarRow &row = rows_[size_t(s.row)];
-    bool active = s.row == active_, drop = s.row == drop_row_;
-    if (active || drop)
-      paint::round_fill(rx, sy, rw, kRowH, r, t.accent(), 0.16);
+  auto draw_row = [&](int ri, int sy) {
+    const SidebarRow &row = rows_[size_t(ri)];
+    bool active = ri == active_, drop = ri == drop_row_, hov = ri == hover_;
+    int fy = sy + (kRowH - kFillH) / 2;
+    if (active || hov || drop)
+      paint::round_fill(mx(rx, rw), fy, rw, kFillH, r, active ? row_selected(t) : row_hover(t));
     if (drop)
-      paint::round_frame(rx, sy, rw, kRowH, r, 2, t.accent());
-    else if (keyed && s.row == cursor_)
-      paint::round_frame(rx, sy, rw, kRowH, r, 1, t.accent());
+      paint::round_frame(mx(rx, rw), fy, rw, kFillH, r, 2, t.accent());
+    else if (keyed && ri == cursor_)
+      paint::round_frame(mx(rx, rw), fy, rw, kFillH, r, 1, t.accent());
     Rgb fg = active ? t.bright_foreground() : t.foreground();
-    int ix = rx + kPadX;
-    icon::draw(row.icon.empty() ? "folder" : row.icon, mx(ix, kIcon), sy + (kRowH - kIcon) / 2, kIcon, fg);
-    int lx = ix + kIcon + kIconGap;
-    int right = rx + rw - kPadX;
+    std::string ic = row.icon.empty() ? "folder" : row.icon;
+    icon::draw(ic, mx(x() + kIconAxis - kIcon / 2, kIcon), sy + (kRowH - kIcon) / 2, kIcon,
+               row.icon == "star" ? t.accent() : fg);
+    if (!labels)
+      return;
+    int lx = x() + kLabelX;
+    int right = x() + w() - kInset - 8;
+    if (row.footer && rail_)
+      right -= 30; // the pin
     if (row.ejectable) {
-      int ex = rx + rw - kEject - 3;
-      if (s.row == hover_ && eject_hover_)
-        paint::round_fill(mx(ex, kEject), sy + (kRowH - kEject) / 2, kEject, kEject, r, t.foreground(), 0.08);
-      icon::draw("eject", mx(ex + (kEject - 16) / 2, 16), sy + (kRowH - 16) / 2, 16,
-                 s.row == hover_ ? t.foreground() : t.secondary_foreground());
+      int ex = x() + w() - kInset - kEject - 2;
+      if (hov && eject_hover_)
+        paint::round_fill(mx(ex, kEject), sy + (kRowH - kEject) / 2, kEject, kEject, r, row_selected(t));
+      icon::draw("eject", mx(ex + (kEject - 14) / 2, 14), sy + (kRowH - 14) / 2, 14,
+                 label_color(hov ? t.foreground() : t.dim()));
       right = ex - 6;
     }
     if (!row.status.empty()) {
-      int sw = int(text::width(row.status, text::REGULAR, text::size::SMALL)) + 1;
-      Rgb sc = row.status_color == Rgb() ? t.secondary_foreground() : row.status_color;
-      text::draw(row.status, mx(right - sw, sw), sy, sw, kRowH, sc, text::REGULAR, text::size::SMALL,
+      int sw = int(text::width(row.status, text::REGULAR, 10)) + 1;
+      Rgb sc = row.status_color == Rgb() ? t.dim() : row.status_color;
+      text::draw(row.status, mx(right - sw, sw), sy, sw, kRowH, label_color(sc), text::REGULAR, 10,
                  mirror ? FL_ALIGN_LEFT : FL_ALIGN_RIGHT, text::Elide::None);
-      right -= sw + 8;
+      right -= sw + 6;
     }
-    text::draw(row.label, mx(lx, right - lx), sy, right - lx, kRowH, fg, text::REGULAR, text::size::BODY,
-               mirror ? FL_ALIGN_RIGHT : FL_ALIGN_LEFT);
+    text::draw(row.label, mx(lx, right - lx), sy, right - lx, kRowH, label_color(fg),
+               active ? text::BOLD : text::REGULAR, 12, mirror ? FL_ALIGN_RIGHT : FL_ALIGN_LEFT);
+  };
+
+  fl_push_clip(x(), y(), w(), list_h);
+  int off = y() - int(std::lround(pos_));
+  for (const Slot &s : slots_) {
+    int sy = off + s.y;
+    if (sy + s.h < y() || sy > y() + list_h)
+      continue;
+    if (s.row < 0) {
+      const Section &sec = sections_[size_t(s.section)];
+      if (!labels || sec.title.empty()) {
+        // In the rail a section starts after a hairline.
+        paint::hline(x() + 10, sy + s.h / 2, w() - 20 - (rail_ ? 1 : 0), rail_edge(t));
+        continue;
+      }
+      Rgb c = s.section == hover_header_ ? t.foreground() : t.dim();
+      if (!sec.id.empty() && active_ >= 0 && rows_[size_t(active_)].id == sec.id)
+        c = t.accent();
+      text::draw(sec.title, mx(x() + 12, w() - 24), sy, w() - 24, s.h, label_color(c), text::REGULAR, 11,
+                 mirror ? FL_ALIGN_RIGHT : FL_ALIGN_LEFT);
+      continue;
+    }
+    draw_row(s.row, sy);
   }
-  bar_.draw(this, pos_, max, h());
+  bar_.draw(this, pos_, max, list_h);
+  fl_pop_clip();
+
+  // Footer rows and the pin control.
+  int fy = y() + h() - kBottom - footer_h_;
+  for (size_t ri = 0; ri < rows_.size(); ++ri)
+    if (rows_[ri].footer) {
+      draw_row(int(ri), fy);
+      fy += kRowH;
+    }
+  if (rail_) {
+    Rgb pc = pinned_ ? t.accent() : pin_hover_ ? t.bright_foreground() : t.dim();
+    if (!labels) {
+      int py = pin_y();
+      icon::draw("pin", mx(x() + kIconAxis - 7, 14), py + (kRowH - 14) / 2, 14, pc);
+    } else {
+      int py = y() + h() - kBottom - kRowH;
+      icon::draw("pin", mx(x() + w() - kInset - 28, 14), py + (kRowH - 14) / 2, 14, pc);
+    }
+  }
   fl_pop_clip();
 }
 
