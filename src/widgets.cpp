@@ -220,7 +220,10 @@ void IconButton::draw() {
 // --- TextField ----------------------------------------------------------------
 
 TextField::TextField(int x, int y, int w, int h, const char *label) : Fl_Input(x, y, w, h, label) {
-  box(FL_NO_BOX);
+  // Fl_Input_ erases changed text on minimal updates by drawing box() in
+  // color(): a flat box, or typing leaves old glyphs behind. draw() paints
+  // the rounded frame itself; the erase stays inside the text area.
+  box(FL_FLAT_BOX);
   textfont(text::REGULAR);
   textsize(text::size::BODY);
   when(FL_WHEN_CHANGED);
