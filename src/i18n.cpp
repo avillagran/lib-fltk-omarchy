@@ -188,7 +188,9 @@ void reload() {
 void rearm() {
   Catalogs &c = cat();
   if (c.watch)
-    c.watch->set_paths({platform::parent(c.file), c.file});
+    // The grandparent too, so the language folder appearing later (a first
+    // language pick) is noticed; rearm() then watches it directly.
+    c.watch->set_paths({platform::parent(platform::parent(c.file)), platform::parent(c.file), c.file});
   reload();
 }
 

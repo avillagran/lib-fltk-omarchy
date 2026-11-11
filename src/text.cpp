@@ -120,8 +120,10 @@ std::string elide_middle(const std::string &s, double max_w, const Measure &m) {
   return s.substr(0, size_t(o[size_t(h)])) + kEllipsis + s.substr(size_t(o[size_t(chars - t)]));
 }
 
-std::vector<std::string> wrap(const std::string &s, double max_w, const Measure &m, int max_lines) {
-  std::vector<std::string> lines;
+namespace {
+// Wraps one paragraph (no '\n') into `lines`, up to `max_lines` in total.
+void wrap_paragraph(const std::string &s, double max_w, const Measure &m, int max_lines,
+                    std::vector<std::string> &lines) {
   std::string rest = s;
   while (!rest.empty() && int(lines.size()) < max_lines) {
     if (int(lines.size()) == max_lines - 1 || m(rest.c_str(), int(rest.size())) <= max_w) {
@@ -156,6 +158,36 @@ std::vector<std::string> wrap(const std::string &s, double max_w, const Measure 
     while (!rest.empty() && rest[0] == ' ')
       rest.erase(0, 1);
   }
+}
+} // namespace
+
+std::vector<std::string> wrap(const std::string &s, double max_w, const Measure &m, int max_lines) {
+  std::vector<std::string> lines;
+  size_t start = 0;
+  while (start <= s.size() && int(lines.size()) < max_lines) {
+    size_t nl = s.find('\n', start);
+    std::string para = s.substr(start, nl == std::string::npos ? std::string::npos : nl - start);
+    if (!para.empty() && para.back() == '\r')
+      para.pop_back();
+    if (para.empty())
+      lines.emplace_back(); // a blank line between paragraphs
+    else
+      wrap_paragraph(para, max_w, m, max_lines, lines);
+    if (nl == std::string::npos) {
+      start = std::string::npos;
+      break;
+    }
+    start = nl + 1;
+  }
+  // More text than lines: mark the cut on the last line.
+  if (!lines.empty() && start < s.size()) {
+    std::string &last = lines.back();
+    std::string marked = last + kEllipsis;
+    // elide_end only shortens text that does not fit, and then ends it in "…".
+    last = m(marked.c_str(), int(marked.size())) <= max_w ? marked : elide_end(marked, max_w, m);
+  }
+  while (!lines.empty() && lines.back().empty())
+    lines.pop_back();
   return lines;
 }
 

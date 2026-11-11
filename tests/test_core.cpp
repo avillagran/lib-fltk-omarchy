@@ -257,6 +257,22 @@ TEST(wrap_two_lines) {
   CHECK_STR(text::upper("Home \xC3\xA9"), "HOME \xC3\x89");
 }
 
+TEST(wrap_paragraphs) {
+  text::Measure m = units;
+  // Each '\n' starts a new line; a blank line between paragraphs is kept.
+  auto p = text::wrap("Host key\n\nAccept it?", 20, m, 8);
+  CHECK_EQ(p.size(), size_t(3));
+  CHECK_STR(p[0], "Host key");
+  CHECK_STR(p[1], "");
+  CHECK_STR(p[2], "Accept it?");
+  // Out of lines with paragraphs left: the last line is marked as cut.
+  auto cut = text::wrap("one\ntwo\nthree", 20, m, 2);
+  CHECK_EQ(cut.size(), size_t(2));
+  CHECK_STR(cut[1], "two\xE2\x80\xA6");
+  // A trailing newline adds nothing.
+  CHECK_EQ(text::wrap("solo\n", 20, m, 4).size(), size_t(1));
+}
+
 // --- Keys -------------------------------------------------------------------
 
 TEST(key_specs) {
