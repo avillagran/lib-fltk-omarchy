@@ -18,7 +18,9 @@
 // selection rectangle (Ctrl/Alt adds); dragging a selected item calls
 // on_drag_start (start Fl::dnd() there); right click calls on_context.
 // Keyboard: arrows (grid-aware), Home/End, PageUp/PageDown, Shift extends,
-// Ctrl+A selects all, Enter activates, typing jumps by name (type-ahead).
+// Ctrl+arrows and Ctrl+Home/End move the cursor without touching the
+// selection (Ctrl+Shift adds the range to it), Ctrl+A selects all, Enter
+// activates, typing jumps by name (type-ahead).
 // on_key sees every key first (Backspace, Delete, F2, → into a folder...).
 #pragma once
 
@@ -168,7 +170,7 @@ private:
   void band_geometry() const;
   void visible_range(int off, int &first, int &last) const;
   int band_step(int cur, int dir) const; // Up/Down in Bands
-  void move_cursor(int to, bool extend);
+  void move_cursor(int to, bool extend, bool keep = false);
   void apply_band();
   void changed();
   void type_char(const char *text);

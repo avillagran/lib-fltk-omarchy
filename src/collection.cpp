@@ -371,13 +371,21 @@ void Collection::scroll_to(double offset, bool animate) {
   redraw();
 }
 
-void Collection::move_cursor(int to, bool extend) {
+void Collection::move_cursor(int to, bool extend, bool keep) {
   int n = count();
   if (n == 0)
     return;
   to = std::max(0, std::min(to, n - 1));
+  if (keep && !extend) {
+    // Files' Ctrl+arrows: the cursor moves, the selection stays.
+    set_current(to, false);
+    ensure_visible(to);
+    return;
+  }
   if (extend && anchor_ >= 0) {
-    sel_.assign(size_t(n), 0);
+    if (!keep)
+      sel_.assign(size_t(n), 0);
+    sel_.resize(size_t(n), 0);
     for (int i = std::min(anchor_, to); i <= std::max(anchor_, to); ++i)
       sel_[size_t(i)] = 1;
     current_ = to;
@@ -471,7 +479,9 @@ bool Collection::key(int k) {
     select_all();
     return true;
   }
-  if (state & (FL_CTRL | FL_ALT | FL_META))
+  if (state & (FL_ALT | FL_META))
+    return false;
+  if (ctrl && k != FL_Up && k != FL_Down && k != FL_Left && k != FL_Right && k != FL_Home && k != FL_End)
     return false;
   if (n == 0) {
     // Nothing to move to, but the arrows are still ours: passing them on
@@ -491,20 +501,20 @@ bool Collection::key(int k) {
   }
   bool bands = layout_ == Layout::Bands;
   switch (k) {
-  case FL_Up: move_cursor(cur < 0 ? n - 1 : bands ? band_step(cur, -1) : cur - cols, shift); return true;
-  case FL_Down: move_cursor(cur < 0 ? 0 : bands ? band_step(cur, 1) : cur + cols, shift); return true;
+  case FL_Up: move_cursor(cur < 0 ? n - 1 : bands ? band_step(cur, -1) : cur - cols, shift, ctrl); return true;
+  case FL_Down: move_cursor(cur < 0 ? 0 : bands ? band_step(cur, 1) : cur + cols, shift, ctrl); return true;
   case FL_Left:
     if (!multi)
       return false;
-    move_cursor(cur < 0 ? 0 : cur + left, shift);
+    move_cursor(cur < 0 ? 0 : cur + left, shift, ctrl);
     return true;
   case FL_Right:
     if (!multi)
       return false;
-    move_cursor(cur < 0 ? 0 : cur - left, shift);
+    move_cursor(cur < 0 ? 0 : cur - left, shift, ctrl);
     return true;
-  case FL_Home: move_cursor(0, shift); return true;
-  case FL_End: move_cursor(n - 1, shift); return true;
+  case FL_Home: move_cursor(0, shift, ctrl); return true;
+  case FL_End: move_cursor(n - 1, shift, ctrl); return true;
   case FL_Page_Up: move_cursor(cur - page, shift); return true;
   case FL_Page_Down: move_cursor(cur + page, shift); return true;
   case FL_Enter:

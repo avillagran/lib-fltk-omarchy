@@ -143,6 +143,32 @@ TEST(collection_type_ahead) {
   CHECK_EQ(d.current(), 2); // "br": bravo
 }
 
+TEST(collection_ctrl_arrows_move_without_touching_marks) {
+  Names c(400, 200);
+  c.reload(true);
+  c.set_current(1);
+  key(&c, FL_Down, FL_SHIFT); // marks 1..2
+  CHECK_EQ(c.selection(), (std::vector<int>{1, 2}));
+  key(&c, FL_Down, FL_CTRL); // Files: the focus moves, the marks stay
+  key(&c, FL_Down, FL_CTRL);
+  CHECK_EQ(c.current(), 4);
+  CHECK_EQ(c.selection(), (std::vector<int>{1, 2}));
+  key(&c, FL_End, FL_CTRL);
+  CHECK_EQ(c.current(), 9);
+  CHECK_EQ(c.selection(), (std::vector<int>{1, 2}));
+  // Ctrl+Shift adds the range from the new anchor to the marks.
+  key(&c, FL_Up, FL_CTRL | FL_SHIFT);
+  CHECK_EQ(c.selection(), (std::vector<int>{1, 2, 8, 9}));
+  // Ctrl with other keys is left to the application (tabs, ...).
+  Fl::e_keysym = FL_Page_Down;
+  Fl::e_state = FL_CTRL;
+  Fl::e_text = const_cast<char *>("");
+  Fl::e_length = 0;
+  CHECK(!c.handle(FL_KEYBOARD));
+  Fl::e_state = 0;
+  CHECK_EQ(c.current(), 8);
+}
+
 TEST(collection_reload_keeps_selection_in_range) {
   Names c(400, 200);
   c.reload(true);
