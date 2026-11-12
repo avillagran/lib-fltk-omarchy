@@ -17,6 +17,17 @@
 // Drops: set accepts_drop / on_drop; while something is dragged over a
 // row it is outlined, and FL_PASTE text (a text/uri-list) is delivered.
 //
+// Reordering (Files' navtree Reorder::Siblings): with accepts_reorder /
+// on_reorder, a row is dragged among the reorderable rows of its section.
+// After 5 px a 2 px accent line shows where it would go; near the top or
+// bottom edge the list scrolls; the release calls on_reorder with the new
+// index among the section's other reorderable rows. A press on such a row
+// activates it on release instead, so a drag never navigates.
+//
+// Busy rows (SidebarRow::busy) show a spinner: over the icon in the rail,
+// at the end of the row expanded. Frames are asked for only while a busy
+// row exists and animations are on.
+//
 //   sb->rail(true);
 //   sb->on_width([&] { layout(); });
 //   sb->add_section("Places");
@@ -44,6 +55,7 @@ struct SidebarRow {
   Rgb status_color;   ///< its color (defaults to the secondary foreground)
   bool ejectable = false; ///< shows an eject button (calls on_eject)
   bool footer = false;    ///< kept at the bottom (Files: the trash)
+  bool busy = false;      ///< a spinner while work for the row runs
   int section = 0;        ///< filled in by add_row
 
   SidebarRow() = default;
@@ -97,6 +109,15 @@ public:
   void on_context(std::function<void(const SidebarRow &, int x, int y)> fn) { context_ = std::move(fn); }
   void accepts_drop(std::function<bool(const SidebarRow &)> fn) { accepts_ = std::move(fn); }
   void on_drop(std::function<void(const SidebarRow &, const std::string &text)> fn) { dropped_ = std::move(fn); }
+  /// Which rows can be dragged to a new place among their section's rows.
+  void accepts_reorder(std::function<bool(const SidebarRow &)> fn) { reorderable_ = std::move(fn); }
+  /// A dropped row and its new index among the other reorderable rows of
+  /// its section (the row itself left out).
+  void on_reorder(std::function<void(const SidebarRow &, int index)> fn) { reorder_ = std::move(fn); }
+  /// While a reorder drag shows its line: the row it is drawn at and
+  /// whether it goes after that row (-1 when none).
+  int reorder_target() const { return spot_row_; }
+  bool reorder_after() const { return spot_after_; }
 
   void draw() override;
   int handle(int event) override;
@@ -122,6 +143,11 @@ private:
   int row_y(int row) const;
   void reveal(int row);
   bool on_eject_button(int row, int ex) const;
+  bool can_reorder(int row) const;
+  void drag_to(int ey);
+  int reorder_index(int moved, int target, bool after) const;
+  bool any_busy() const;
+  static void spin_timer(void *);
   std::vector<Section> sections_;
   std::vector<SidebarRow> rows_;
   std::vector<Slot> slots_;
@@ -143,6 +169,10 @@ private:
   std::function<void(const SidebarRow &, int, int)> context_;
   std::function<bool(const SidebarRow &)> accepts_;
   std::function<void(const SidebarRow &, const std::string &)> dropped_;
+  std::function<bool(const SidebarRow &)> reorderable_;
+  std::function<void(const SidebarRow &, int)> reorder_;
+  int press_row_ = -1, press_x_ = 0, press_y_ = 0, spot_row_ = -1;
+  bool dragging_ = false, spot_after_ = false, spinning_ = false;
 };
 
 } // namespace fo

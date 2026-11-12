@@ -28,6 +28,22 @@ Rgb rail_fill(const Theme &t) { return mix(t.background(), t.foreground(), 0.04)
 Rgb rail_edge(const Theme &t) { return mix(t.background(), t.foreground(), 0.15); }
 Rgb row_selected(const Theme &t) { return mix(t.background(), t.foreground(), 0.21); }
 Rgb row_hover(const Theme &t) { return mix(t.background(), t.foreground(), 0.12); }
+
+// Files' busy spinner (navtree rows.rs): eight dots on a circle, the head
+// bright and the tail fading, one turn per second.
+void spinner(int cx, int cy, int r, Rgb color, Rgb under) {
+  double phase = anim::enabled() ? std::fmod(anim::now_ms() / 1000.0, 1.0) : 0.0;
+  int d = std::max(2, int(std::lround(r / 2.4)));
+  double head = phase * 8.0;
+  for (int k = 0; k < 8; ++k) {
+    double a = k * M_PI / 4 - M_PI / 2;
+    double rr = r - d / 2.0;
+    int px = int(std::lround(cx + rr * std::cos(a))) - d / 2;
+    int py = int(std::lround(cy + rr * std::sin(a))) - d / 2;
+    double lag = std::fmod(head - k + 8.0, 8.0) / 8.0;
+    paint::round_fill(px, py, d, d, d / 2, mix(under, color, 1.0 - 0.8 * lag));
+  }
+}
 } // namespace
 
 Sidebar::Sidebar(int x, int y, int w, int h) : Fl_Widget(x, y, w, h) {
@@ -38,6 +54,7 @@ Sidebar::Sidebar(int x, int y, int w, int h) : Fl_Widget(x, y, w, h) {
 Sidebar::~Sidebar() {
   Fl::remove_timeout(open_timer, this);
   Fl::remove_timeout(close_timer, this);
+  Fl::remove_timeout(spin_timer, this);
 }
 
 void Sidebar::rail(bool on, int collapsed, int expanded) {
@@ -125,6 +142,8 @@ void Sidebar::clear() {
   active_ = -1;
   cursor_ = 0;
   hover_ = -1;
+  press_row_ = spot_row_ = -1;
+  dragging_ = false;
   layout();
   redraw();
 }
@@ -251,6 +270,65 @@ bool Sidebar::on_eject_button(int row, int ex) const {
   return rtl() ? ex < x() + kInset + kEject + 4 : ex >= x() + w() - kInset - kEject - 4;
 }
 
+bool Sidebar::can_reorder(int row) const {
+  return row >= 0 && row < int(rows_.size()) && reorder_ && reorderable_ && !rows_[size_t(row)].footer &&
+         reorderable_(rows_[size_t(row)]);
+}
+
+// Index of `target` (or the slot after it) among the reorderable rows of
+// its section, leaving `moved` out.
+int Sidebar::reorder_index(int moved, int target, bool after) const {
+  int index = 0;
+  for (int r = 0; r < int(rows_.size()); ++r) {
+    if (r == moved || rows_[size_t(r)].section != rows_[size_t(target)].section || !can_reorder(r))
+      continue;
+    if (r == target)
+      return after ? index + 1 : index;
+    ++index;
+  }
+  return index;
+}
+
+void Sidebar::drag_to(int ey) {
+  // Near the edges of the list: scroll a third of a row per event.
+  int list_h = h() - footer_h_ - kBottom - (rail_ && reveal() < 0.5 ? kRowH : 0);
+  double max = std::max(0, content_h_ - list_h);
+  int step = kRowH / 3;
+  if (max > 0 && (ey < y() + step || ey > y() + list_h - step)) {
+    double p = std::max(0.0, std::min(max, scroller_.target() + (ey < y() + step ? -step : step)));
+    scroller_.jump(p);
+  }
+  int target = -1;
+  bool after = false;
+  int si = ey < y() + list_h ? slot_at(ey) : -1;
+  if (si >= 0 && slots_[size_t(si)].row >= 0) {
+    int r = slots_[size_t(si)].row;
+    if (r != press_row_ && rows_[size_t(r)].section == rows_[size_t(press_row_)].section && can_reorder(r)) {
+      target = r;
+      int top = y() - int(std::lround(scroller_.target())) + slots_[size_t(si)].y;
+      after = ey - top >= kRowH / 2;
+    }
+  }
+  if (target != spot_row_ || after != spot_after_) {
+    spot_row_ = target;
+    spot_after_ = after;
+  }
+  redraw();
+}
+
+bool Sidebar::any_busy() const {
+  for (const auto &r : rows_)
+    if (r.busy && sections_[size_t(r.section)].visible)
+      return true;
+  return false;
+}
+
+void Sidebar::spin_timer(void *data) {
+  auto *sb = static_cast<Sidebar *>(data);
+  sb->spinning_ = false;
+  sb->redraw();
+}
+
 void Sidebar::resize(int X, int Y, int W, int H) {
   Fl_Widget::resize(X, Y, W, H);
   bar_.place(rtl() ? X : X + W - 10, Y, 10, H);
@@ -335,6 +413,13 @@ int Sidebar::handle(int event) {
     if (on_eject_button(row, ex)) {
       if (eject_)
         eject_(rows_[size_t(row)]);
+    } else if (Fl::event_button() == FL_LEFT_MOUSE && can_reorder(row)) {
+      // Opened on release unless it was dragged to a new place.
+      press_row_ = row;
+      press_x_ = ex;
+      press_y_ = ey;
+      dragging_ = false;
+      spot_row_ = -1;
     } else {
       // Like Enter: open the row and hand the keyboard back to the files,
       // so the next arrow moves there and not here.
@@ -344,6 +429,45 @@ int Sidebar::handle(int event) {
         finished_();
     }
     redraw();
+    return 1;
+  }
+  case FL_DRAG:
+    if (press_row_ < 0 || press_row_ >= int(rows_.size()))
+      return press_row_ >= 0 ? 1 : 0;
+    if (!dragging_ && (std::abs(ex - press_x_) > 5 || std::abs(ey - press_y_) > 5))
+      dragging_ = true;
+    if (dragging_)
+      drag_to(ey);
+    return 1;
+  case FL_RELEASE: {
+    int row = press_row_;
+    if (row < 0)
+      return 0;
+    bool dragged = dragging_;
+    int target = spot_row_;
+    bool after = spot_after_;
+    press_row_ = spot_row_ = -1;
+    dragging_ = false;
+    redraw();
+    if (row >= int(rows_.size()))
+      return 1;
+    if (!dragged) {
+      if (activate_)
+        activate_(rows_[size_t(row)]);
+      if (finished_)
+        finished_();
+      return 1;
+    }
+    if (target < 0)
+      return 1;
+    int to = reorder_index(row, target, after);
+    int from = 0;
+    for (int r = 0; r < row; ++r)
+      from += rows_[size_t(r)].section == rows_[size_t(row)].section && can_reorder(r);
+    if (to != from && reorder_) {
+      SidebarRow moved = rows_[size_t(row)];
+      reorder_(moved, to);
+    }
     return 1;
   }
   case FL_MOUSEWHEEL: {
@@ -488,9 +612,13 @@ void Sidebar::draw() {
     else if (keyed && ri == cursor_)
       paint::round_frame(mx(rx, rw), fy, rw, kFillH, r, 1, t.accent());
     Rgb fg = active ? t.bright_foreground() : t.foreground();
+    Rgb under = active ? row_selected(t) : (hov || drop) ? row_hover(t) : rail_ ? rail_fill(t) : t.background();
     std::string ic = row.icon.empty() ? "folder" : row.icon;
-    icon::draw(ic, mx(x() + kIconAxis - kIcon / 2, kIcon), sy + (kRowH - kIcon) / 2, kIcon,
-               row.icon == "star" ? t.accent() : fg);
+    if (row.busy && !labels)
+      spinner(mx(x() + kIconAxis - kIcon / 2, kIcon) + kIcon / 2, sy + kRowH / 2, kIcon / 2, fg, under);
+    else
+      icon::draw(ic, mx(x() + kIconAxis - kIcon / 2, kIcon), sy + (kRowH - kIcon) / 2, kIcon,
+                 row.icon == "star" ? t.accent() : fg);
     if (!labels)
       return;
     int lx = x() + kLabelX;
@@ -504,6 +632,10 @@ void Sidebar::draw() {
       icon::draw("eject", mx(ex + (kEject - 14) / 2, 14), sy + (kRowH - 14) / 2, 14,
                  label_color(hov ? t.foreground() : t.dim()));
       right = ex - 6;
+    }
+    if (row.busy) {
+      spinner(mx(right - 10, 14) + 7, sy + kRowH / 2, 6, label_color(fg), under);
+      right -= 22;
     }
     if (!row.status.empty()) {
       int sw = int(text::width(row.status, text::REGULAR, 10)) + 1;
@@ -538,6 +670,14 @@ void Sidebar::draw() {
     }
     draw_row(s.row, sy);
   }
+  // Reorder: a line where the dragged row would go.
+  if (dragging_ && spot_row_ >= 0) {
+    int ry = row_y(spot_row_);
+    if (ry >= 0) {
+      int ly = off + ry + (spot_after_ ? kRowH : 0) - 1;
+      paint::fill(mx(rx, rw), ly, rw, 2, t.accent());
+    }
+  }
   bar_.draw(this, pos_, max, list_h);
   fl_pop_clip();
 
@@ -559,6 +699,11 @@ void Sidebar::draw() {
     }
   }
   fl_pop_clip();
+  // Spinners turn while a busy row exists; nothing is scheduled otherwise.
+  if (!spinning_ && anim::enabled() && any_busy()) {
+    spinning_ = true;
+    Fl::add_timeout(1.0 / 15, spin_timer, this);
+  }
 }
 
 } // namespace fo

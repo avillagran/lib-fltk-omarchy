@@ -228,6 +228,79 @@ TEST(sidebar_click_hands_the_keyboard_back) {
   CHECK_EQ(finished, 1);
 }
 
+namespace {
+void mouse(Sidebar &s, int event, int x, int y) {
+  Fl::e_x = x;
+  Fl::e_y = y;
+  Fl::e_keysym = FL_Button + FL_LEFT_MOUSE;
+  Fl::e_state = event == FL_RELEASE ? 0 : FL_BUTTON1;
+  s.handle(event);
+}
+} // namespace
+
+TEST(sidebar_rows_reorder_within_their_section) {
+  Sidebar s(0, 0, 240, 400);
+  s.add_section("Places");                        // header 8..28
+  s.add_row({"Home", "home", "/h"});               // 28..62
+  s.add_row({"Downloads", "download", "/h/d"});     // 62..96
+  s.add_row({"Music", "music", "/h/m"});            // 96..130
+  s.add_section("Network");                       // header 130..150
+  s.add_row({"Connect", "plus", "net:connect"});   // 150..184
+  std::string opened, moved;
+  int to = -1, finished = 0;
+  s.on_activate([&](const SidebarRow &r) { opened = r.id; });
+  s.on_finished([&] { ++finished; });
+  s.accepts_reorder([](const SidebarRow &r) { return r.id[0] == '/'; });
+  s.on_reorder([&](const SidebarRow &r, int index) {
+    moved = r.id;
+    to = index;
+  });
+  // A press opens nothing until the release; a short move is still a click.
+  mouse(s, FL_PUSH, 40, 40);
+  CHECK(opened.empty());
+  mouse(s, FL_DRAG, 42, 43);
+  mouse(s, FL_RELEASE, 42, 43);
+  CHECK_STR(opened, "/h");
+  CHECK_EQ(finished, 1);
+  CHECK(moved.empty());
+  // Home dragged to the lower half of Music goes last; nothing opens.
+  opened.clear();
+  mouse(s, FL_PUSH, 40, 40);
+  mouse(s, FL_DRAG, 40, 70);
+  CHECK_EQ(s.reorder_target(), 1);
+  CHECK(!s.reorder_after());
+  mouse(s, FL_DRAG, 40, 125);
+  CHECK_EQ(s.reorder_target(), 2);
+  CHECK(s.reorder_after());
+  mouse(s, FL_RELEASE, 40, 125);
+  CHECK(opened.empty());
+  CHECK_STR(moved, "/h");
+  CHECK_EQ(to, 2);
+  CHECK_EQ(s.reorder_target(), -1);
+  // Music to the upper half of Home goes first.
+  mouse(s, FL_PUSH, 40, 110);
+  mouse(s, FL_DRAG, 40, 30);
+  mouse(s, FL_RELEASE, 40, 30);
+  CHECK_STR(moved, "/h/m");
+  CHECK_EQ(to, 0);
+  // Dropping where it already is, or on another section, does nothing.
+  moved.clear();
+  mouse(s, FL_PUSH, 40, 70);
+  mouse(s, FL_DRAG, 40, 92);
+  mouse(s, FL_RELEASE, 40, 92);
+  CHECK(moved.empty());
+  mouse(s, FL_PUSH, 40, 70);
+  mouse(s, FL_DRAG, 40, 160);
+  CHECK_EQ(s.reorder_target(), -1);
+  mouse(s, FL_RELEASE, 40, 160);
+  CHECK(moved.empty());
+  CHECK(opened.empty());
+  // Rows that can't move still open on the press.
+  mouse(s, FL_PUSH, 40, 160);
+  CHECK_STR(opened, "net:connect");
+  mouse(s, FL_RELEASE, 40, 160);
+}
+
 TEST(dialog_ask_returns_fields_button_and_check) {
   Window win(800, 600);
   win.end();
