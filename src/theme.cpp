@@ -203,6 +203,11 @@ struct State {
   int hypr_sub = 0;
   bool rounding_pending = false;
   bool follow_hypr = false;
+  // The followed theme before Files' overrides, and the overrides.
+  Theme live;
+  bool has_live = false;
+  int forced_radius = -1;
+  bool local_palette = false;
 };
 
 State &state() {
@@ -228,6 +233,17 @@ void notify() {
     kv.second();
 }
 
+// The followed theme with the overrides on top becomes current.
+void publish(const Theme &live) {
+  State &s = state();
+  s.live = live;
+  s.has_live = true;
+  Theme t = s.local_palette ? Theme() : live;
+  t.set_font_family(live.font_family());
+  t.set_radius(s.forced_radius >= 0 ? s.forced_radius : live.radius());
+  set_theme(t);
+}
+
 void refresh_rounding() {
   State &s = state();
   if (!s.follow_hypr || s.rounding_pending || !hypr::available())
@@ -239,10 +255,10 @@ void refresh_rounding() {
     int r;
     if (!ok || !hypr::parse_option_int(reply, r) || r < 0)
       return;
-    if (r != st.current.radius()) {
-      Theme t = st.current;
+    Theme t = st.has_live ? st.live : st.current;
+    if (r != t.radius()) {
       t.set_radius(r);
-      set_theme(t);
+      publish(t);
     }
   });
 }
@@ -258,9 +274,10 @@ void rearm_and_reload() {
   s.watch->set_paths({ancestor, platform::parent(ancestor), s.dir, s.dir + "/theme",
                       s.dir + "/theme/colors.toml"});
   Theme t = Theme::load(s.dir);
-  t.set_radius(s.current.radius());
-  t.set_font_family(s.current.font_family());
-  set_theme(t);
+  const Theme &before = s.has_live ? s.live : s.current;
+  t.set_radius(before.radius());
+  t.set_font_family(before.font_family());
+  publish(t);
   refresh_rounding();
 }
 
@@ -295,6 +312,8 @@ void watch_theme(const std::string &current_dir) {
   t.set_font_family(family);
   glyph::set_available(nerd);
   s.current = t;
+  if (s.has_live)
+    s.live.set_font_family(family);
   if (!s.watch)
     s.watch.reset(new platform::FileWatch(rearm_and_reload));
   rearm_and_reload();
@@ -304,6 +323,13 @@ void watch_theme(const std::string &current_dir) {
       if (ev == "configreloaded")
         refresh_rounding();
     });
+}
+
+void theme_overrides(int radius, bool local_palette) {
+  State &s = state();
+  s.forced_radius = radius < 0 ? -1 : radius;
+  s.local_palette = local_palette;
+  publish(s.has_live ? s.live : s.current);
 }
 
 int on_theme_change(std::function<void()> fn) {

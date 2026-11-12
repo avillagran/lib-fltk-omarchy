@@ -588,3 +588,25 @@ TEST(display_window_moves_from_its_move_area) {
   CHECK(!win.begin_move());
   win.hide();
 }
+
+TEST(display_theme_overrides_sit_over_the_followed_theme) {
+  // Files' "Bordes de la interfaz" and "Tema" preferences.
+  Palette p;
+  p.colors["accent"] = Rgb(0x11, 0x22, 0x33);
+  Theme followed(p);
+  followed.set_radius(6);
+  set_theme(followed);
+  theme_overrides(-1, false);
+  CHECK(theme().accent() == Rgb(0x11, 0x22, 0x33));
+  CHECK_EQ(theme().radius(), 6);
+  theme_overrides(0, false); // Square
+  CHECK_EQ(theme().radius(), 0);
+  theme_overrides(8, true); // Rounded, Tokyo Night as a local view
+  CHECK_EQ(theme().radius(), 8);
+  CHECK(!theme().from_omarchy());
+  CHECK(theme().accent() == Theme().accent());
+  theme_overrides(-1, false); // back to the live theme and its rounding
+  CHECK(theme().from_omarchy());
+  CHECK(theme().accent() == Rgb(0x11, 0x22, 0x33));
+  CHECK_EQ(theme().radius(), 6);
+}

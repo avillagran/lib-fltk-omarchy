@@ -146,6 +146,13 @@ void set_theme(const Theme &t);
 /// (re-read on `configreloaded`). Call once, after creating the app.
 void watch_theme(const std::string &current_dir = "");
 
+/// Files' preferences over the followed theme: `radius` < 0 keeps
+/// Hyprland's rounding (Files' "Omarchy" borders), 0 squares and a positive
+/// value rounds every widget; `local_palette` shows the built-in Tokyo
+/// Night palette ("Tokyo Night · local view") while the Omarchy theme keeps
+/// being followed underneath, so turning it off returns to the live one.
+void theme_overrides(int radius, bool local_palette);
+
 /// Called on the FLTK thread after the theme changed. Returns an id.
 int on_theme_change(std::function<void()> fn);
 void remove_theme_listener(int id);
