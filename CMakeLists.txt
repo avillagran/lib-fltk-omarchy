@@ -45,6 +45,7 @@ add_library(fltk-omarchy STATIC
   src/hyprland.cpp
   src/i18n.cpp
   src/icons.cpp
+  src/icons_folio.cpp
   src/json.cpp
   src/keys.cpp
   src/menu.cpp

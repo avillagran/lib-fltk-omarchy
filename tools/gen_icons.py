@@ -23,6 +23,8 @@ network panel-left panel-right pause pencil pin pin-off play plus redo-2
 refresh-cw rotate-ccw scissors search server settings share-2 smartphone
 square square-check square-split-horizontal star sun terminal trash trash-2
 triangle-alert type undo-2 usb video x
+zap chart-pie calculator save tag layout-list text-select circle-help package
+package-open sigma
 """.split()
 
 # Not in Lucide: drawn here in its style (same grid, stroke and caps).

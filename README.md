@@ -102,6 +102,15 @@ font's glyphs; the embedded fallback icons are from
 [Lucide](https://lucide.dev) (ISC, see
 [third_party/lucide/LICENSE](third_party/lucide/LICENSE)).
 
+`fo::icon::set_style(fo::icon::Style::Folio)` draws Folio's line icons
+instead: the drawings of Folio's `Glyph.qml` and its flat folder from
+`FileTile.qml` (`fo::icon::draw_folder`), ported as SVG path data in
+`src/icons_folio.cpp`, with Lucide in the same 1.6 stroke for the names
+Folio has no drawing for. [Folio](https://github.com/omacom/folio) is MIT
+licensed, Copyright (c) 2026 David Heinemeier Hansson; see
+[third_party/folio/LICENSE](third_party/folio/LICENSE).
+`fo::icon::license()` returns both notices.
+
 Desktop standards that apps built on the toolkit follow (Omarchy's
 theme files, language file and plural rules) were checked against
 Omarchy's [Folio](https://github.com/omacom/folio), which is a technical

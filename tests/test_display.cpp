@@ -11,6 +11,8 @@
 #include "fltk-omarchy/dialog.h"
 #include "fltk-omarchy/columns.h"
 #include "fltk-omarchy/i18n.h"
+#include "fltk-omarchy/icons.h"
+#include "fltk-omarchy/paint.h"
 #include "fltk-omarchy/menu.h"
 #include "fltk-omarchy/shell.h"
 #include "fltk-omarchy/theme.h"
@@ -700,3 +702,31 @@ TEST(toolbar_overflow_column_opens_held_and_chooses) {
   CHECK(letters > 15);
 }
 
+
+TEST(display_folio_icons_and_folder_draw_ink) {
+  if (!fo_test::have_display())
+    return;
+  icon::set_style(icon::Style::Folio);
+  struct Canvas : Fl_Widget {
+    Canvas() : Fl_Widget(0, 0, 400, 200) {}
+    void draw() override {
+      paint::fill(0, 0, 400, 200, theme().background());
+      icon::draw("folder", 10, 10, 24, theme().foreground());
+      icon::draw("search", 50, 10, 24, theme().foreground()); // Lucide in Folio's stroke
+      icon::draw_folder(100, 10, 128, 92, theme().lighter_background(), theme().accent(), 1.5);
+    }
+  };
+  Window win(400, 200);
+  new Canvas();
+  win.end();
+  fo_test::show(&win);
+  win.redraw();
+  fo_test::settle();
+  CHECK(ink(&win, 10, 34, 10, 34) > 10);
+  CHECK(ink(&win, 50, 74, 10, 34) > 10);
+  // The folder: filled card plus the accent edge.
+  CHECK(fo_test::near(fo_test::pixel(&win, 164, 60), theme().lighter_background(), 12));
+  CHECK(fo_test::tinted(fo_test::pixel(&win, 105, 60), theme().background(), theme().accent()) ||
+        fo_test::near(fo_test::pixel(&win, 105, 60), theme().accent(), 40));
+  icon::set_style(icon::Style::Files);
+}

@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
+#include <functional>
 #include <list>
 #include <memory>
 #include <unordered_map>
@@ -41,6 +42,16 @@ const Alias kAliases[] = {
     {"sidebar", "panel-left"},       {"sort", "arrow-down-a-z"}, {"split", "columns-2"},
     {"text", "file-text"},           {"trash", "trash-2"},       {"videos", "video"},
     {"downloads", "download"},       {"peer", "laptop"},         {"preview", "panel-right"},
+    // Files' names for the Lucide drawings Style::Folio uses where Folio has
+    // no drawing of its own.
+    {"actions", "zap"},              {"space", "chart-pie"},      {"pie-chart", "chart-pie"},
+    {"groups", "layout-list"},       {"select", "text-select"},   {"help", "circle-help"},
+    {"cut", "scissors"},             {"paste", "clipboard-paste"}, {"undo", "undo-2"},
+    {"redo", "redo-2"},              {"compress", "package"},     {"extract", "package-open"},
+    {"share", "share-2"},            {"star-outline", "star"},    {"inspector", "info"},
+    {"properties", "info"},          {"templates", "file-plus"},  {"public", "share-2"},
+    {"removable", "usb"},            {"sort-asc", "arrow-up"},    {"sort-desc", "arrow-down"},
+    {"filter-x", "x"},               {"square-pen", "pencil"},    {"zap", "zap"},
 };
 
 const Entry *find(const std::string &name) {
@@ -63,6 +74,18 @@ Cache &cache() {
 }
 
 } // namespace
+
+namespace {
+Style g_style = Style::Files;
+} // namespace
+
+void set_style(Style st) {
+  if (st != g_style) {
+    g_style = st;
+    clear_cache();
+  }
+}
+Style style() { return g_style; }
 
 std::string resolve(const std::string &name) {
   for (const auto &a : kAliases)
@@ -99,22 +122,10 @@ std::string svg(const std::string &name, Rgb color, double stroke, bool sharp) {
   return std::string(head) + e->body + "</svg>";
 }
 
-void draw(const std::string &name, int x, int y, int size, Rgb color, double stroke) {
-  if (size <= 0)
-    return;
-  if (glyph::available()) {
-    const char *g = glyph::for_icon(name);
-    if (*g) {
-      glyph::draw(g, x, y, size, size, std::max(8, size * 7 / 8), color);
-      return;
-    }
-  }
-  if (stroke <= 0)
-    stroke = size >= 20 ? 2.0 : 1.75;
-  bool sharp = theme().radius() == 0;
-  char key[160];
-  std::snprintf(key, sizeof key, "%s|%d|%06x|%.2f|%d", name.c_str(), size,
-                (color.r << 16) | (color.g << 8) | color.b, stroke, sharp ? 1 : 0);
+namespace {
+
+// Rasterizes an SVG document at size w x h through the LRU, by key.
+void draw_svg(const std::string &key, const std::function<std::string()> &doc, int x, int y, int w, int h) {
   Cache &c = cache();
   Fl_SVG_Image *img = nullptr;
   auto it = c.map.find(key);
@@ -122,12 +133,12 @@ void draw(const std::string &name, int x, int y, int size, Rgb color, double str
     c.order.splice(c.order.begin(), c.order, it->second);
     img = it->second->second.get();
   } else {
-    std::string doc = svg(name, color, stroke, sharp);
-    std::unique_ptr<Fl_SVG_Image> fresh(new Fl_SVG_Image(nullptr, doc.c_str()));
+    std::string text = doc();
+    std::unique_ptr<Fl_SVG_Image> fresh(new Fl_SVG_Image(nullptr, text.c_str()));
     if (fresh->fail())
       return;
     fresh->proportional = true;
-    fresh->scale(size, size, 1, 1);
+    fresh->scale(w, h, 1, 1);
     img = fresh.get();
     c.order.emplace_front(key, std::move(fresh));
     c.map[key] = c.order.begin();
@@ -136,7 +147,69 @@ void draw(const std::string &name, int x, int y, int size, Rgb color, double str
       c.order.pop_back();
     }
   }
-  img->draw(x, y);
+  img->draw(x + (w - img->w()) / 2, y + (h - img->h()) / 2);
+}
+
+} // namespace
+
+void draw(const std::string &name, int x, int y, int size, Rgb color, double stroke) {
+  if (size <= 0)
+    return;
+  const bool folio_style = g_style == Style::Folio;
+  if (!folio_style && glyph::available()) {
+    const char *g = glyph::for_icon(name);
+    if (*g) {
+      glyph::draw(g, x, y, size, size, std::max(8, size * 7 / 8), color);
+      return;
+    }
+  }
+  if (stroke <= 0)
+    stroke = folio_style ? 1.6 : size >= 20 ? 2.0 : 1.75;
+  bool sharp = theme().radius() == 0;
+  const bool own = folio_style && folio::has(name);
+  char key[200];
+  std::snprintf(key, sizeof key, "%s|%s|%d|%06x|%.2f|%d", own ? "folio" : "lucide", name.c_str(), size,
+                (color.r << 16) | (color.g << 8) | color.b, stroke, sharp ? 1 : 0);
+  draw_svg(
+      key,
+      [&] {
+        if (!own)
+          return svg(name, color, stroke, sharp);
+        char head[320];
+        std::snprintf(head, sizeof head,
+                      "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" "
+                      "fill=\"none\" stroke=\"%s\" stroke-width=\"%.2f\" stroke-linecap=\"%s\" "
+                      "stroke-linejoin=\"%s\"><path d=\"",
+                      to_hex(color).c_str(), stroke, sharp ? "square" : "round", sharp ? "miter" : "round");
+        return std::string(head) + folio::path(name, !sharp) + "\"/></svg>";
+      },
+      x, y, size, size);
+}
+
+void draw_folder(int x, int y, int w, int h, Rgb fill, Rgb edge, double edge_width) {
+  if (w <= 0 || h <= 0)
+    return;
+  // Fit the 128:92 card in the box.
+  int fw = w, fh = int(w * 92.0 / 128.0 + 0.5);
+  if (fh > h)
+    fh = h, fw = int(h * 128.0 / 92.0 + 0.5);
+  const double r = std::min(10, theme().radius());
+  char key[200];
+  std::snprintf(key, sizeof key, "folder|%d|%d|%06x|%06x|%.2f|%.1f", fw, fh, (fill.r << 16) | (fill.g << 8) | fill.b,
+                (edge.r << 16) | (edge.g << 8) | edge.b, edge_width, r);
+  draw_svg(
+      key,
+      [&] {
+        // The stroke is given in the 128-wide drawing's units.
+        double sw = edge_width > 0 ? edge_width * 128.0 / fw : 0;
+        char head[400];
+        std::snprintf(head, sizeof head,
+                      "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"128\" height=\"92\" viewBox=\"0 0 128 92\">"
+                      "<path fill=\"%s\" stroke=\"%s\" stroke-width=\"%.2f\" stroke-linejoin=\"%s\" d=\"",
+                      to_hex(fill).c_str(), sw > 0 ? to_hex(edge).c_str() : "none", sw, r > 0 ? "round" : "miter");
+        return std::string(head) + folio::folder_silhouette(r) + "\"/></svg>";
+      },
+      x + (w - fw) / 2, y + (h - fh) / 2, fw, fh);
 }
 
 void clear_cache() {
@@ -147,7 +220,7 @@ void clear_cache() {
 size_t cache_entries() { return cache().order.size(); }
 
 const char *license() {
-  return "Lucide icons, ISC License\n\n"
+  static const std::string text = std::string("Lucide icons, ISC License\n\n"
          "Copyright (c) for portions of Lucide are held by Cole Bemis 2013-2022 as part of Feather (MIT). "
          "All other copyright (c) for Lucide are held by Lucide Contributors 2022.\n\n"
          "Permission to use, copy, modify, and/or distribute this software for any purpose with or without fee "
@@ -158,7 +231,8 @@ const char *license() {
          "AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES "
          "WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE "
          "OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS "
-         "SOFTWARE.\n";
+         "SOFTWARE.\n\n") + folio::license();
+  return text.c_str();
 }
 
 } // namespace icon

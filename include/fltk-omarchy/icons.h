@@ -18,6 +18,15 @@
 // name falls back to the Lucide drawing.
 //
 //   fo::icon::draw("folder", x, y, 18, fo::theme().accent());
+//
+// Icon styles: Style::Files (the default) is the above. Style::Folio
+// draws Folio's line icons instead (github.com/omacom/folio, MIT): its
+// own drawings for the names it has (folder, documents, downloads,
+// pictures, music, videos, recent, trash, drive, eject, peer, the network,
+// back/forward, filter, grid, list, columns, preview, sorting, play, open,
+// check, close and a page for any file), and the Lucide drawing in the same
+// 1.6 stroke for the rest, never the Nerd Font glyphs, so every icon is one
+// line family. draw_folder() is Folio's flat folder silhouette.
 #pragma once
 
 #include "fltk-omarchy/theme.h"
@@ -43,11 +52,32 @@ void draw(const std::string &name, int x, int y, int size, Rgb color, double str
 /// The full SVG document for an icon, ready for Fl_SVG_Image.
 std::string svg(const std::string &name, Rgb color, double stroke = 2, bool sharp = false);
 
+enum class Style { Files, Folio };
+/// Chooses the icon family for every draw() (see the file comment).
+void set_style(Style s);
+Style style();
+
+/// Folio's flat folder (a card with a tab at its top left, from Folio's
+/// FileTile.qml) fitted in the box at its 128:92 shape: filled with `fill`,
+/// outlined with `edge` when `edge_width` > 0. Corners follow the theme.
+void draw_folder(int x, int y, int w, int h, Rgb fill, Rgb edge, double edge_width = 0);
+
+/// Folio's drawings as SVG path data on the 24-unit grid.
+namespace folio {
+bool has(const std::string &name);
+/// `round`: the rounded variant (themes that round windows).
+std::string path(const std::string &name, bool round);
+/// The folder silhouette on a 128 x 92 box, its corners rounded by `r`.
+std::string folder_silhouette(double r);
+const char *license();
+} // namespace folio
+
 /// Drops every cached raster (the theme listener calls this on changes).
 void clear_cache();
 size_t cache_entries();
 
-/// Lucide's ISC license text, to show in an about box.
+/// The icons' license texts (Lucide's ISC, then Folio's MIT), to show in
+/// an about box.
 const char *license();
 
 } // namespace icon

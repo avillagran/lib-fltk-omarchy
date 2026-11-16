@@ -113,3 +113,28 @@ TEST(fit_crumbs_always_show_the_current_folder) {
   CHECK_EQ(r.widths.back(), 110 - 42);
 }
 
+
+// Folio's icon line (icons.h Style::Folio): its own drawings for the names
+// it has, Lucide for the rest, never an empty drawing.
+#include "fltk-omarchy/icons.h"
+
+TEST(icons_folio_style_covers_every_name) {
+  using namespace fo::icon;
+  CHECK(folio::has("folder") && folio::has("documents") && folio::has("arrow-left") && folio::has("file-image"));
+  CHECK(!folio::has("search") && !folio::has("settings"));
+  CHECK(folio::path("folder", false) == "M3 6h7l2 2h9v11H3z");
+  CHECK(folio::path("folder", true).find('Q') != std::string::npos);
+  CHECK(folio::path("pictures", false).find("M3 16l5-5") != std::string::npos);
+  CHECK(folio::path("file", false) == "M6 3h8l4 4v14H6zM14 3v4h4");
+  CHECK(folio::folder_silhouette(0) == "M4.5 88.5V0.5H46L50 6.5H123.5V88.5Z");
+  CHECK(folio::folder_silhouette(6).find("Q4.5 0.5") != std::string::npos);
+  for (const char *n : {"actions", "groups", "space", "search", "settings", "pencil", "info", "star", "pin", "plus",
+                        "bookmark", "home", "calculator", "save", "tag", "help", "cut", "paste", "undo", "redo",
+                        "compress", "extract", "select", "sigma", "terminal", "keyboard", "share"})
+    CHECK(folio::has(n) || exists(n));
+  CHECK(std::string(license()).find("David Heinemeier Hansson") != std::string::npos);
+  CHECK(style() == Style::Files);
+  set_style(Style::Folio);
+  CHECK(style() == Style::Folio);
+  set_style(Style::Files);
+}
