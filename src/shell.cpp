@@ -1,6 +1,7 @@
 #include "fltk-omarchy/shell.h"
 
 #include "fltk-omarchy/dialog.h"
+#include "fltk-omarchy/i18n.h"
 #include "fltk-omarchy/icons.h"
 #include "fltk-omarchy/paint.h"
 #include "fltk-omarchy/text.h"
@@ -28,6 +29,12 @@ constexpr double kRestSeconds = 2.0; // Files' TOOLTIP_DELAY
 
 // --- ToolBar ------------------------------------------------------------------
 
+namespace {
+constexpr double kHoverOpenSeconds = 0.12;  // resting on the overflow button
+constexpr double kHoverCloseSeconds = 0.25; // grace after the pointer left
+constexpr int kDrawerRow = 32, kDrawerPad = 4;
+} // namespace
+
 ToolBar::ToolBar(int x, int y, int w, int h) : Fl_Widget(x, y, w, h) {
   box(FL_NO_BOX);
   clear_visible_focus();
@@ -35,22 +42,68 @@ ToolBar::ToolBar(int x, int y, int w, int h) : Fl_Widget(x, y, w, h) {
 
 ToolBar::~ToolBar() {
   Fl::remove_timeout(rest, this);
+  Fl::remove_timeout(hover_open, this);
+  Fl::remove_timeout(hover_close, this);
   Tooltip::close_all();
+  if (drawer_) {
+    drawer_->owner_ = nullptr;
+    drawer_->close();
+    drawer_ = nullptr;
+  }
+}
+
+void ToolBar::refold() {
+  std::vector<int> pri, grp;
+  for (const auto &it : items_) {
+    pri.push_back(it.priority);
+    grp.push_back(it.group);
+  }
+  fit::RowFold f = plain_ ? fit::fold_row(pri, grp, button_, gap_, 0) : fit::fold_row(pri, grp, button_, gap_, fit_);
+  if (f.slots == fold_.slots && f.folded == fold_.folded && extra_.size() == f.slots.size())
+    return;
+  fold_ = std::move(f);
+  hot_ = -1;
+  extra_.assign(fold_.slots.size(), Anim<double>(0.0));
+  if (drawer_ && !fold_.overflow())
+    close_overflow();
+  else if (drawer_)
+    drawer_->relayout();
+  redraw();
 }
 
 void ToolBar::items(std::vector<Item> items) {
-  if (items.size() != items_.size()) {
-    hot_ = -1;
-    extra_.assign(items.size(), Anim<double>(0.0));
-  }
+  bool same = items.size() == items_.size();
   items_ = std::move(items);
+  if (!same) {
+    fold_ = {};
+    extra_.clear();
+  }
+  refold();
+  if (drawer_) {
+    // The column shows the folded items as they are now.
+    drawer_->entries_ = fold_.folded;
+    drawer_->relayout();
+  }
   redraw();
+}
+
+void ToolBar::fit_width(int px) {
+  if (px == fit_)
+    return;
+  fit_ = px;
+  refold();
+}
+
+bool ToolBar::folded(int i) const {
+  return std::find(fold_.folded.begin(), fold_.folded.end(), i) != fold_.folded.end();
 }
 
 void ToolBar::set_on(int i, bool on) {
   if (i >= 0 && i < int(items_.size()) && items_[size_t(i)].on != on) {
     items_[size_t(i)].on = on;
     redraw();
+    if (drawer_)
+      drawer_->relayout();
   }
 }
 
@@ -61,63 +114,94 @@ void ToolBar::set_enabled(int i, bool on) {
   }
 }
 
-int ToolBar::width_of(int i) const {
-  auto &a = const_cast<Anim<double> &>(extra_[size_t(i)]);
+const ToolBar::Item *ToolBar::slot_item(int slot) const {
+  if (slot < 0 || slot >= int(fold_.slots.size()))
+    return nullptr;
+  int i = fold_.slots[size_t(slot)];
+  return i >= 0 && i < int(items_.size()) ? &items_[size_t(i)] : nullptr;
+}
+
+int ToolBar::slot_of(int item) const {
+  for (size_t s = 0; s < fold_.slots.size(); ++s)
+    if (fold_.slots[s] == item)
+      return int(s);
+  return -1;
+}
+
+int ToolBar::width_of(int slot) const {
+  if (slot < 0 || slot >= int(extra_.size()))
+    return button_;
+  auto &a = const_cast<Anim<double> &>(extra_[size_t(slot)]);
   return button_ + int(std::lround(std::max(0.0, a.value())));
 }
 
 int ToolBar::preferred_width() const {
-  int n = int(items_.size());
+  int n = int(fold_.slots.size());
   if (!n)
     return 0;
   int sum = (n - 1) * gap_;
-  for (int i = 0; i < n; ++i)
-    sum += width_of(i);
+  for (int s = 0; s < n; ++s)
+    sum += width_of(s);
   return sum;
 }
 
-int ToolBar::item_at(int ex) const {
-  int n = int(items_.size());
-  if (plain_) {
-    int cx = x();
-    for (int i = 0; i < n; ++i) {
-      int wi = width_of(i);
-      if (ex >= cx && ex < cx + wi)
-        return i;
-      cx += wi + gap_;
-    }
-    return -1;
-  }
-  int cx = x() + w();
-  for (int i = n - 1; i >= 0; --i) {
-    int wi = width_of(i);
-    if (ex >= cx - wi && ex < cx)
-      return i;
-    cx -= wi + gap_;
+int ToolBar::slot_at(int ex) const {
+  int n = int(fold_.slots.size());
+  for (int s = 0; s < n; ++s) {
+    int rx = 0, ry = 0, rw = 0, rh = 0;
+    slot_rect(s, rx, ry, rw, rh);
+    if (ex >= rx && ex < rx + rw)
+      return s;
   }
   return -1;
 }
 
-bool ToolBar::item_rect(int i, int &rx, int &ry, int &rw, int &rh) const {
-  int n = int(items_.size());
-  if (i < 0 || i >= n)
+bool ToolBar::slot_rect(int slot, int &rx, int &ry, int &rw, int &rh) const {
+  int n = int(fold_.slots.size());
+  if (slot < 0 || slot >= n)
     return false;
   ry = y();
   rh = h();
   if (plain_) {
     int cx = x();
-    for (int k = 0; k < i; ++k)
+    for (int k = 0; k < slot; ++k)
       cx += width_of(k) + gap_;
     rx = cx;
-    rw = width_of(i);
+    rw = width_of(slot);
     return true;
   }
   int cx = x() + w();
-  for (int k = n - 1; k > i; --k)
+  for (int k = n - 1; k > slot; --k)
     cx -= width_of(k) + gap_;
-  rw = width_of(i);
+  rw = width_of(slot);
   rx = cx - rw;
   return true;
+}
+
+bool ToolBar::item_rect(int i, int &rx, int &ry, int &rw, int &rh) const {
+  if (i < 0 || i >= int(items_.size()))
+    return false;
+  int s = slot_of(folded(i) ? -1 : i);
+  return slot_rect(s, rx, ry, rw, rh);
+}
+
+bool ToolBar::overflow_rect(int &rx, int &ry, int &rw, int &rh) const {
+  return fold_.overflow() && slot_rect(slot_of(-1), rx, ry, rw, rh);
+}
+
+int ToolBar::hot() const {
+  if (hot_ < 0 || hot_ >= int(fold_.slots.size()))
+    return -1;
+  return fold_.slots[size_t(hot_)];
+}
+
+bool ToolBar::overflow_hot() const { return hot_ >= 0 && hot_ < int(fold_.slots.size()) && fold_.slots[size_t(hot_)] == -1; }
+
+std::string ToolBar::overflow_icon() const {
+  for (int i : fold_.folded)
+    if (items_[size_t(i)].on)
+      return items_[size_t(i)].icon;
+  return "more";
 }
 
 void ToolBar::tick(void *data) {
@@ -134,30 +218,57 @@ void ToolBar::tick(void *data) {
 
 void ToolBar::rest(void *data) {
   auto *t = static_cast<ToolBar *>(data);
-  if (t->hot_ < 0)
-    return;
-  const Item &it = t->items_[size_t(t->hot_)];
-  if (it.shortcut.empty())
+  const Item *it = t->slot_item(t->hot_);
+  if (!it || it->shortcut.empty() || t->drawer_)
     return;
   int rx, ry, rw, rh;
-  t->item_rect(t->hot_, rx, ry, rw, rh);
+  t->slot_rect(t->hot_, rx, ry, rw, rh);
   if (Window *win = Window::of(t))
-    Tooltip::open_at(win, rx, ry, rw, rh, it.shortcut);
+    Tooltip::open_at(win, rx, ry, rw, rh, it->shortcut);
 }
 
-void ToolBar::set_hot(int i) {
-  if (i == hot_)
+void ToolBar::hover_open(void *data) {
+  auto *t = static_cast<ToolBar *>(data);
+  if (t->overflow_hot() && !t->drawer_)
+    t->open_drawer(false, false);
+}
+
+void ToolBar::hover_close(void *data) {
+  auto *t = static_cast<ToolBar *>(data);
+  if (t->drawer_ && !t->drawer_->held_ && !t->drawer_->inside_ && !t->overflow_hot())
+    t->close_overflow();
+}
+
+void ToolBar::set_hot(int slot) {
+  if (slot == hot_)
     return;
-  hot_ = i;
+  hot_ = slot;
   Fl::remove_timeout(rest, this);
+  Fl::remove_timeout(hover_open, this);
   Tooltip::close_all();
-  if (i >= 0)
+  if (slot >= 0 && slot_item(slot))
     Fl::add_timeout(kRestSeconds, rest, this);
+  if (overflow_hot()) {
+    Fl::remove_timeout(hover_close, this);
+    if (!drawer_)
+      Fl::add_timeout(kHoverOpenSeconds, hover_open, this);
+  } else if (drawer_ && !drawer_->held_) {
+    Fl::remove_timeout(hover_close, this);
+    Fl::add_timeout(kHoverCloseSeconds, hover_close, this);
+  }
   if (!plain_) {
-    for (size_t k = 0; k < items_.size(); ++k) {
+    // Labels reveal within the room the row may take.
+    int room = allowance_;
+    if (fit_ > 0)
+      room = std::max(0, std::min(room, fit_ - fit::row_width(int(fold_.slots.size()), button_, gap_)));
+    for (size_t k = 0; k < fold_.slots.size(); ++k) {
       double target = 0;
-      if (int(k) == hot_ && !items_[k].label.empty())
-        target = std::min(double(allowance_), text::width(items_[k].label, text::REGULAR, 12) + 12);
+      if (int(k) == hot_) {
+        const Item *it = slot_item(int(k));
+        std::string label = it ? it->label : overflow_label_.empty() ? tr("Show more") : overflow_label_;
+        if (!label.empty() && !(fold_.slots[k] == -1 && drawer_))
+          target = std::min(double(room), text::width(label, text::REGULAR, 12) + 12);
+      }
       extra_[k].set(target, 160, anim::Ease::OutCubic);
     }
     anim::request_frame(tick, this);
@@ -166,36 +277,97 @@ void ToolBar::set_hot(int i) {
   redraw();
 }
 
+void ToolBar::open_drawer(bool hold, bool keyboard) {
+  Window *win = Window::of(this);
+  if (!win || !fold_.overflow())
+    return;
+  Fl::remove_timeout(hover_open, this);
+  Fl::remove_timeout(hover_close, this);
+  Fl::remove_timeout(rest, this);
+  Tooltip::close_all();
+  if (!drawer_) {
+    auto *d = new ToolDrawer();
+    d->owner_ = this;
+    d->entries_ = fold_.folded;
+    drawer_ = d;
+    d->open(win);
+    d->fade_in(anim::ms::POPUP_IN, anim::Ease::OutCubic);
+    // The overflow button keeps its icon while the column hangs from it.
+    for (size_t k = 0; k < fold_.slots.size(); ++k)
+      if (fold_.slots[k] == -1)
+        extra_[k].set(0, 160, anim::Ease::OutCubic);
+    anim::request_frame(tick, this);
+  }
+  if (hold)
+    drawer_->hold(keyboard);
+  redraw();
+}
+
+bool ToolBar::open_overflow(bool keyboard) {
+  if (!fold_.overflow() || !Window::of(this))
+    return false;
+  open_drawer(true, keyboard);
+  return true;
+}
+
+void ToolBar::close_overflow() {
+  if (drawer_) {
+    ToolDrawer *d = drawer_;
+    drawer_ = nullptr;
+    d->owner_ = nullptr;
+    d->close();
+  }
+  redraw();
+}
+
+void ToolBar::drawer_closed() {
+  drawer_ = nullptr;
+  redraw();
+}
+
+void ToolBar::activate(int i) {
+  if (i < 0 || i >= int(items_.size()))
+    return;
+  const Item &it = items_[size_t(i)];
+  if (it.enabled && it.action) {
+    auto fn = it.action; // the action may replace the items
+    fn();
+  }
+}
+
 int ToolBar::handle(int event) {
   switch (event) {
   case FL_ENTER:
   case FL_MOVE: {
-    int i = item_at(Fl::event_x());
-    set_hot(i);
+    set_hot(slot_at(Fl::event_x()));
     return 1;
   }
   case FL_LEAVE:
   case FL_HIDE:
     set_hot(-1);
+    if (event == FL_HIDE)
+      close_overflow();
     return event == FL_LEAVE ? 1 : 0;
   case FL_PUSH: {
     Fl::remove_timeout(rest, this);
     Tooltip::close_all();
-    int i = item_at(Fl::event_x());
-    if (i < 0 || Fl::event_button() != FL_LEFT_MOUSE)
+    int s = slot_at(Fl::event_x());
+    if (s < 0 || Fl::event_button() != FL_LEFT_MOUSE)
       return 0;
-    pressed_ = i;
+    pressed_ = s;
     return 1;
   }
   case FL_RELEASE: {
-    int i = item_at(Fl::event_x());
+    int s = slot_at(Fl::event_x());
     int p = pressed_;
     pressed_ = -1;
-    if (i == p && i >= 0 && Fl::event_inside(this)) {
-      const Item &it = items_[size_t(i)];
-      if (it.enabled && it.action) {
-        auto fn = it.action; // the action may replace the items
-        fn();
+    if (s == p && s >= 0 && Fl::event_inside(this)) {
+      int i = fold_.slots[size_t(s)];
+      if (i == -1) {
+        // A click holds the column open (or opens it held).
+        open_drawer(true, false);
+      } else {
+        activate(i);
       }
     }
     return 1;
@@ -206,12 +378,32 @@ int ToolBar::handle(int event) {
 
 void ToolBar::draw() {
   const Theme &t = theme();
-  int n = int(items_.size());
-  for (int i = 0; i < n; ++i) {
-    const Item &it = items_[size_t(i)];
+  int n = int(fold_.slots.size());
+  for (int s = 0; s < n; ++s) {
+    const int i = fold_.slots[size_t(s)];
     int rx, ry, rw, rh;
-    item_rect(i, rx, ry, rw, rh);
-    bool hot = i == hot_ && it.enabled;
+    slot_rect(s, rx, ry, rw, rh);
+    if (i == -1) {
+      // The overflow button: the folded "on" item's icon on a card (the
+      // current view), or "more"; a small chevron says it drops down.
+      std::string ic = overflow_icon();
+      bool on = ic != "more" || drawer_ != nullptr;
+      bool hot = s == hot_ || drawer_ != nullptr;
+      if (on)
+        paint::round_fill(rx, ry, rw, rh, round7(), t.card());
+      Rgb c = on || hot ? t.accent() : t.dim();
+      icon::draw(ic, rx + rw - 26 + 3, ry + (rh - 18) / 2 - 2, 18, c);
+      icon::draw("chevron-down", rx + rw - 26 + 3 + 6, ry + rh - 11, 8, c);
+      if (rw > button_ + 8) {
+        const std::string label = overflow_label_.empty() ? tr("Show more") : overflow_label_;
+        fl_push_clip(rx + 8, ry, rw - 40, rh);
+        text::draw(label, rx + 8, ry, rw - 40 + 4, rh, c, text::REGULAR, 12, FL_ALIGN_LEFT, text::Elide::None);
+        fl_pop_clip();
+      }
+      continue;
+    }
+    const Item &it = items_[size_t(i)];
+    bool hot = s == hot_ && it.enabled;
     if (plain_) {
       Rgb c = !it.enabled ? t.muted() : hot ? t.accent() : t.foreground();
       icon::draw(it.icon, rx + (rw - 16) / 2, ry + (rh - 16) / 2, 16, c);
@@ -228,6 +420,217 @@ void ToolBar::draw() {
       fl_pop_clip();
     }
   }
+}
+
+// --- ToolDrawer -----------------------------------------------------------------
+
+void ToolDrawer::relayout() {
+  Window *win = host() ? host() : nullptr;
+  if (!owner_ || !win)
+    return;
+  int ax, ay, aw, ah;
+  if (!owner_->overflow_rect(ax, ay, aw, ah))
+    return;
+  shown_.clear();
+  for (int i : entries_)
+    shown_.push_back(owner_->items_[size_t(i)]);
+  // As wide as the longest label and shortcut, in Files' menu metrics.
+  int label_w = 0, keys_w = 0;
+  for (const ToolBar::Item &it : shown_) {
+    label_w = std::max(label_w, int(text::width(it.label, text::REGULAR, 12)) + 1);
+    if (!it.shortcut.empty())
+      keys_w = std::max(keys_w, int(text::width(it.shortcut, text::REGULAR, 10)) + 1);
+  }
+  cw_ = std::max(aw + 40, 12 + 26 + label_w + (keys_w ? 18 + keys_w : 0) + 30);
+  cw_ = std::min(cw_, std::max(80, win->w() - 16));
+  ch_ = 2 * kDrawerPad + int(entries_.size()) * kDrawerRow;
+  cy_ = ay + ah + 4;
+  if (cy_ + ch_ > win->h() - 4 && ay - 4 - ch_ >= 4)
+    cy_ = ay - 4 - ch_; // no room below: up
+  cx_ = rtl() ? ax : ax + aw - cw_;
+  cx_ = std::max(8, std::min(cx_, win->w() - 8 - cw_));
+  // Held, it covers the window to catch the click that closes it; opened
+  // by hovering, only its card, so the pointer still reaches the header.
+  if (held_)
+    resize(0, 0, win->w(), win->h());
+  else
+    resize(cx_, cy_, cw_, ch_);
+  if (hot_ >= int(entries_.size()))
+    hot_ = -1;
+  win->redraw();
+}
+
+void ToolDrawer::hold(bool keyboard) {
+  held_ = true;
+  if (keyboard && hot_ < 0 && !entries_.empty()) {
+    hot_ = 0;
+    // Start on the entry that is on (the current view), when one is.
+    for (size_t k = 0; k < entries_.size(); ++k)
+      if (owner_ && owner_->items_[size_t(entries_[k])].on)
+        hot_ = int(k);
+  }
+  relayout();
+}
+
+void ToolDrawer::closing() {
+  Fl::remove_timeout(ToolBar::hover_close, owner_);
+  if (owner_)
+    owner_->drawer_closed();
+  owner_ = nullptr;
+}
+
+bool ToolDrawer::entry_rect(int i, int &x, int &y, int &w, int &h) const {
+  if (i < 0 || i >= int(std::max(entries_.size(), shown_.size())))
+    return false;
+  x = cx_ + 2;
+  y = cy_ + kDrawerPad + i * kDrawerRow;
+  w = cw_ - 4;
+  h = kDrawerRow;
+  return true;
+}
+
+int ToolDrawer::entry_at(int ex, int ey) const {
+  if (ex < cx_ || ex >= cx_ + cw_ || ey < cy_ + kDrawerPad || ey >= cy_ + ch_ - kDrawerPad)
+    return -1;
+  int i = (ey - cy_ - kDrawerPad) / kDrawerRow;
+  return i >= 0 && i < int(entries_.size()) ? i : -1;
+}
+
+void ToolDrawer::move(int dir) {
+  int n = int(entries_.size());
+  if (!n || !owner_)
+    return;
+  int i = hot_;
+  for (int step = 0; step < n; ++step) {
+    i = i < 0 ? (dir > 0 ? 0 : n - 1) : (i + dir + n) % n;
+    if (owner_->items_[size_t(entries_[size_t(i)])].enabled)
+      break;
+  }
+  hot_ = i;
+  redraw_all();
+}
+
+void ToolDrawer::choose(int i) {
+  if (!owner_ || i < 0 || i >= int(entries_.size()))
+    return;
+  ToolBar *owner = owner_;
+  int item = entries_[size_t(i)];
+  if (!owner->items_[size_t(item)].enabled)
+    return;
+  owner->close_overflow(); // closes this layer (deleted later)
+  owner->activate(item);
+}
+
+int ToolDrawer::handle(int event) {
+  if (!owner_)
+    return 0;
+  const int ex = Fl::event_x(), ey = Fl::event_y();
+  const bool in_card = ex >= cx_ && ex < cx_ + cw_ && ey >= cy_ && ey < cy_ + ch_;
+  switch (event) {
+  case FL_ENTER:
+  case FL_MOVE:
+  case FL_DRAG: {
+    inside_ = in_card;
+    if (in_card)
+      Fl::remove_timeout(ToolBar::hover_close, owner_);
+    int i = entry_at(ex, ey);
+    if (i != hot_ && (in_card || !held_)) {
+      hot_ = i;
+      redraw_all();
+    }
+    if (!in_card && held_) {
+      // Held over the window: the overflow button under it still shows hover.
+      return 1;
+    }
+    return in_card ? 1 : 0;
+  }
+  case FL_LEAVE:
+    inside_ = false;
+    if (!held_) {
+      hot_ = -1;
+      Fl::remove_timeout(ToolBar::hover_close, owner_);
+      Fl::add_timeout(kHoverCloseSeconds, ToolBar::hover_close, owner_);
+      redraw_all();
+    }
+    return 1;
+  case FL_PUSH:
+    if (!in_card) {
+      if (held_) {
+        // A click outside closes it, as menus do (and is used up).
+        owner_->close_overflow();
+        return 1;
+      }
+      return 0;
+    }
+    pressed_inside_ = true;
+    return 1;
+  case FL_RELEASE: {
+    bool was = pressed_inside_;
+    pressed_inside_ = false;
+    if (was && in_card)
+      choose(entry_at(ex, ey));
+    return 1;
+  }
+  case FL_KEYBOARD:
+  case FL_SHORTCUT: {
+    if (!held_)
+      return 0;
+    int k = Fl::event_key();
+    switch (k) {
+    case FL_Up: move(-1); return 1;
+    case FL_Down: move(1); return 1;
+    case FL_Home: hot_ = -1; move(1); return 1;
+    case FL_End: hot_ = -1; move(-1); return 1;
+    case FL_Enter: case FL_KP_Enter: case ' ': choose(hot_); return 1;
+    case FL_Escape: owner_->close_overflow(); return 1;
+    }
+    return 0; // anything else closes it and reaches the app (passes_keys)
+  }
+  }
+  return 0;
+}
+
+void ToolDrawer::draw() {
+  const Theme &t = theme();
+  // It drops down: the card's visible height follows the presence.
+  double p = presence();
+  int vis = std::max(1, int(std::lround(ch_ * p)));
+  int r = round7();
+  fl_push_clip(cx_, cy_, cw_, vis);
+  paint::round_fill(cx_, cy_, cw_, ch_, r, t.accent());
+  paint::round_fill(cx_ + 1, cy_ + 1, cw_ - 2, ch_ - 2, r, t.background());
+  {
+    // From the copy taken at the last layout, so the entries stay while
+    // the card retracts after a choice.
+    bool mirror = rtl();
+    for (size_t k = 0; k < shown_.size(); ++k) {
+      const ToolBar::Item &it = shown_[k];
+      int x = 0, y = 0, w = 0, h = 0;
+      entry_rect(int(k), x, y, w, h);
+      bool hi = int(k) == hot_ && it.enabled;
+      if (it.on || hi)
+        paint::round_fill(x, y, w, h, r ? 5 : 0, t.card());
+      Rgb fg = !it.enabled ? t.muted() : it.on ? t.accent() : hi ? t.bright_foreground() : t.foreground();
+      auto mx = [&](int x0, int w0) { return mirror ? cx_ + cw_ - (x0 - cx_) - w0 : x0; };
+      int lx = cx_ + 12;
+      icon::draw(it.icon, mx(lx, 16), y + (h - 16) / 2, 16, it.on ? t.accent() : fg);
+      lx += 26;
+      int right = cx_ + cw_ - 12;
+      if (it.on) {
+        icon::draw("check", mx(right - 12, 12), y + (h - 12) / 2, 12, t.accent());
+        right -= 20;
+      }
+      if (!it.shortcut.empty()) {
+        int sw = int(text::width(it.shortcut, text::REGULAR, 10) + 1);
+        text::draw(it.shortcut, mx(right - sw, sw), y, sw, h, t.dim(), text::REGULAR, 10,
+                   mirror ? FL_ALIGN_LEFT : FL_ALIGN_RIGHT, text::Elide::None);
+        right -= sw + 14;
+      }
+      text::draw(it.label, mx(lx, right - lx), y, right - lx, h, fg, text::REGULAR, 12,
+                 mirror ? FL_ALIGN_RIGHT : FL_ALIGN_LEFT);
+    }
+  }
+  fl_pop_clip();
 }
 
 // --- TabStrip -----------------------------------------------------------------
@@ -451,9 +854,10 @@ void StatusBar::badge(const std::string &text, Rgb color) {
 }
 
 int StatusBar::handle(int event) {
-  if (event == FL_PUSH && hint_cb_ && Fl::event_x() > x() + 200 && Fl::event_x() < x() + w() - 300)
+  const bool on_hint = hint_cb_ && hint_w_ > 0 && Fl::event_x() >= hint_x_ && Fl::event_x() < hint_x_ + hint_w_;
+  if (event == FL_PUSH && on_hint)
     return 1;
-  if (event == FL_RELEASE && hint_cb_ && Fl::event_x() > x() + 200 && Fl::event_x() < x() + w() - 300) {
+  if (event == FL_RELEASE && on_hint) {
     hint_cb_();
     return 1;
   }
@@ -465,22 +869,19 @@ void StatusBar::draw() {
   paint::fill(x(), y(), w(), h(), t.background());
   paint::fill(x(), y(), w(), 1, t.card());
   const int fs = 12;
-  int bw = badge_.empty() ? 0 : int(text::width(badge_, text::REGULAR, fs)) + 4;
-  int rw = right_.empty() ? 0 : std::min(260, int(text::width(right_, text::REGULAR, fs)) + 4);
-  int right_end = x() + w() - 16;
-  if (bw)
-    text::draw(badge_, right_end - bw, y(), bw, h(), badge_color_, text::REGULAR, fs, FL_ALIGN_RIGHT);
-  int rx = right_end - bw - (bw ? 80 : 0) - rw;
-  if (rw)
-    text::draw(right_, rx, y(), rw, h(), t.dim(), text::REGULAR, fs, FL_ALIGN_LEFT);
-  bool wide = w() >= 788;
-  int lw = wide && !hint_.empty() ? 180 : std::max(100, rx - x() - 32);
-  text::draw(left_, x() + 16, y(), lw, h(), error_ ? t.red() : t.dim(), text::REGULAR, fs);
-  if (wide && !hint_.empty()) {
-    int hx = x() + 208, hw = rx - 24 - hx;
-    if (hw > 80)
-      text::draw(hint_, hx, y(), hw, h(), t.dim(), text::REGULAR, fs);
-  }
+  auto need = [&](const std::string &s) { return s.empty() ? 0 : int(text::width(s, text::REGULAR, fs)) + 4; };
+  // By priority, never overlapping (fit::status_row): the counts, the
+  // badge, the free space, then the tip in what is left.
+  fit::StatusRow r = fit::status_row(x(), w(), need(left_), need(hint_), need(right_), need(badge_));
+  if (r.badge_w)
+    text::draw(badge_, r.badge_x, y(), r.badge_w, h(), badge_color_, text::REGULAR, fs, FL_ALIGN_RIGHT);
+  if (r.right_w)
+    text::draw(right_, r.right_x, y(), r.right_w, h(), t.dim(), text::REGULAR, fs, FL_ALIGN_LEFT);
+  if (r.left_w)
+    text::draw(left_, r.left_x, y(), r.left_w, h(), error_ ? t.red() : t.dim(), text::REGULAR, fs);
+  hint_x_ = r.hint_x, hint_w_ = r.hint_w;
+  if (r.hint_w)
+    text::draw(hint_, r.hint_x, y(), r.hint_w, h(), t.dim(), text::REGULAR, fs);
 }
 
 // --- SortHeader ---------------------------------------------------------------

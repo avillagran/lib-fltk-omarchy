@@ -610,3 +610,93 @@ TEST(display_theme_overrides_sit_over_the_followed_theme) {
   CHECK(theme().accent() == Rgb(0x11, 0x22, 0x33));
   CHECK_EQ(theme().radius(), 6);
 }
+
+TEST(toolbar_overflow_column_opens_held_and_chooses) {
+  if (!fo_test::have_display())
+    return;
+  anim::set_enabled(0);
+  Window win(640, 400);
+  auto *bar = new ToolBar(0, 10, 400, 36);
+  auto *crumbs = new Breadcrumbs(10, 300, 90, 34);
+  win.end();
+  fo_test::show(&win);
+  int chosen = -1;
+  std::vector<ToolBar::Item> items;
+  for (int i = 0; i < 6; ++i) {
+    ToolBar::Item it{"grid", "Item " + std::to_string(i), "", i == 3, true, [&chosen, i] { chosen = i; }};
+    it.priority = 10 - i;
+    it.group = i >= 2 && i <= 4 ? 1 : 0;
+    items.push_back(it);
+  }
+  bar->items(items);
+  CHECK(!bar->overflowing());
+  bar->fit_width(160); // 4 slots: three kept and the overflow
+  CHECK(bar->overflowing());
+  CHECK(bar->folded(2) && bar->folded(3) && bar->folded(4));
+  CHECK(bar->preferred_width() <= 160);
+  CHECK(!bar->folded(5)); // a lone button that fits outlives the group
+  // A folded item anchors menus to the overflow button.
+  int ox, oy, ow, oh, ix, iy, iw, ih;
+  CHECK(bar->overflow_rect(ox, oy, ow, oh));
+  CHECK(bar->item_rect(3, ix, iy, iw, ih));
+  CHECK_EQ(ix, ox);
+  CHECK(bar->open_overflow(true));
+  CHECK(bar->overflow_open());
+  ToolDrawer *d = bar->drawer();
+  CHECK(d != nullptr);
+  CHECK(d->held());
+  CHECK(win.modal_open());
+  CHECK_EQ(d->entries().size(), size_t(3));
+  CHECK_EQ(d->highlighted(), 1); // starts on the item that is on
+  // Down, then Enter: the third folded item runs and the column closes.
+  Fl::e_keysym = FL_Down;
+  d->handle(FL_KEYBOARD);
+  CHECK_EQ(d->highlighted(), 2);
+  Fl::e_keysym = FL_Enter;
+  d->handle(FL_KEYBOARD);
+  CHECK_EQ(chosen, 4);
+  CHECK(!bar->overflow_open());
+  CHECK(!win.modal_open());
+  // Esc closes without a choice.
+  chosen = -1;
+  bar->open_overflow(true);
+  Fl::e_keysym = FL_Escape;
+  bar->drawer()->handle(FL_KEYBOARD);
+  CHECK(!bar->overflow_open());
+  CHECK_EQ(chosen, -1);
+  // Room again: nothing folds and an open column would close.
+  bar->open_overflow(false);
+  bar->fit_width(0);
+  CHECK(!bar->overflowing());
+  CHECK(!bar->overflow_open());
+  // Held from the keyboard and drawn: the card shows under the overflow button.
+  bar->fit_width(160);
+  bar->open_overflow(true);
+  win.redraw();
+  fo_test::settle();
+  int cx, cy, cw, ch;
+  bar->drawer()->card(cx, cy, cw, ch);
+  CHECK(cy >= oy + oh);
+  CHECK(ink(&win, cx + 4, cx + cw - 4, cy + 6, cy + ch - 6) > 50);
+  bar->close_overflow();
+  Fl::e_keysym = 0;
+
+  // A narrow path: the current folder keeps a chip with its name in it,
+  // never an empty accent chip.
+  crumbs->segments({{"~", "/home/me"}, {"Documents", "/home/me/Documents"}, {"Projects", "/p"},
+                    {"A rather long folder name", "/p/x"}});
+  win.redraw();
+  fo_test::settle();
+  CHECK_EQ(crumbs->first_visible(), 3);
+  // The chip is the accent and its text the background color: count text.
+  int letters = 0, chip = 0;
+  for (int y = 300 + 11; y < 300 + 23; ++y)
+    for (int x = 10 + 6; x < 10 + 84; ++x) {
+      Rgb c = fo_test::pixel(&win, x, y);
+      chip += fo_test::near(c, theme().accent(), 30);
+      letters += fo_test::near(c, theme().background(), 40);
+    }
+  CHECK(chip > 200);
+  CHECK(letters > 15);
+}
+

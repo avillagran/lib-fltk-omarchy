@@ -1,4 +1,5 @@
 #include "fltk-omarchy/widgets.h"
+#include "fltk-omarchy/fit.h"
 
 #include "fltk-omarchy/app.h"
 #include "fltk-omarchy/dialog.h"
@@ -373,6 +374,7 @@ void TextField::draw() {
 static const char *kFold = "\xE2\x80\xA6";
 static const char *kSep = "\xE2\x80\xBA";
 static const int kChipH = 24, kSepW = 14, kChipPad = 10, kChipMax = 180, kCurrentMax = 180;
+static const int kFoldW = 28; // Files: OVERFLOW_WIDTH
 
 static int chip_round() { return theme().radius() > 0 ? 7 : 0; }
 
@@ -394,45 +396,44 @@ void Breadcrumbs::layout_hits() {
   int n = int(segs_.size());
   if (!n)
     return;
-  auto chip_w = [&](int i) {
+  std::vector<int> chips;
+  for (int i = 0; i < n; ++i) {
     int max = i == n - 1 ? kCurrentMax : kChipMax;
-    return std::min(max, int(text::width(segs_[size_t(i)].label, text::REGULAR, 12) + 0.5) + 2 * kChipPad);
-  };
-  int fold = 28; // Files: OVERFLOW_WIDTH
-  // Keep as many trailing chips as fit; the rest fold into "…".
-  first_ = n - 1;
-  int used = chip_w(n - 1);
-  while (first_ > 0) {
-    int add = chip_w(first_ - 1) + kSepW;
-    int reserve = first_ - 1 > 0 ? fold + kSepW : 0;
-    if (used + add + reserve > w())
-      break;
-    used += add;
-    --first_;
+    chips.push_back(std::min(max, int(text::width(segs_[size_t(i)].label, text::REGULAR, 12) + 0.5) + 2 * kChipPad));
   }
+  // Files' breadcrumbs.rs: the current folder always keeps a readable chip
+  // (at least a few letters and "…"); "…" leads only when it leaves that
+  // room, otherwise the hidden ancestors hang from the current chip.
+  int min_current = 2 * kChipPad + int(text::width(kFold, text::REGULAR, 12) + 0.5) + 28;
+  fit::CrumbRow row = fit::crumbs(chips, w(), kFoldW, kSepW, min_current);
+  first_ = row.first;
   int cx = x();
   bool mirror = rtl();
   auto push = [&](int index, int width) {
     hits_.push_back(Hit{mirror ? x() + w() - (cx - x()) - width : cx, width, index});
     cx += width + kSepW;
   };
-  if (first_ > 0)
-    push(-1, fold);
+  if (row.fold)
+    push(-1, kFoldW);
   for (int i = first_; i < n; ++i)
-    push(i, std::min(chip_w(i), std::max(24, x() + w() - cx)));
+    push(i, row.widths[size_t(i - first_)]);
 }
 
 void Breadcrumbs::activate(int index) {
   if (index == -1) {
     Window *win = Window::of(this);
-    if (!win)
+    if (!win || first_ <= 0 || hits_.empty())
       return;
     std::vector<MenuItem> items;
     for (int i = first_ - 1; i >= 0; --i)
       items.push_back(MenuItem(segs_[size_t(i)].label, "", [this, i] { activate(i); }).with_icon("folder"));
+    // Under the "…" chip, or under the current chip when there was no
+    // room for one.
+    const Hit *anchor = &hits_.back();
     for (const auto &hit : hits_)
       if (hit.index == -1)
-        PopupMenu::open_below(win, hit.x, y() + (h() - kChipH) / 2, hit.w, kChipH, items);
+        anchor = &hit;
+    PopupMenu::open_below(win, anchor->x, y() + (h() - kChipH) / 2, anchor->w, kChipH, items);
     return;
   }
   if (index >= 0 && index < int(segs_.size()) - 1 && navigate_)
@@ -440,11 +441,9 @@ void Breadcrumbs::activate(int index) {
 }
 
 void Breadcrumbs::open_fold() {
-  for (const auto &hit : hits_)
-    if (hit.index == -1) {
-      activate(-1);
-      return;
-    }
+  layout_hits();
+  if (first_ > 0)
+    activate(-1);
 }
 
 int Breadcrumbs::handle(int event) {
@@ -548,7 +547,9 @@ void Breadcrumbs::draw() {
     paint::round_fill(hh.x, cy, hh.w, kChipH, chip_round(), fill);
     Rgb fg = current ? t.background() : hh.index == hover_ ? t.bright_foreground() : t.foreground();
     const std::string &label = hh.index == -1 ? std::string(kFold) : segs_[size_t(hh.index)].label;
-    text::draw(label, hh.x + kChipPad, y(), hh.w - 2 * kChipPad, h(), fg, text::REGULAR, 12,
+    // A squeezed chip gives up padding before its text.
+    int pad = std::max(4, std::min(kChipPad, (hh.w - 20) / 2));
+    text::draw(label, hh.x + pad, y(), hh.w - 2 * pad, h(), fg, text::REGULAR, 12,
                hh.index == -1 ? FL_ALIGN_CENTER : (mirror ? FL_ALIGN_RIGHT : FL_ALIGN_LEFT));
     if (keyed && hh.index == cursor_)
       paint::round_frame(hh.x - 2, cy - 2, hh.w + 4, kChipH + 4, chip_round(), 1, t.accent());

@@ -41,6 +41,7 @@ add_library(fltk-omarchy STATIC
   src/collection.cpp
   src/columns.cpp
   src/dialog.cpp
+  src/fit.cpp
   src/hyprland.cpp
   src/i18n.cpp
   src/icons.cpp
@@ -96,6 +97,7 @@ if(FO_BUILD_TESTS)
     tests/test_columns.cpp
     tests/test_rtl.cpp
     tests/test_widgets.cpp
+    tests/test_fit.cpp
   )
   target_link_libraries(fo_tests PRIVATE fltk-omarchy::fltk-omarchy)
   target_include_directories(fo_tests PRIVATE src)
