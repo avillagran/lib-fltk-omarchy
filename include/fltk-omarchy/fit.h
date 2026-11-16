@@ -45,7 +45,7 @@ struct StatusRow {
 };
 
 /// Lays a status bar out by priority so nothing overlaps: the left text
-/// keeps at least min(its width, 120) px (elided below its width), then
+/// keeps at least min(its width, 200) px (elided below its width), then
 /// the badge and the right text appear only when they fit whole, then the
 /// left text grows to its width, and the hint takes what is left when that
 /// is at least 160 px (elided). 16 px margins, 24 px between parts.

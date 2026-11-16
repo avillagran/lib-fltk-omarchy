@@ -71,7 +71,7 @@ RowFold fold_row(const std::vector<int> &priority, const std::vector<int> &group
 
 StatusRow status_row(int x, int w, int left, int hint, int right, int badge) {
   StatusRow r;
-  const int pad = 16, gap = 24, left_floor = 120, hint_floor = 160;
+  const int pad = 16, gap = 24, left_floor = 200, hint_floor = 160;
   const int inner = w - 2 * pad;
   if (inner <= 0)
     return r;
