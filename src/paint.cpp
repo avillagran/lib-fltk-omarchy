@@ -1,5 +1,7 @@
 #include "fltk-omarchy/paint.h"
 
+#include "fltk-omarchy/anim.h"
+
 #include <FL/Fl.H>
 #include <FL/Fl_Graphics_Driver.H>
 #include <FL/fl_draw.H>
@@ -234,6 +236,20 @@ void pop_opacity(double alpha, double scale, double cx, double cy) {
 #endif
   (void)scale, (void)cx, (void)cy;
   pop_opacity(alpha);
+}
+
+void spinner(int cx, int cy, int r, Rgb color, Rgb under) {
+  double phase = anim::enabled() ? std::fmod(anim::now_ms() / 1000.0, 1.0) : 0.0;
+  int d = std::max(2, int(std::lround(r / 2.4)));
+  double head = phase * 8.0;
+  for (int k = 0; k < 8; ++k) {
+    double a = k * M_PI / 4 - M_PI / 2;
+    double rr = r - d / 2.0;
+    int px = int(std::lround(cx + rr * std::cos(a))) - d / 2;
+    int py = int(std::lround(cy + rr * std::sin(a))) - d / 2;
+    double lag = std::fmod(head - k + 8.0, 8.0) / 8.0;
+    round_fill(px, py, d, d, d / 2, mix(under, color, 1.0 - 0.8 * lag));
+  }
 }
 
 } // namespace paint

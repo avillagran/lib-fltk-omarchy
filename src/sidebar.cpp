@@ -29,21 +29,7 @@ Rgb rail_edge(const Theme &t) { return mix(t.background(), t.foreground(), 0.15)
 Rgb row_selected(const Theme &t) { return mix(t.background(), t.foreground(), 0.21); }
 Rgb row_hover(const Theme &t) { return mix(t.background(), t.foreground(), 0.12); }
 
-// Files' busy spinner (navtree rows.rs): eight dots on a circle, the head
-// bright and the tail fading, one turn per second.
-void spinner(int cx, int cy, int r, Rgb color, Rgb under) {
-  double phase = anim::enabled() ? std::fmod(anim::now_ms() / 1000.0, 1.0) : 0.0;
-  int d = std::max(2, int(std::lround(r / 2.4)));
-  double head = phase * 8.0;
-  for (int k = 0; k < 8; ++k) {
-    double a = k * M_PI / 4 - M_PI / 2;
-    double rr = r - d / 2.0;
-    int px = int(std::lround(cx + rr * std::cos(a))) - d / 2;
-    int py = int(std::lround(cy + rr * std::sin(a))) - d / 2;
-    double lag = std::fmod(head - k + 8.0, 8.0) / 8.0;
-    paint::round_fill(px, py, d, d, d / 2, mix(under, color, 1.0 - 0.8 * lag));
-  }
-}
+void spinner(int cx, int cy, int r, Rgb color, Rgb under) { paint::spinner(cx, cy, r, color, under); }
 } // namespace
 
 Sidebar::Sidebar(int x, int y, int w, int h) : Fl_Widget(x, y, w, h) {

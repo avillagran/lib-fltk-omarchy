@@ -29,6 +29,11 @@ void vline(int x, int y, int h, Rgb c, double alpha = 1.0);
 void line(double x1, double y1, double x2, double y2, double width, Rgb c, double alpha = 1.0);
 /// A filled circle.
 void circle(double cx, double cy, double r, Rgb c, double alpha = 1.0);
+/// Files' busy spinner (navtree rows.rs): eight dots on a circle of radius
+/// `r` around (cx, cy), the head in `color` and the tail fading into
+/// `under`, one turn per second (still when animations are off). The
+/// caller asks for frames while it shows.
+void spinner(int cx, int cy, int r, Rgb color, Rgb under);
 
 /// Starts drawing into an offscreen group; pop_opacity() composites it
 /// with `alpha`. Used to fade cards in and out. Pairs must nest.
