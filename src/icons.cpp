@@ -222,6 +222,7 @@ const Glyph kGlyphs[] = {
     {"templates", 0xf0c5},     {"public", 0xf0ac},      {"removable", 0xf287},
     {"sort-desc", 0xf063},     {"sort-asc", 0xf062},    {"filter-x", 0xf00d},
     {"compress", 0xf01a7},     {"extract", 0xf01da},    {"properties", 0xf05a},
+    {"sigma", 0xf04a0}, // nf-md-sigma: a measured folder size
 };
 
 } // namespace
