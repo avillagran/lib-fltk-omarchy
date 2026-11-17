@@ -19,9 +19,16 @@
 // FLTK's own Fl::dnd() (fo::init() installs the hook). Off Wayland it falls
 // back to Fl::copy() + Fl::dnd().
 //
+// While it runs, a card follows the pointer: the item's icon and name (or
+// the caller's label), with the number of items when there are several.
+//
 // Call it from the FL_DRAG that starts the drag (Collection::on_drag_start).
 #pragma once
 
+#include "fltk-omarchy/theme.h"
+
+#include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -30,13 +37,26 @@ class Fl_Window;
 namespace fo {
 namespace dnd {
 
+// What the card under the pointer shows.
+struct Preview {
+  std::string label;         // "" = the first path's name
+  std::string icon = "file"; // an fo::icon name
+  std::optional<Rgb> color;  // the icon's color (default: the accent)
+};
+
 // Starts dragging `paths` (absolute local paths). Returns true when the
 // drag started with the toolkit's data source, false when it fell back to
 // Fl::dnd() (no Wayland, or the compositor lacks what it needs).
-bool start_files(const std::vector<std::string> &paths);
+bool start_files(const std::vector<std::string> &paths, const Preview &preview = {});
 
 // True while a start_files() drag is in progress.
 bool active();
+
+// The card as premultiplied ARGB8888 pixels at `scale` pixels per point
+// (needs the display open; empty when FLTK can't draw offscreen). Exposed
+// for tests and screenshots.
+std::vector<uint32_t> card_pixels(const std::vector<std::string> &paths, const Preview &preview, int scale, int &w,
+                                  int &h);
 
 // The payloads it offers, exposed for tests.
 std::string uri_list(const std::vector<std::string> &paths);

@@ -212,7 +212,10 @@ back to built-in patterns without `locale_t`. See
   editors accept the files (FLTK 1.4's `Fl::dnd()` offers only text there).
   A drop inside the same application gets `FL_DND_RELEASE` and `FL_PASTE`
   with the uri-list in `Fl::event_text()`, as with `Fl::dnd()`; off Wayland
-  it is `Fl::copy()` + `Fl::dnd()`. `dnd::active()`, `uri_list`, `plain_text`.
+  it is `Fl::copy()` + `Fl::dnd()`. A card follows the pointer: `Preview{label,
+  icon, color}` (default: the first file's name), with the count when there
+  are several (`card_pixels` renders it for tests). `dnd::active()`,
+  `uri_list`, `plain_text`.
 
 ## Widgets
 

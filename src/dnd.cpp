@@ -1,15 +1,24 @@
 #include "fltk-omarchy/dnd.h"
 
+#include "fltk-omarchy/icons.h"
+#include "fltk-omarchy/paint.h"
+#include "fltk-omarchy/text.h"
+
 #include <FL/Fl.H>
+#include <FL/Fl_Image_Surface.H>
+#include <FL/Fl_RGB_Image.H>
 #include <FL/Fl_Window.H>
 #include <FL/platform.H>
 
+#include <algorithm>
 #include <cerrno>
+#include <cmath>
 #include <csignal>
 #include <cstring>
 #include <ctime>
 #include <fcntl.h>
 #include <signal.h>
+#include <sys/mman.h>
 #include <unistd.h>
 
 #if FLTK_USE_WAYLAND && defined(FO_HAVE_WAYLAND_CLIENT)
@@ -48,7 +57,26 @@ struct Wayland {
   wl_data_device *device = nullptr;
   wl_data_source *source = nullptr;
   uint32_t press_serial = 0; // of the latest button press: the drag's grab
+  wl_shm *shm = nullptr;
+  // The card that follows the pointer.
+  wl_surface *icon = nullptr;
+  wl_buffer *buffer = nullptr;
+  void *pixels = nullptr;
+  size_t pixels_size = 0;
 } g;
+
+void drop_icon() {
+  if (g.icon)
+    wl_surface_destroy(g.icon);
+  if (g.buffer)
+    wl_buffer_destroy(g.buffer);
+  if (g.pixels)
+    ::munmap(g.pixels, g.pixels_size);
+  g.icon = nullptr;
+  g.buffer = nullptr;
+  g.pixels = nullptr;
+  g.pixels_size = 0;
+}
 
 const char *const kUriList = "text/uri-list";
 const char *const kPlainUtf8 = "text/plain;charset=utf-8";
@@ -126,6 +154,7 @@ void finish(wl_data_source *source) {
     return;
   g.source = nullptr;
   g_active = false;
+  drop_icon();
   Fl::e_state &= ~FL_BUTTONS;
   if (Fl_Widget *pushed = Fl::pushed()) {
     Fl::pushed(nullptr);
@@ -208,6 +237,8 @@ void global(void *, wl_registry *registry, uint32_t name, const char *interface,
   if (!std::strcmp(interface, wl_seat_interface.name) && !g.seat) {
     g.seat = static_cast<wl_seat *>(wl_registry_bind(registry, name, &wl_seat_interface, version < 5 ? version : 5));
     wl_seat_add_listener(g.seat, &seat_listener, nullptr);
+  } else if (!std::strcmp(interface, wl_shm_interface.name) && !g.shm) {
+    g.shm = static_cast<wl_shm *>(wl_registry_bind(registry, name, &wl_shm_interface, 1));
   } else if (!std::strcmp(interface, wl_data_device_manager_interface.name) && !g.manager) {
     g.manager_version = version < 3 ? version : 3;
     g.manager = static_cast<wl_data_device_manager *>(
@@ -234,7 +265,7 @@ void setup() {
   wl_display_roundtrip_queue(display, queue); // the globals
   wl_display_roundtrip_queue(display, queue); // the seat's capabilities
   for (wl_proxy *p : {reinterpret_cast<wl_proxy *>(g.seat), reinterpret_cast<wl_proxy *>(g.manager),
-                      reinterpret_cast<wl_proxy *>(g.pointer)})
+                      reinterpret_cast<wl_proxy *>(g.pointer), reinterpret_cast<wl_proxy *>(g.shm)})
     if (p)
       wl_proxy_set_queue(p, nullptr);
   wl_registry_destroy(registry);
@@ -245,7 +276,36 @@ void setup() {
   }
 }
 
-bool start_wayland(const std::vector<std::string> &paths) {
+// A shm buffer holding the card, on a new surface for start_drag's icon.
+void make_icon(const std::vector<std::string> &paths, const Preview &preview, int scale) {
+  drop_icon();
+  if (!g.shm || !fl_wl_compositor())
+    return;
+  int w = 0, h = 0;
+  std::vector<uint32_t> argb = card_pixels(paths, preview, scale, w, h);
+  if (argb.empty())
+    return;
+  const size_t size = argb.size() * 4;
+  const int fd = ::memfd_create("fo-dnd-icon", MFD_CLOEXEC);
+  if (fd < 0)
+    return;
+  void *map = ::ftruncate(fd, off_t(size)) == 0 ? ::mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0)
+                                                : MAP_FAILED;
+  if (map == MAP_FAILED) {
+    ::close(fd);
+    return;
+  }
+  std::memcpy(map, argb.data(), size);
+  wl_shm_pool *pool = wl_shm_create_pool(g.shm, fd, int32_t(size));
+  g.buffer = wl_shm_pool_create_buffer(pool, 0, w, h, w * 4, WL_SHM_FORMAT_ARGB8888);
+  wl_shm_pool_destroy(pool);
+  ::close(fd);
+  g.pixels = map;
+  g.pixels_size = size;
+  g.icon = wl_compositor_create_surface(fl_wl_compositor());
+}
+
+bool start_wayland(const std::vector<std::string> &paths, const Preview &preview) {
   if (!g.tried)
     setup();
   if (!g.device || !g.press_serial)
@@ -258,6 +318,7 @@ bool start_wayland(const std::vector<std::string> &paths) {
   if (g.source) { // a drag the compositor never closed
     wl_data_source_destroy(g.source);
     g.source = nullptr;
+    drop_icon();
   }
   g_uri = uri_list(paths);
   g_plain = plain_text(paths);
@@ -268,13 +329,96 @@ bool start_wayland(const std::vector<std::string> &paths) {
   wl_data_source_offer(g.source, kPlain); // what FLTK's own drop target accepts
   if (g.manager_version >= WL_DATA_SOURCE_SET_ACTIONS_SINCE_VERSION)
     wl_data_source_set_actions(g.source, WL_DATA_DEVICE_MANAGER_DND_ACTION_COPY);
-  wl_data_device_start_drag(g.device, g.source, origin, nullptr, g.press_serial);
+  const int scale = std::max(1, fl_wl_buffer_scale(win));
+  make_icon(paths, preview, scale);
+  wl_data_device_start_drag(g.device, g.source, origin, g.icon, g.press_serial);
+  if (g.icon) {
+    wl_surface_set_buffer_scale(g.icon, scale);
+    wl_surface_attach(g.icon, g.buffer, 0, 0);
+    wl_surface_damage(g.icon, 0, 0, INT32_MAX, INT32_MAX);
+    wl_surface_commit(g.icon);
+  }
   wl_display_flush(fl_wl_display());
   g_active = true;
   return true;
 }
 #endif
 } // namespace
+
+namespace {
+// Logical geometry of the card: a margin keeps it below and to the right
+// of the pointer (the surface's corner sits on the hotspot).
+constexpr int kMarginX = 14, kMarginY = 12, kCardH = 40, kShadow = 6;
+} // namespace
+
+std::vector<uint32_t> card_pixels(const std::vector<std::string> &paths, const Preview &p, int scale, int &w,
+                                  int &h) {
+  const Theme &t = theme();
+  std::string label = p.label;
+  if (label.empty()) {
+    const std::string &first = paths.front();
+    const size_t slash = first.find_last_of('/');
+    label = slash == std::string::npos ? first : first.substr(slash + 1);
+  }
+  const std::string count = paths.size() > 1 ? std::to_string(paths.size()) : std::string();
+  const int s = scale;
+  const int text_w = std::min(200, int(std::ceil(text::width(label, text::REGULAR, 12))));
+  const int badge_w = count.empty() ? 0 : std::max(20, int(text::width(count, text::BOLD, 11)) + 10);
+  const int card_w = 12 + 20 + 9 + text_w + (badge_w ? 8 + badge_w : 0) + 12;
+  const int cx = kMarginX, cy = kMarginY;
+  w = (cx + card_w + kShadow) * s;
+  h = (cy + kCardH + kShadow + 2) * s;
+
+  Fl_Image_Surface surface(w, h);
+  Fl_Surface_Device::push_current(&surface);
+  paint::fill(0, 0, w, h, t.card());
+  paint::fill(cx * s, cy * s, card_w * s, kCardH * s, t.card());
+  icon::draw(p.icon, (cx + 12) * s, (cy + 10) * s, 20 * s, p.color ? *p.color : t.accent());
+  text::draw(label, (cx + 41) * s, cy * s, text_w * s, kCardH * s, t.bright_foreground(), text::REGULAR, 12 * s);
+  if (badge_w) {
+    const int bx = cx + 41 + text_w + 8, by = cy + (kCardH - 20) / 2;
+    paint::round_fill(bx * s, by * s, badge_w * s, 20 * s, 10 * s, t.accent());
+    text::draw(count, bx * s, by * s, badge_w * s, 20 * s, t.accent_foreground(), text::BOLD, 11 * s, FL_ALIGN_CENTER,
+               text::Elide{}); // Elide::None (X11's headers define None)
+  }
+  Fl_RGB_Image *img = surface.image();
+  Fl_Surface_Device::pop_current();
+  std::vector<uint32_t> out;
+  if (!img || img->w() != w || img->h() != h || img->d() < 3) {
+    delete img;
+    return out;
+  }
+  out.assign(size_t(w) * size_t(h), 0);
+  const auto *data = reinterpret_cast<const unsigned char *>(img->data()[0]);
+  const int ld = img->ld() ? img->ld() : w * img->d();
+  // Rounded corners, a hairline and a soft shadow, as alpha.
+  const double r = 10.0 * s, left = cx * s, top = cy * s, right = (cx + card_w) * s, bottom = (cy + kCardH) * s;
+  auto distance = [&](double x, double y, double dy) {
+    const double qx = std::max({left + r - x, 0.0, x - (right - r)});
+    const double qy = std::max({top + dy + r - y, 0.0, y - (bottom + dy - r)});
+    return std::sqrt(qx * qx + qy * qy) - r;
+  };
+  const Rgb edge = t.hairline();
+  for (int y = 0; y < h; ++y)
+    for (int x = 0; x < w; ++x) {
+      const double px = x + 0.5, py = y + 0.5;
+      const double d = distance(px, py, 0);
+      const double cover = std::clamp(0.5 - d, 0.0, 1.0);
+      const double line = std::clamp(1.0 - std::fabs(d + 0.5 * s), 0.0, 1.0) * cover;
+      const double sd = distance(px, py, 2.0 * s);
+      const double fall = std::clamp(1.0 - sd / (kShadow * s), 0.0, 1.0);
+      const double shadow = 0.28 * fall * fall * (1.0 - cover);
+      const unsigned char *src = data + size_t(y) * size_t(ld) + size_t(x) * size_t(img->d());
+      double cr = src[0] + (edge.r - src[0]) * line, cg = src[1] + (edge.g - src[1]) * line,
+             cb = src[2] + (edge.b - src[2]) * line;
+      const double a = cover + shadow; // the shadow is black
+      out[size_t(y) * size_t(w) + size_t(x)] =
+          uint32_t(std::lround(a * 255)) << 24 | uint32_t(std::lround(cr * cover)) << 16 |
+          uint32_t(std::lround(cg * cover)) << 8 | uint32_t(std::lround(cb * cover));
+    }
+  delete img;
+  return out;
+}
 
 std::string uri_list(const std::vector<std::string> &paths) {
   static const char hex[] = "0123456789ABCDEF";
@@ -303,12 +447,14 @@ std::string plain_text(const std::vector<std::string> &paths) {
   return s;
 }
 
-bool start_files(const std::vector<std::string> &paths) {
+bool start_files(const std::vector<std::string> &paths, const Preview &preview) {
   if (paths.empty())
     return false;
 #ifdef FO_WAYLAND_DND
-  if (fl_wl_display() && start_wayland(paths))
+  if (fl_wl_display() && start_wayland(paths, preview))
     return true;
+#else
+  (void)preview;
 #endif
   fall_back(paths);
   return false;
