@@ -204,6 +204,16 @@ watching has inotify, kqueue and polling backends, and formatting falls
 back to built-in patterns without `locale_t`. See
 [PORTABILITY.md](PORTABILITY.md) for what is tested where.
 
+## Dragging files — `dnd.h`
+
+- `dnd::start_files(paths)` — call it from `on_drag_start`. On Wayland the
+  toolkit's own data source offers `text/uri-list`, `text/plain;charset=utf-8`
+  and `text/plain` with the copy action, so file managers, browsers and
+  editors accept the files (FLTK 1.4's `Fl::dnd()` offers only text there).
+  A drop inside the same application gets `FL_DND_RELEASE` and `FL_PASTE`
+  with the uri-list in `Fl::event_text()`, as with `Fl::dnd()`; off Wayland
+  it is `Fl::copy()` + `Fl::dnd()`. `dnd::active()`, `uri_list`, `plain_text`.
+
 ## Widgets
 
 | Widget | Header | Screenshot |

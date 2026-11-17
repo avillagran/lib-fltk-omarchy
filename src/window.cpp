@@ -2,6 +2,7 @@
 
 #include "fltk-omarchy/anim.h"
 #include "fltk-omarchy/app.h"
+#include "fltk-omarchy/dnd.h"
 #include "fltk-omarchy/i18n.h"
 #include "fltk-omarchy/icons.h"
 #include "fltk-omarchy/paint.h"
@@ -28,6 +29,9 @@ bool g_focus_visible = false;
 bool g_initialized = false;
 
 int dispatch(int event, Fl_Window *w) {
+  int result = 0;
+  if (dnd::intercept(event, w, &result))
+    return result;
   if (event == FL_KEYDOWN || event == FL_SHORTCUT) {
     int k = Fl::event_key();
     bool modifier_only = k == FL_Shift_L || k == FL_Shift_R || k == FL_Control_L || k == FL_Control_R ||

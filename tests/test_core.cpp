@@ -3,6 +3,7 @@
 #include <ctime>
 
 #include "fltk-omarchy/anim.h"
+#include "fltk-omarchy/dnd.h"
 #include "fltk-omarchy/hyprland.h"
 #include "fltk-omarchy/i18n.h"
 #include "fltk-omarchy/icons.h"
@@ -17,6 +18,17 @@
 #include <sys/stat.h>
 
 using namespace fo;
+
+// --- Dragging files ----------------------------------------------------------
+
+TEST(dnd_payloads_name_every_file) {
+  const std::vector<std::string> paths{"/home/a b/ñ.txt", "/tmp/100%\nx#y"};
+  CHECK_EQ(dnd::uri_list(paths), std::string("file:///home/a%20b/%C3%B1.txt\r\nfile:///tmp/100%25%0Ax%23y\r\n"));
+  // One path per line and no trailing newline (a terminal would run it).
+  CHECK_EQ(dnd::plain_text(paths), std::string("/home/a b/\xC3\xB1.txt\n/tmp/100%\nx#y"));
+  CHECK_EQ(dnd::plain_text({}), std::string());
+  CHECK(!dnd::active());
+}
 
 // --- JSON -------------------------------------------------------------------
 

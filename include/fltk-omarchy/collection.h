@@ -16,7 +16,7 @@
 // Mouse: click selects; Ctrl+click or Alt+click toggles; Shift+click
 // selects a range; double-click activates; dragging on empty space draws a
 // selection rectangle (Ctrl/Alt adds); dragging a selected item calls
-// on_drag_start (start Fl::dnd() there); right click calls on_context.
+// on_drag_start (start fo::dnd::start_files() there); right click calls on_context.
 // Keyboard: arrows (grid-aware), Home/End, PageUp/PageDown, Shift extends,
 // Ctrl+arrows and Ctrl+Home/End move the cursor without touching the
 // selection (Ctrl+Shift adds the range to it), Ctrl+A selects all, Enter

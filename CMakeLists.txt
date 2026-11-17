@@ -34,6 +34,9 @@ if(PkgConfig_FOUND)
   # fontconfig (loaded by FLTK's pango text anyway) finds the Nerd Font
   # whose glyphs draw Files' icons.
   pkg_check_modules(FO_FONTCONFIG QUIET IMPORTED_TARGET fontconfig)
+  # wayland-client (already linked by FLTK's Wayland backend) runs fo::dnd's
+  # drags of files, which FLTK 1.4 offers only as text.
+  pkg_check_modules(FO_WAYLAND_CLIENT QUIET IMPORTED_TARGET wayland-client)
 endif()
 
 add_library(fltk-omarchy STATIC
@@ -41,6 +44,7 @@ add_library(fltk-omarchy STATIC
   src/collection.cpp
   src/columns.cpp
   src/dialog.cpp
+  src/dnd.cpp
   src/fit.cpp
   src/hyprland.cpp
   src/i18n.cpp
@@ -72,6 +76,10 @@ endif()
 if(FO_FONTCONFIG_FOUND)
   target_link_libraries(fltk-omarchy PRIVATE PkgConfig::FO_FONTCONFIG)
   target_compile_definitions(fltk-omarchy PRIVATE FO_HAVE_FONTCONFIG=1)
+endif()
+if(FO_WAYLAND_CLIENT_FOUND)
+  target_link_libraries(fltk-omarchy PRIVATE PkgConfig::FO_WAYLAND_CLIENT)
+  target_compile_definitions(fltk-omarchy PRIVATE FO_HAVE_WAYLAND_CLIENT=1)
 endif()
 if(FO_PORTABLE_POSIX)
   target_compile_definitions(fltk-omarchy PRIVATE FO_PORTABLE_POSIX=1)
